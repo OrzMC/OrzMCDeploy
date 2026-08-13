@@ -1,0 +1,31 @@
+# ===========================================================================
+# OrzMC 反向代理模板（Caddy）
+#
+# 本文件是模板，首次 init 时复制到 $DATA_ROOT/caddy/Caddyfile。
+# 已落盘的 Caddyfile 是运行数据的一部分；仓库模板演进后可用
+# `./deploy.sh templates` 查看差异并同步。
+#
+# {$VAR} 占位由 Caddy 启动时从 compose 注入的环境变量解析。
+# EasyBot 监听器仅 HTTP，由本反代承载 TLS；REST 与 WebSocket 共用同一端口，
+# Caddy reverse_proxy 原生支持 WS upgrade。
+# ===========================================================================
+
+{
+    email {$CADDY_EMAIL}
+}
+
+{$DOMAIN_EASY_ADMIN} {
+    reverse_proxy easybot:{$EASYBOT_PORT}
+}
+
+{$DOMAIN_EASY_API} {
+    reverse_proxy easybot:{$EASYBOT_PORT}
+}
+
+{$DOMAIN_MCS_WEB} {
+    reverse_proxy mcsmanager-web:{$MCS_WEB_PORT}
+}
+
+{$DOMAIN_MCS_NODE} {
+    reverse_proxy mcsmanager-daemon:{$MCS_DAEMON_PORT}
+}

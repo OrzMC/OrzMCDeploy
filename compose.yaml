@@ -1,3 +1,15 @@
+# ===========================================================================
+# OrzMC 平台层编排（仅承载"运行时"）
+#
+# 架构原则：本文件与仓库只描述运行时；全部配置与数据通过卷映射落在宿主机
+# 统一目录 $DATA_ROOT（生产默认 /srv/orzmc）。详见 README"运行时/数据分离"。
+#
+# 统一通过 deploy.sh / local.sh 启动，保证 --env-file $DATA_ROOT/.env 与
+# $DATA_ROOT/caddy/Caddyfile 前置就绪（见 lib/common.sh）。
+# ===========================================================================
+
+name: orzmc
+
 services:
   reverse-proxy:
     image: caddy@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
@@ -9,24 +21,21 @@ services:
     environment:
       TZ: "${TZ}"
       CADDY_EMAIL: "${CADDY_EMAIL}"
-      DOMAIN_QQBOT: "${DOMAIN_QQBOT}"
-      DOMAIN_QQBOT_API: "${DOMAIN_QQBOT_API}"
-      DOMAIN_QQBOT_WS: "${DOMAIN_QQBOT_WS}"
+      DOMAIN_EASY_ADMIN: "${DOMAIN_EASY_ADMIN}"
+      DOMAIN_EASY_API: "${DOMAIN_EASY_API}"
       DOMAIN_MCS_WEB: "${DOMAIN_MCS_WEB}"
       DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE}"
-      NAPCAT_WEBUI_PORT: "${NAPCAT_WEBUI_PORT}"
-      NAPCAT_HTTP_PORT: "${NAPCAT_HTTP_PORT}"
-      NAPCAT_WS_PORT: "${NAPCAT_WS_PORT}"
+      EASYBOT_PORT: "${EASYBOT_PORT}"
       MCS_WEB_PORT: "${MCS_WEB_PORT}"
       MCS_DAEMON_PORT: "${MCS_DAEMON_PORT}"
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - "${DATA_ROOT}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
       - "${DATA_ROOT}/caddy/data:/data"
       - "${DATA_ROOT}/caddy/config:/config"
     depends_on:
       - mcsmanager-web
       - mcsmanager-daemon
-      - napcat
+      - easybot
 
   mcsmanager-web:
     image: githubyumao/mcsmanager-web@sha256:7067772d85e75edeb2c7fa38368dbf0d5a959476999810e90da130566e98e15d
@@ -57,19 +66,21 @@ services:
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
       - /var/run/docker.sock:/var/run/docker.sock
 
-  napcat:
-    image: mlikiowa/napcat-docker@sha256:29ef959c1e59318d280891b08523f8e2258bbab7717992969811e45f30f81ceb
-    container_name: orzmc-napcat
+  easybot:
+    image: ghcr.io/easyindie/easybot@sha256:8a98318943b7cc2fe7d01dfc56c6f3ec32de28ab45517ea61b8d5fe0a9fc46c0
+    container_name: orzmc-easybot
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-      NAPCAT_UID: "${NAPCAT_UID}"
-      NAPCAT_GID: "${NAPCAT_GID}"
+      # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP，
+      # 必须由 Caddy 前置 TLS 反向代理，故端口只 expose 不发布到宿主机。
+      EASYBOT_ALLOW_PLAINTEXT: "true"
+      EASYBOT_HOME: "/var/lib/easybot"
+      EASYBOT_ADMIN_PASSWORD: "${EASYBOT_ADMIN_PASSWORD}"
+      # QQ 适配器使用 QQ 开放平台凭据（复用 QQBOT_* 变量）
+      QQ_APP_ID: "${QQBOT_APP_ID}"
+      QQ_CLIENT_SECRET: "${QQBOT_CLIENT_SECRET}"
     expose:
-      - "${NAPCAT_HTTP_PORT}"
-      - "${NAPCAT_WS_PORT}"
-      - "${NAPCAT_WEBUI_PORT}"
+      - "${EASYBOT_PORT}"
     volumes:
-      - "${DATA_ROOT}/napcat/qq:/app/.config/QQ"
-      - "${DATA_ROOT}/napcat/config:/app/napcat/config"
-      - "${DATA_ROOT}/napcat/plugins:/app/napcat/plugins"
+      - "${DATA_ROOT}/easybot/data:/var/lib/easybot"

@@ -96,7 +96,7 @@
 | 备份计划 | `0 6 * * *` / `0 5 * * *` | 测试服和正式服错峰备份 |
 | 维护窗口 | `04:00-05:00` / `03:00-05:00` | 用于约束计划维护时段 |
 | 地图模板 | `default-test` / `default-survival` | 仅在有初始化模板时使用 |
-| QQ Bot 联动 | `false` | 后续再扩展 |
+| EasyBot 联动 | `false` | 后续再扩展；插件经 `easybot.yml` 连接 EasyBot 网关，配置见 `docs/easybot.md` |
 
 ## 建议的录入顺序
 

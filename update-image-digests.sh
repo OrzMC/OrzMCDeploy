@@ -15,7 +15,7 @@ source_image_for_service() {
         reverse-proxy) echo "caddy:2-alpine" ;;
         mcsmanager-web) echo "githubyumao/mcsmanager-web:latest" ;;
         mcsmanager-daemon) echo "githubyumao/mcsmanager-daemon:latest" ;;
-        napcat) echo "mlikiowa/napcat-docker:latest" ;;
+        easybot) echo "ghcr.io/easyindie/easybot:latest" ;;
         *)
             return 1
             ;;
@@ -23,7 +23,7 @@ source_image_for_service() {
 }
 
 if [ "$#" -eq 0 ]; then
-    SERVICES=("reverse-proxy" "mcsmanager-web" "mcsmanager-daemon" "napcat")
+    SERVICES=("reverse-proxy" "mcsmanager-web" "mcsmanager-daemon" "easybot")
 else
     SERVICES=("$@")
 fi
@@ -31,7 +31,7 @@ fi
 for service in "${SERVICES[@]}"; do
     if ! source_image_for_service "$service" >/dev/null; then
         echo "不支持的服务名: $service" >&2
-        echo "可选服务: reverse-proxy mcsmanager-web mcsmanager-daemon napcat" >&2
+        echo "可选服务: reverse-proxy mcsmanager-web mcsmanager-daemon easybot" >&2
         exit 1
     fi
 done
@@ -54,7 +54,7 @@ source_images = {
     "reverse-proxy": "caddy:2-alpine",
     "mcsmanager-web": "githubyumao/mcsmanager-web:latest",
     "mcsmanager-daemon": "githubyumao/mcsmanager-daemon:latest",
-    "napcat": "mlikiowa/napcat-docker:latest",
+    "easybot": "ghcr.io/easyindie/easybot:latest",
 }
 
 text = compose_file.read_text()
@@ -102,4 +102,4 @@ echo
 echo "摘要更新完成。建议下一步执行："
 echo "  git diff -- compose.yaml"
 echo "  git add compose.yaml && git commit -m 'chore: update docker image digests'"
-echo "  docker compose --env-file .env.local up -d"
+echo "  ./local.sh start   # 或生产: deploy.sh up"

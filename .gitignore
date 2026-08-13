@@ -1,3 +1,5 @@
+# 运行数据与配置（全部落在统一目录 $DATA_ROOT，不入 Git）
 .env
 .env.local
 .local-data/
+.local-backups/
