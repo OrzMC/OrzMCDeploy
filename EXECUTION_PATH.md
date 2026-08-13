@@ -467,3 +467,36 @@
   插件 `EasyBot WebSocket 认证成功`，无 403/500。
 - 教训补充：`tar tzf | grep 'world/region'` 检查新版世界会误报空；应查
   `world/dimensions/minecraft/` 下的 region。
+
+### 2026-08-13 升级手册实测验证（平台层 + PaperMC 双路径）
+
+- 当前阶段：Phase 3 — 运维动作标准化；按 `docs/usage.md` 第 5 章手册**实测**两条升级路径，
+  确认文档即操作、可复制执行。
+- 已完成（平台层 digest 升级）：
+  - `./update-image-digests.sh` 检出新镜像：cloudflared / mcsmanager-web / mcsmanager-daemon /
+    easybot 4 服务全部刷新 compose.yaml digest（提交 `8bcfbdf`，已 push origin main）。
+  - `deploy.sh -d /Users/Shared/orzmc up` 重建 4 容器零报错；cloudflared
+    `Registered tunnel connection`；daemon 守护进程成功启动、1 实例加载；EasyBot
+    `QQ Gateway connected` + `ready`；3 个公网入口（mcs / easybot / mcs-node）全部 HTTP 200。
+  - **回滚路径**：`git revert 8bcfbdf` + `deploy.sh up`（digest 锁定保证可精确回退，不触碰
+    DATA_ROOT）。
+- 已完成（PaperMC 同版本重放验证，build #111 → #112）：
+  - 下载 paperclip `paper-26.2-112.jar`（59M，SHA-256 对官方 `fill-data.papermc.io` hash
+    校验一致）；旧 jar 备份 `paper.jar.bak-20260813`；替换后经 daemon `instance/open` 重启。
+  - 启动验证：`Starting minecraft server version 26.2` → `Preparing level "world"` →
+    `Preparing spawn area: 100%` → `EasyBot WebSocket 认证成功` → `Done (8.487s)`；
+    25565 端口监听中。
+  - **世界完整性**：全维度 `.mca` 仍 19 个（overworld 11 / nether 4 / end 4，与备份基线一致）；
+    `level.dat` 454B；`versions/26.2/paper-26.2.jar` 由新 paperclip 首次启动自动刷新（28M）；
+    `server.properties` 关键项不变（level-name=world / online-mode=false / server-port=25565）。
+  - **回滚路径**：换回 `paper.jar.bak-20260813` + 重启实例。
+- 新发现/确认：
+  - 新版 PaperMC 下载机制：v2/v3 API 已下线（Endpoint Retired/Unsupported），现走
+    `https://fill-data.papermc.io/v1/objects/<sha256>/paper-<版本>-<build>.jar`；最新 Paper 26.2
+    build #112。手册 5.4 的"下载 paperclip 命名 paper.jar"写法兼容，无需改文档。
+  - daemon 容器重启会移除受管实例容器（autoStart=false），须用面板/daemon API 重新
+    `instance/open`——本次实测再证，操作手册已标注（勿 `docker restart MCSM-<uuid>`）。
+- 下一步（可选）：
+  - 若做跨大版本升级（如 26.2 → 27），需先停服备份、核对新版本 Java 要求（26.x 需 Java 25/
+    eclipse-temurin:25-jre）与插件 `api-version` 兼容性，再按 5.4 流程替换。
+  - 仓库侧无待提交内容；本次无代码改动，仅有本记录。
