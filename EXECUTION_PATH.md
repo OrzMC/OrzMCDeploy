@@ -538,10 +538,9 @@
   已同步 `templates/gateway.local.yaml`（模板注释记录该坑）与生产运行数据；重启后
   跨容器探活 `easybot:8080/api/v1/live` 返回 alive、公网入口 200、QQ Gateway 正常、
   微信仍禁用。
-- 教训：**只要 `gateway.local.yaml` 存在，`server` 段就必须显式钉 0.0.0.0**；容器
-  healthcheck 走 localhost，监听异常时不会体现为 unhealthy，须用跨容器探活或
-  `/proc/net/tcp` 核对 `00000000:1F90`（0.0.0.0:8080）。此为 EasyBot 上游 round-trip
-  默认值注入行为，本地模板已注释防回退。
+- 教训：容器 healthcheck 走 localhost，监听异常时不会体现为 unhealthy，须用跨容器探活
+  或 `/proc/net/tcp` 核对监听是否为 `00000000:1F90`（0.0.0.0:8080，全部接口）。此坑为
+  EasyBot ≤0.0.34 的 round-trip 默认值注入行为，v0.0.35 已根治（见下节）。
 
 ### 2026-08-14 根治：EasyBot v0.0.35 修复 round-trip 默认值注入，升级并移除 workaround
 
@@ -556,6 +555,6 @@
   `/proc/net/tcp` 显示 `00000000:1F90`（0.0.0.0:8080，修复生效）、公网入口 200、
   QQ Gateway 正常、微信仍禁用。
 - 模板/文档同步：`templates/gateway.local.yaml` 与 `docs/easybot.md` 去掉 `server` 段
-  与 ⚠️ 警告，改为「≥0.0.35 已修复，仅需写显式覆盖键；低于 0.0.35 需补 server.host」。
+  与 ⚠️ 警告，改为「≥0.0.35 已修复，仅需写显式覆盖键；镜像 digest 已锁定 0.0.35+」。
 - 回滚：deploy `git revert` digest commit → 旧镜像（旧镜像需配合钉 `server.host` 的
   `gateway.local.yaml`）；EasyBot 可发 0.0.36 取代。

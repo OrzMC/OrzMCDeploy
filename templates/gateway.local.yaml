@@ -3,9 +3,8 @@
 # EasyBot 从 EASYBOT_HOME（容器 /var/lib/easybot）解析本文件，作为 gateway.yaml
 # 的覆盖层合并（官方文档称 gateway.local.yaml，未纳入 Git 属运行数据）。
 #
-# 注意：EasyBot ≥0.0.35 已修复 round-trip serde 默认值注入（本地覆盖不再注入
-# server.host 默认 127.0.0.1），本文件只需写显式要覆盖的键。若镜像版本低于
-# 0.0.35，需在此补 server.host: "0.0.0.0" 否则会覆盖基础 gateway.yaml 的监听地址。
+# 依赖 EasyBot ≥0.0.35（本仓库镜像 digest 已锁定该版本以上）：本地覆盖仅按显式写出的
+# 键合并，无需补 server.host。
 #
 # 个人微信适配器无需凭据即自动启用（扫码登录），会造成空转刷码；此处显式禁用：
 adapters:

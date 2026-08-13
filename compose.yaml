@@ -92,6 +92,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   easybot:
+    # 依赖 EasyBot ≥0.0.35（镜像 digest 锁定，勿回退到更低版本；升级见 update-image-digests.sh）
     image: ghcr.io/easyindie/easybot@sha256:afa77d6641c4ff0317414687fa435e6c982599538adf7ffc89bf526faf241ac2
     container_name: orzmc-easybot
     restart: unless-stopped
