@@ -105,6 +105,20 @@ ensure_caddyfile() {
     info "已生成 Caddyfile: $target"
 }
 
+# EasyBot 本地覆盖（gateway.local.yaml）：由模板生成，绝不覆盖已有文件。
+# EasyBot 从 EASYBOT_HOME（容器 /var/lib/easybot = $DATA_ROOT/easybot/data）解析；
+# 当前用途为显式禁用微信适配器（个人微信扫码登录无凭据，默认自动启用）。
+ensure_easybot_local_config() {
+    local target="$DATA_ROOT/easybot/data/gateway.local.yaml"
+    if [ -f "$target" ]; then
+        info "gateway.local.yaml 已存在: $target"
+        return 0
+    fi
+    mkdir -p "$(dirname "$target")"
+    cp "$TEMPLATES_DIR/gateway.local.yaml" "$target"
+    info "已生成 gateway.local.yaml: $target"
+}
+
 # prod profile 专用：由 templates/cloudflared-config.yml 用 .env 的
 # CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE
 # 替换占位符，生成 $DATA_ROOT/cloudflared/config.yml。仅当 CLOUDFLARE_TUNNEL_ID

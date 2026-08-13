@@ -65,6 +65,7 @@ templates/              首次 init 的配置模板
   env.local             本地 .env 模板（.localhost）
   cloudflared-config.yml cloudflared 隧道配置模板（__PLACEHOLDER__ 由 init 替换）
   Caddyfile             local profile 反代模板（仅本地使用）
+  gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   env.papermc           PaperMC 参数参考（compose 不消费）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导）
 deploy.sh               生产部署统一入口（默认 prod profile）

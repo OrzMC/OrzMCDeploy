@@ -1,6 +1,6 @@
 # EasyBot 网关配置指南
 
-本页说明 OrzMC 部署栈中的 EasyBot 统一 IM 网关（取代 NapCat）如何配置，以及
+本页说明 OrzMC 部署栈中的 EasyBot 统一 IM 网关如何配置，以及
 PaperMC 插件 `easybot.yml` 如何对接。
 
 ## 架构位置
@@ -40,12 +40,11 @@ EasyBot 网关
 
 ## QQ 接入模型（重要）
 
-EasyBot 的 QQ 适配器使用 **QQ 开放平台** 的官方 bot 凭据：
+EasyBot 的 QQ 适配器使用 **QQ 开放平台** 的官方 bot 凭据（非个人账号扫码登录）：
 - `QQ_APP_ID`（来自 `$DATA_ROOT/.env` 的 `QQBOT_APP_ID`）
 - `QQ_CLIENT_SECRET`（来自 `$DATA_ROOT/.env` 的 `QQBOT_CLIENT_SECRET`）
 
-这与旧 NapCat 的「个人 QQ 账号扫码登录」是**不同**的接入模型。需要先在
-QQ 开放平台注册并审核 bot 应用，取得 AppID 与 ClientSecret 后填入。
+需要先在 QQ 开放平台注册并审核 bot 应用，取得 AppID 与 ClientSecret 后填入。
 未设置该平台 token 的适配器会自动跳过。
 
 ## 插件配置（easybot.yml）
@@ -85,7 +84,25 @@ platforms:
 - Telegram：`TELEGRAM_BOT_TOKEN`
 - Discord：`DISCORD_BOT_TOKEN`
 - 飞书：`FEISHU_APP_ID` + `FEISHU_APP_SECRET`
-- 微信：仅支持扫码登录，无需环境变量
+- 微信：扫码登录，无需环境变量
+
+## 禁用微信适配器
+
+个人微信适配器**无凭据要求，默认自动启用**（启动日志显示 `Auto-enabling adapter 'wechat'`，
+并持续刷新扫码二维码）。不需要微信接入时，在 `$DATA_ROOT/easybot/data/gateway.local.yaml`
+显式关闭（`deploy.sh init` 已自动生成该文件，属运行数据，入 Git 的仅是模板
+`templates/gateway.local.yaml`）：
+
+```yaml
+adapters:
+  wechat:
+    enabled: false
+```
+
+改后重启生效：`docker restart orzmc-easybot`，日志应出现
+`Skipping adapter 'wechat' ... explicitly disabled in config`，且 `Started adapters` 不再
+包含 `wechat`。该覆盖文件由 EasyBot 从 `EASYBOT_HOME`（容器 `/var/lib/easybot`）读取，
+仿 Caddyfile 模式由 init 生成、**绝不覆盖已有文件**。
 
 ## 健康检查
 

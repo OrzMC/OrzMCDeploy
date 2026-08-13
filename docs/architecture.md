@@ -106,13 +106,13 @@ $DATA_ROOT/
 
 ## 6. ADR 决策记录
 
-### ADR-001：NapCat → EasyBot（2026-08-13）
+### ADR-001：EasyBot 统一 IM 网关（2026-08-13）
 
 - **状态**：已实施。
-- **背景**：NapCat 依赖个人 QQ 账号扫码登录，运维与合规成本高。
-- **决策**：改用 EasyBot 统一 IM 网关，支持 QQ/Telegram/Discord/飞书/微信；QQ 适配器
-  使用 QQ 开放平台官方 bot 凭据（AppID + ClientSecret）。
-- **影响**：`docs/easybot.md` 记录了新接入模型；监听器仅 HTTP，TLS 由边缘层承担。
+- **背景**：需要一个统一 IM 网关承载 QQ / Telegram / Discord / 飞书 / 微信多平台消息。
+- **决策**：采用 EasyBot 作为统一 IM 网关；QQ 适配器使用 QQ 开放平台官方 bot 凭据
+  （AppID + ClientSecret）。
+- **影响**：`docs/easybot.md` 记录了接入模型；监听器仅 HTTP，TLS 由边缘层承担。
 
 ### ADR-002：运行时与数据分离（2026-08-13）
 

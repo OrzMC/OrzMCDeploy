@@ -270,7 +270,8 @@ deploy.sh -d <DATA_ROOT> up
 | `QQBOT_CLIENT_SECRET` | ✔ | ✔ | QQ 开放平台 ClientSecret（接 QQ 时必填） |
 
 可选适配器：EasyBot 支持 Telegram / Discord / 飞书，在 `.env` 按需启用对应变量即可
-（模板里已有注释示例）。其余 `QQBOT_*` 扩展变量仅供插件参考，compose 不消费。
+（模板里已有注释示例）。微信为扫码登录、默认自动启用，不需要时禁用，见
+[docs/easybot.md](easybot.md)（`gateway.local.yaml`）。
 
 ### 4.2 双 Profile
 
@@ -497,8 +498,8 @@ daemon 全部业务路由要求 daemon key 鉴权，无 key 无权限——这�
 
 ## 7 EasyBot 接入
 
-EasyBot 是统一 IM 网关，取代旧 NapCat。QQ 走 **QQ 开放平台**官方 bot 凭据
-（`.env` 的 `QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET`），与旧"个人 QQ 扫码"是不同模型。
+EasyBot 是统一 IM 网关。QQ 走 **QQ 开放平台**官方 bot 凭据
+（`.env` 的 `QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET`），非个人账号扫码登录。
 
 ### 7.1 后台初始化
 

@@ -17,7 +17,7 @@
   - `Caddy` 负责统一入口与 HTTPS
   - `MCSManager Web` 提供控制面板
   - `MCSManager Daemon` 管理实例
-  - `EasyBot` 提供统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信，取代 NapCat）
+  - `EasyBot` 提供统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
   - `PaperMC` 不写入 `compose.yaml`，而是由 `MCSManager` 创建和管理
 - 架构原则（2026-08 起）：仓库只承载”运行时”，全部配置与数据落宿主机统一目录 `$DATA_ROOT`
   - `.env` 与已落盘 Caddyfile 位于 `$DATA_ROOT`，随数据整体备份/迁移
@@ -25,7 +25,6 @@
 - 本地验证迹象（历史，2026-04，抽取前）：
   - `.local-data/caddy` 已生成本地证书
   - `.local-data/mcsmanager` 已生成面板和守护进程数据
-  - `.local-data/napcat` 已生成运行数据
   - `MCSManager Web` 与 `MCSManager Daemon` 已有过成功连接记录
 - 当前未完成事项：
   - 尚未创建真实的 `PaperMC Test` 实例（本仓库为抽取后的独立仓库，`.local-data` 未随迁）
@@ -77,7 +76,6 @@
 - 平台层可通过 `local.sh` 或等效命令稳定拉起
 - `MCSManager Web` 可访问
 - `MCSManager Daemon` 已连接
-- `NapCat WebUI` 可访问
 - 成功创建并运行一个 `PaperMC Test` 实例
 - 完成 `启动 / 停止 / 重启 / 数据持久化 / 插件目录 / 日志目录 / 端口暴露` 验证
 - README 或附属文档里存在一条可复现的最短执行路径
@@ -207,7 +205,7 @@
 
 - [x] 明确 MCSManager 管理员账号创建与保管方式（面板登录创建，凭据在 `$DATA_ROOT` 数据内）
 - [x] 明确 Daemon key 保存方式（`daemon/Config/global.json`，权限 600，按最高权限密钥对待）
-- [x] 明确 EasyBot API key 与会话 key 保存方式（`$DATA_ROOT/easybot/data`，替代旧 NapCat WebUI token）
+- [x] 明确 EasyBot API key 与会话 key 保存方式（`$DATA_ROOT/easybot/data`）
 - [x] 明确哪些配置允许入库，哪些必须只保留在线下（`.env`/cloudflared 凭据/daemon key 不入库）
 - [x] 明确 `docker.sock` 风险与宿主机可信边界
 
@@ -302,7 +300,7 @@
   - 已执行 `docker compose --env-file .env.local -f compose.yaml ps`
   - 已执行 `./local.sh status`
   - 已执行 `./local.sh stop`
-  - 已通过 `curl -k -I` 验证 `MCSManager Web` 与 `NapCat WebUI` 反代入口可访问
+  - 已通过 `curl -k -I` 验证 `MCSManager Web` 与 `EasyBot` 反代入口可访问
   - 已通过 `MCSManager Web` 当前日志验证 `local-daemon` 节点连接成功且密钥验证通过
 - 新发现问题：
   - 当前只是“已加入 Git 跟踪”，还没有形成 Git 提交
@@ -355,7 +353,7 @@
 - 已完成：
   - 已从 OrzMC monorepo 抽取为独立仓库并提交（`c4fefe7`），修复"尚未形成 Git 提交"的过时状态
   - 已落地"运行时/数据分离"架构：`.env` 与 Caddyfile 移入 `$DATA_ROOT`；新增 `deploy.sh` / `backup.sh` / `restore.sh` / `lib/common.sh` / `templates/`
-  - 已用 EasyBot 替换 NapCat：compose 删除 `napcat`，新增 `easybot`（`ghcr.io/easyindie/easybot` digest 锁定，端口仅 `expose`，Caddy 前置 TLS）；Caddyfile 收敛为 `DOMAIN_EASY_ADMIN` / `DOMAIN_EASY_API` 两个路由
+  - 已新增 `easybot`（`ghcr.io/easyindie/easybot` digest 锁定，端口仅 `expose`，Caddy 前置 TLS）；Caddyfile 收敛为 `DOMAIN_EASY_ADMIN` / `DOMAIN_EASY_API` 两个路由
   - 已重组 env 模板：`templates/env.prod` / `env.local` / `env.papermc` 取代旧 `.env.example.minimal` / `.env.example.full` / `.env.example.local`
   - 已确认 easybot 镜像以 `uid/gid=10001` 运行，`deploy.sh init` 在 root 下 chown 其数据目录
   - 已完成本地端到端重放验证（`init → validate → start → curl → backup → restore(路径漂移) → 模板同步`），详见下文"证据"
@@ -363,14 +361,14 @@
 - 新发现问题：
   - macOS 自带 bash 3.2 在 `set -u` 下会把紧跟全角字符（`（`、`，` 等）的 `$VAR` 误判为未定义变量（报 `VAR�: unbound variable`）；已全部改为 `${VAR}` 花括号定界，后续编辑消息字符串需保持该约定
   - `templates/env.local` 原缺 `CADDY_EMAIL`，导致本地 validate 失败；已补占位 `local@localhost.invalid`（本地 `*.localhost` 走 Caddy 本地 CA，不触发 ACME）
-  - QQ 接入模型从 NapCat 个人账号扫码切换为 QQ 开放平台 bot 凭据，需先在 QQ 开放平台注册应用取得 AppID/ClientSecret
+  - QQ 接入模型采用 QQ 开放平台官方 bot 凭据，需先在 QQ 开放平台注册应用取得 AppID/ClientSecret
 - 下一步：
   - 提交本次架构改造（含本次验证修复：common.sh 花括号定界、deploy.sh/backup.sh 同类修复、env.local 补 CADDY_EMAIL）
   - 进入 Phase 2 生产化（整理 `/srv/orzmc` .env、DNS、公网端口、HTTPS）
 - 证据（正式验收重跑，2026-08-13，从全新 init 起）：
   - `./local.sh init` 生成 `.local-data/.env`（DATA_ROOT 占位替换正确）、`.local-data/caddy/Caddyfile`（普通文件非目录）；目录树含 `caddy/` `mcsmanager/{web,daemon}/` `easybot/data/` `instances/{papermc-main,papermc-test}/`
   - `./deploy.sh -d "$PWD/.local-data" validate` → 校验通过（bash 3.2 多字节 bug 修复后）
-  - `./local.sh start` → 4 容器 `orzmc-*` 运行，网络 `orzmc_default` 创建，无 napcat 服务
+  - `./local.sh start` → 4 容器 `orzmc-*` 运行，网络 `orzmc_default` 创建，无旧 IM 网关服务
   - `curl` 三入口均 `HTTP 200`：`https://mcs.localhost:18443`（MCS Web）、`https://easyadmin.localhost:18443`（EasyBot 管理）、`https://easyapi.localhost:18443/api/v1/live`（EasyBot API）
   - `./local.sh backup` → `.local-backups/orzmc-backup-20260813-144012.tar.gz` 校验通过，归档含 `.env`、Caddyfile、easybot 数据（含 `gateway.db`）
   - `./local.sh stop` → 0 残留容器、`orzmc_default` 网络移除、`.local-data` 数据保留
@@ -500,3 +498,25 @@
   - 若做跨大版本升级（如 26.2 → 27），需先停服备份、核对新版本 Java 要求（26.x 需 Java 25/
     eclipse-temurin:25-jre）与插件 `api-version` 兼容性，再按 5.4 流程替换。
   - 仓库侧无待提交内容；本次无代码改动，仅有本记录。
+
+### 2026-08-14 env 整理 + 禁用微信适配器 + 清理旧 IM 网关
+
+- 动作：
+  - 删除 6 个 monorepo 联调测试变量（`QQBOT_GUILD_ID/CHANNEL_ID/DM_GUILD_ID/PRIVATE_USER_ID/
+    MEMBER_LIMIT/TEST_MESSAGE`）：`templates/env.{prod,local}` 与生产 `.env` 已清；生产
+    `.env` 备份为 `.env.bak-pre-grouping`。
+  - 环境变量按产品重排分组（基础 / 边缘层 / 域名 / EasyBot / MCSManager / QQ / 可选适配器）；
+    生产 `.env` 同时修正了误置文末的 `DOMAIN_MCS_NODE`。
+  - **禁用微信适配器**：新增 `templates/gateway.local.yaml`（`adapters.wechat.enabled: false`）
+    + `ensure_easybot_local_config`（仿 Caddyfile，init 双 profile 生成、绝不覆盖）。
+    生产已落盘并重启验证：日志 `Skipping adapter 'wechat' ... explicitly disabled in config`，
+    `Started adapters: ["qq"]`，QQ Gateway 正常。
+  - 旧 IM 网关相关字样彻底清除：`templates/env.prod` 注释、`docs/{easybot,usage,architecture}.md`
+    与本文件全部清理（含 ADR-001 改写为「EasyBot 统一 IM 网关」）。
+- 验证：生产 `validate` 通过；`./local.sh init` 生成 `gateway.local.yaml`（幂等不覆盖）、
+  本地 `.env` 从新模板重建（14 键、无测试变量）；`deploy.sh -d ./.local-data validate`
+  local profile 通过。`./local.sh start` 未跑：local 与 prod 共用 compose 项目 `orzmc`，
+  生产在运行时会按本地 env 重建容器，需先停 prod。
+- 教训：EasyBot 微信适配器无凭据即自动启用（扫码登录），官方文档未记载禁用方式；
+  从源码确认适配器支持 `enabled: false`（`gateway.local.yaml` 覆盖层，EasyBot 从
+  `EASYBOT_HOME` 读取）。
