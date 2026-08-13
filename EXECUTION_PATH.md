@@ -447,3 +447,23 @@
   - 会话授权：`target_grants` 2 条（qq DM + 群，`subject_id=246892b3...`，含
     `messages:send`）
   - 权限：`api_keys.permissions = ["messagessend","websocketconnect"]`
+
+### 2026-08-13 全新一致性备份基线（迁移备好现成归档）
+
+- 动作：`backup.sh --stop -d /Users/Shared/orzmc`（先经 daemon `instance/stop` 优雅停实例，
+  再 compose down → 打包 → up）→ 归档
+  `$DATA_ROOT-backups/orzmc-backup-20260813-200839.tar.gz`（225M，顶层 `orzmc/`）。
+- 归档完整性校验（`tar tzf` 逐项确认）：
+  - `.env`、`cloudflared/config.yml`、`cloudflared/cert.pem`、
+    `cloudflared/5087fc61-...json`（隧道凭据）、`mcsmanager/daemon/data/Config/global.json`、
+    `InstanceConfig/e92495...json`、`easybot/data/data/gateway.db`、
+    `plugins/OrzMC.jar`、`plugins/OrzMC/easybot.yml` —— 全部命中。
+  - **世界确认含区块**：全维度 `.mca` 共 19 个（overworld region 4 + entities 4 + poi 3、
+    the_end 4、the_nether 4）。注意新版世界区块在 `world/dimensions/minecraft/<维度>/region/`
+    而非旧版扁平 `world/region/`，初查 `region: 0` 是检查路径错误，非数据缺失。
+  - 归档为后续整服迁移的现成基线；迁移注意点见 `docs/architecture.md`（同 DATA_ROOT 路径、
+    macOS/Linux 属主、隧道单活等）。
+- 备份后实例已重启（daemon Socket.IO `instance/open` status 200）：`Done (13.455s)!`，
+  插件 `EasyBot WebSocket 认证成功`，无 403/500。
+- 教训补充：`tar tzf | grep 'world/region'` 检查新版世界会误报空；应查
+  `world/dimensions/minecraft/` 下的 region。
