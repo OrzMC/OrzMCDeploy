@@ -412,3 +412,38 @@
   - 文件管理/配置项：面板实测可见 `server.properties` / `world/` / `plugins/` / `paper.jar`
   - 实例配置：`$DATA_ROOT/mcsmanager/daemon/data/InstanceConfig/e9249511571a411db4901e640237931a.json`
   - 权限：`$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` = `-rw-------`（600）
+
+### 2026-08-13 插件与 EasyBot 端到端打通
+
+- 当前阶段：Phase 2 — 插件 ↔ EasyBot 网关连通（边界按计划：配置就位 + 网关连通）
+- 已完成：
+  - 插件部署：`OrzMC-1.0.16-dev.jar`（monorepo 侧构建产物）→ 实例 `plugins/OrzMC.jar`
+  - `plugins/OrzMC/easybot.yml` 配置就位：`api_server/ws_server` 指向内网
+    `http://easybot:8080`，`api_key`（客服机器人，权限 `["messagessend","websocketconnect"]`），
+    `platforms.qq.enabled=true` + 会话 key（管理群 `qq:6AD36...`、私聊 `qq:2556E...`）
+  - 插件加载成功（`[OrzMC] 插件生效!` / `成功加载配置文件: easybot.yml`），WebSocket
+    连接建立且 **认证成功**；实例重启后启动通知经 `batch-send` 送达 QQ 测试群
+  - 网关 → QQ 链路：QQ 适配器在线（`bot-docker`，`QQ Gateway ready`）；向群会话发送
+    测试消息 `HTTP 200` + `status:"sent"`（拿到 QQ `messageId`）
+  - 经 daemon Socket.IO 协议（`auth` 事件用 daemon key 鉴权 + `instance/restart` 事件
+    `{instanceUuids:[...]}`）完成实例重启，面板状态一致
+- 新发现问题：
+  - `gateway.db` 瞬时 **SQLITE_CORRUPT（code 11）**：本会话在网关运行期用外部 `sqlite3`
+    CLI 读取活跃库（恰逢用户在后台并发添加会话授权），引发 WAL 状态不一致；停网关正常
+    关库 checkpoint 后 `integrity_check`/`quick_check` 全部 ok，数据无损（sessions/api_keys/
+    target_grants 行数不变）。**教训：运行中的 `gateway.db` 一律经网关 API 访问，勿用外部
+    sqlite3**。恢复备份留存于 `$DATA_ROOT/easybot/db-recovery-20260813-195603`。
+  - 插件配置健康检查两个非阻塞警告：`whitelist.kick_message.qq_group_id` 未配置（降级用
+    `easybot.qq_group_id`）；未检测到 LuckPerms（权限管理不可用，时长查询/申请记录仍可用）。
+- 下一步：
+  - QQ 实弹验证：用户在 QQ 测试群发 `$h` 等命令，确认插件在服内响应
+  - 可选：安装 LuckPerms 启用权限管理；配置 `qq_group_id` 消除健康警告
+  - 确认后可清理 `db-recovery-*` 备份目录
+- 证据：
+  - 插件日志：`[OrzMC] EasyBot WebSocket 认证成功`；实例重启 `Done (8.954s)!`，无 403/500
+  - 网关日志：`POST /api/v1/messages/batch-send status=200`（11:57:24，插件启动通知）
+  - 投递记录：`gateway.db` `outbound_deliveries` 3 条全部 `succeeded`（平台 `qq`，
+    `chat_id=6AD36...`（QQ 测试群））
+  - 会话授权：`target_grants` 2 条（qq DM + 群，`subject_id=246892b3...`，含
+    `messages:send`）
+  - 权限：`api_keys.permissions = ["messagessend","websocketconnect"]`

@@ -94,3 +94,13 @@ EasyBot 提供 `/api/v1/live`，可从管理后台入口验证：
 ```bash
 curl -s https://easybot.example.com/api/v1/live -o /dev/null -w '%{http_code}\n'
 ```
+
+## 运维注意
+
+- **不要用外部 `sqlite3` CLI 直接读写运行中的 `gateway.db`**（`$DATA_ROOT/easybot/data/data/`）。
+  该库由网关进程以 WAL 模式持有，外部访问（尤其与网关并发写、SQLite 版本不一致时）可能
+  触发瞬时 `SQLITE_CORRUPT`（"database disk image is malformed"，code 11）。2026-08-13 实测
+  教训：停网关正常关库 checkpoint 后 `integrity_check` 可恢复无损。日常查询会话/密钥/授权一律
+  走管理后台或网关 API。
+- 插件发送报 `403` 时，先查该 API key 的 `permissions`（需含 `messagessend`）与
+  `target_grants`（key 的 `subject_id` 对该 `platform+chat_id` 是否授权 `messages:send`）。
