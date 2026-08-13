@@ -47,7 +47,7 @@ services:
   # ---- prod profile：cloudflared 出站隧道（Cloudflare Tunnel）---------------
   cloudflared:
     profiles: ["prod"]
-    image: cloudflare/cloudflared@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
+    image: cloudflare/cloudflared@sha256:2535e54b16adf1d50630f99d0886471926c5ef3f6b328100ec6589f731c48969
     container_name: orzmc-cloudflared
     restart: unless-stopped
     command: tunnel --config /etc/cloudflared/config.yml run
@@ -56,7 +56,7 @@ services:
       - "${DATA_ROOT}/cloudflared:/etc/cloudflared:ro"
 
   mcsmanager-web:
-    image: githubyumao/mcsmanager-web@sha256:7067772d85e75edeb2c7fa38368dbf0d5a959476999810e90da130566e98e15d
+    image: githubyumao/mcsmanager-web@sha256:4df0d86b59f7da423b838516e20c024b56352a0b5e54fb6c77f6f0a31f618555
     container_name: orzmc-mcsmanager-web
     restart: unless-stopped
     environment:
@@ -69,7 +69,7 @@ services:
       - "${DATA_ROOT}/mcsmanager/web/logs:/opt/mcsmanager/web/logs"
 
   mcsmanager-daemon:
-    image: githubyumao/mcsmanager-daemon@sha256:1692572d0c9ed0e21372129825f54a18f51b342bf91f8eeb4f7c47f31f8464f6
+    image: githubyumao/mcsmanager-daemon@sha256:70c69471142047e1670e85858cd0ca64d2ff396566f63c4d2abb489ea37d65cf
     container_name: orzmc-mcsmanager-daemon
     restart: unless-stopped
     environment:
@@ -92,7 +92,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   easybot:
-    image: ghcr.io/easyindie/easybot@sha256:8a98318943b7cc2fe7d01dfc56c6f3ec32de28ab45517ea61b8d5fe0a9fc46c0
+    image: ghcr.io/easyindie/easybot@sha256:fe201867ced7175b29d9f1ebe0461cee041c95b936e5ccd148cbbc095940efc4
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:
