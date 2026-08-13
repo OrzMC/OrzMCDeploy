@@ -3,11 +3,12 @@
 # OrzMC deploy 共享函数库
 #
 # 架构原则：仓库只承载"运行时"，全部配置与数据落在 $DATA_ROOT（统一目录）。
+# 双 Profile：local=Caddy(.localhost 反代) / prod=cloudflared(Cloudflare Tunnel)。
 # 本库统一处理：
 #   - DATA_ROOT 解析与一致性校验
 #   - env 文件（$DATA_ROOT/.env）读写
-#   - 数据目录树与 Caddyfile 引导
-#   - docker compose 统一入口（显式 --env-file，见 compose v2 替换语义）
+#   - 数据目录树与边缘层配置引导（Caddyfile / cloudflared config）
+#   - docker compose 统一入口（显式 --env-file + --profile）
 #
 # ⚠️ 本仓库脚本在 macOS 自带 bash 3.2（及 /usr/bin/env bash 解析到 3.2）下运行。
 #   bash 3.2 + `set -u` 会把双引号内紧跟全角字符（（ ） ， 。 等）的 `$VAR` 误判为
@@ -23,6 +24,10 @@ COMPOSE_FILE="${REPO_ROOT}/compose.yaml"
 TEMPLATES_DIR="${REPO_ROOT}/templates"
 DEFAULT_DATA_ROOT="/srv/orzmc"
 DEFAULT_TEMPLATE="${TEMPLATES_DIR}/env.prod"
+
+# compose 双 Profile：local=Caddy(.localhost) / prod=cloudflared(Cloudflare Tunnel)
+# 可由 deploy.sh / backup.sh / restore.sh 的 -p/--profile 覆盖
+COMPOSE_PROFILE="${COMPOSE_PROFILE:-prod}"
 
 # ---- 日志 ---------------------------------------------------------------
 
@@ -100,10 +105,45 @@ ensure_caddyfile() {
     info "已生成 Caddyfile: $target"
 }
 
+# prod profile 专用：由 templates/cloudflared-config.yml 用 .env 的
+# CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE
+# 替换占位符，生成 $DATA_ROOT/cloudflared/config.yml。仅当 CLOUDFLARE_TUNNEL_ID
+# 已填写时生成；与当前 .env 一致时不动（已落盘 config 属运行数据），不一致时
+# 覆盖并留备份（config.yml 完全由 .env 派生，.env 为唯一事实源）。
+ensure_cloudflared_config() {
+    local tid mcs_domain easy_domain node_domain target tmp
+    tid="$(read_env_value CLOUDFLARE_TUNNEL_ID)"
+    [ -n "$tid" ] || { warn "CLOUDFLARE_TUNNEL_ID 未设置，跳过 cloudflared config 生成"; return 0; }
+    mcs_domain="$(read_env_value DOMAIN_MCS_WEB)"
+    easy_domain="$(read_env_value DOMAIN_EASY_ADMIN)"
+    node_domain="$(read_env_value DOMAIN_MCS_NODE)"
+    mkdir -p "$DATA_ROOT/cloudflared"
+    target="$DATA_ROOT/cloudflared/config.yml"
+    tmp="$(mktemp)"
+    sed -e "s#__CLOUDFLARE_TUNNEL_ID__#${tid}#g" \
+        -e "s#__DOMAIN_MCS_WEB__#${mcs_domain}#g" \
+        -e "s#__DOMAIN_EASY_ADMIN__#${easy_domain}#g" \
+        -e "s#__DOMAIN_MCS_NODE__#${node_domain}#g" \
+        "$TEMPLATES_DIR/cloudflared-config.yml" > "$tmp"
+    if [ -f "$target" ] && cmp -s "$target" "$tmp"; then
+        info "cloudflared config 已就绪: $target"
+        rm -f "$tmp"
+        return 0
+    fi
+    if [ -f "$target" ]; then
+        cp "$target" "${target}.bak.$(date +%Y%m%d-%H%M%S)"
+        warn "cloudflared config 与 .env 不一致，已备份旧文件并重新生成"
+    fi
+    mv "$tmp" "$target"
+    chmod 600 "$target"   # 含隧道 ID，收紧权限
+    info "已生成 cloudflared config: $target"
+}
+
 ensure_data_dirs() {
     mkdir -p \
         "$DATA_ROOT/caddy/data" \
         "$DATA_ROOT/caddy/config" \
+        "$DATA_ROOT/cloudflared" \
         "$DATA_ROOT/mcsmanager/web/data" \
         "$DATA_ROOT/mcsmanager/web/logs" \
         "$DATA_ROOT/mcsmanager/daemon/data" \
@@ -122,31 +162,56 @@ ensure_data_dirs() {
 }
 
 # ---- compose 统一入口 ----------------------------------------------------
-# compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件
+# compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件；
+# --profile 按 COMPOSE_PROFILE 选择边缘层（local=caddy / prod=cloudflared）。
 compose_cmd() {
-    local file
+    local file profile="${COMPOSE_PROFILE:-prod}"
     file="$(env_file)"
     [ -f "$file" ] || die "缺少 ${file}，请先执行 init"
-    [ -f "$DATA_ROOT/caddy/Caddyfile" ] || die "缺少 Caddyfile，请先执行 init"
-    docker compose --env-file "$file" -f "$COMPOSE_FILE" "$@"
+    case "$profile" in
+        local)
+            [ -f "$DATA_ROOT/caddy/Caddyfile" ] || die "缺少 Caddyfile，请先执行 init"
+            ;;
+        prod)
+            [ -f "$DATA_ROOT/cloudflared/config.yml" ] || die "缺少 cloudflared/config.yml，请先执行 init 并配置 CLOUDFLARE_TUNNEL_ID"
+            ;;
+        *) die "未知 profile: ${profile}（可选 prod|local）" ;;
+    esac
+    docker compose --env-file "$file" -f "$COMPOSE_FILE" --profile "$profile" "$@"
 }
 
 # ---- 校验 ---------------------------------------------------------------
 
-# compose 消费的全部必需变量（QQBOT_APP_ID/CLIENT_SECRET 现被 easybot 服务消费）
-REQUIRED_ENV_VARS=(
+# 按 profile 区分的必需变量（QQBOT_APP_ID/CLIENT_SECRET 被 easybot 服务消费）
+# prod：cloudflared 入口，无 Caddy；插件 API 仅内网，无 DOMAIN_EASY_API。
+# DOMAIN_MCS_NODE：daemon 浏览器直连入口（MCSManager 连接模型，密钥鉴权）。
+REQUIRED_ENV_VARS_PROD=(
+    TZ
+    CLOUDFLARE_TUNNEL_ID
+    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE
+    EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
+    MCS_WEB_PORT MCS_DAEMON_PORT
+    QQBOT_APP_ID QQBOT_CLIENT_SECRET
+)
+
+# local：Caddy 入口
+REQUIRED_ENV_VARS_LOCAL=(
     TZ CADDY_EMAIL
     PROXY_HTTP_PORT PROXY_HTTPS_PORT
-    DOMAIN_EASY_ADMIN DOMAIN_EASY_API
-    DOMAIN_MCS_WEB DOMAIN_MCS_NODE
+    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE
     EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
     MCS_WEB_PORT MCS_DAEMON_PORT
     QQBOT_APP_ID QQBOT_CLIENT_SECRET
 )
 
 validate_required_env() {
-    local k v
-    for k in "${REQUIRED_ENV_VARS[@]}"; do
+    local k v list
+    case "${COMPOSE_PROFILE:-prod}" in
+        local) list=("${REQUIRED_ENV_VARS_LOCAL[@]}") ;;
+        prod)  list=("${REQUIRED_ENV_VARS_PROD[@]}") ;;
+        *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local）" ;;
+    esac
+    for k in "${list[@]}"; do
         v="$(read_env_value "$k")"
         [ -n "$v" ] || die "env 缺少必需变量: ${k}（请编辑 $(env_file)）"
     done
@@ -155,11 +220,17 @@ validate_required_env() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local mcs_web easy_admin https_port
+    local mcs_web easy_admin profile
     mcs_web="$(read_env_value DOMAIN_MCS_WEB)"
     easy_admin="$(read_env_value DOMAIN_EASY_ADMIN)"
-    https_port="$(read_env_value PROXY_HTTPS_PORT)"
-    echo "访问地址:"
-    echo "  MCSManager Web: https://${mcs_web}:${https_port}"
-    echo "  EasyBot 管理后台: https://${easy_admin}:${https_port}"
+    profile="${COMPOSE_PROFILE:-prod}"
+    echo "访问地址（profile: ${profile}）:"
+    if [ "$profile" = "prod" ]; then
+        # prod：Cloudflare 边缘终止 TLS，标准 443，无端口后缀
+        echo "  MCSManager Web: https://${mcs_web}"
+        echo "  EasyBot 管理后台: https://${easy_admin}"
+    else
+        echo "  MCSManager Web: https://${mcs_web}:$(read_env_value PROXY_HTTPS_PORT)"
+        echo "  EasyBot 管理后台: https://${easy_admin}:$(read_env_value PROXY_HTTPS_PORT)"
+    fi
 }

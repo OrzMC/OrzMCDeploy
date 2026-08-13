@@ -3,16 +3,17 @@
 # OrzMC 生产部署入口
 #
 # 用法:
-#   deploy.sh [-d DATA_ROOT] [-t TEMPLATE] init
-#   deploy.sh [-d DATA_ROOT] up
-#   deploy.sh [-d DATA_ROOT] stop
-#   deploy.sh [-d DATA_ROOT] status
-#   deploy.sh [-d DATA_ROOT] validate
-#   deploy.sh [-d DATA_ROOT] templates [--diff|--force]
+#   deploy.sh [-d DATA_ROOT] [-t TEMPLATE] [-p PROFILE] init
+#   deploy.sh [-d DATA_ROOT] [-p PROFILE] up
+#   deploy.sh [-d DATA_ROOT] [-p PROFILE] stop
+#   deploy.sh [-d DATA_ROOT] [-p PROFILE] status
+#   deploy.sh [-d DATA_ROOT] [-p PROFILE] validate
+#   deploy.sh [-d DATA_ROOT] [-p PROFILE] templates [--diff|--force]
 #   deploy.sh print-root
 #
 # DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 默认 /srv/orzmc
-# 全部 compose 调用统一走 lib/common.sh 的 compose_cmd（显式 --env-file）。
+# PROFILE：prod（默认，cloudflared/Cloudflare Tunnel）| local（Caddy/.localhost）。
+# 全部 compose 调用统一走 lib/common.sh 的 compose_cmd（显式 --env-file + --profile）。
 # ===========================================================================
 
 set -euo pipefail
@@ -27,13 +28,16 @@ TEMPLATE="$DEFAULT_TEMPLATE"
 usage() {
     cat <<'EOF'
 用法:
-  deploy.sh [-d DATA_ROOT] [-t TEMPLATE] init          # 建目录树 + 生成 .env + 复制 Caddyfile
-  deploy.sh [-d DATA_ROOT] up                          # init + compose up -d
-  deploy.sh [-d DATA_ROOT] stop                        # compose down --remove-orphans
-  deploy.sh [-d DATA_ROOT] status                      # 访问地址 + compose ps
-  deploy.sh [-d DATA_ROOT] validate                    # 必需变量检查 + compose config -q
-  deploy.sh [-d DATA_ROOT] templates [--diff|--force]  # Caddyfile 模板同步
-  deploy.sh print-root                                 # 打印解析后的 DATA_ROOT
+  deploy.sh [-d DATA_ROOT] [-t TEMPLATE] [-p PROFILE] init          # 建目录树 + 生成 .env + 边缘层配置
+  deploy.sh [-d DATA_ROOT] [-p PROFILE] up                          # init + compose up -d
+  deploy.sh [-d DATA_ROOT] [-p PROFILE] stop                        # compose down --remove-orphans
+  deploy.sh [-d DATA_ROOT] [-p PROFILE] status                      # 访问地址 + compose ps
+  deploy.sh [-d DATA_ROOT] [-p PROFILE] validate                    # 必需变量检查 + compose config -q
+  deploy.sh [-d DATA_ROOT] [-p PROFILE] templates [--diff|--force]  # 边缘层配置模板同步
+  deploy.sh print-root                                              # 打印解析后的 DATA_ROOT
+
+PROFILE: prod（默认，cloudflared）| local（Caddy）。
+  local 模式下 init 生成 Caddyfile，prod 模式下 init 生成 cloudflared/config.yml。
 EOF
 }
 
@@ -51,6 +55,11 @@ while [ "$#" -gt 0 ]; do
             TEMPLATE="$2"
             shift 2
             ;;
+        -p|--profile)
+            [ "$#" -ge 2 ] || die "$1 需要一个参数"
+            COMPOSE_PROFILE="$2"
+            shift 2
+            ;;
         --)
             shift
             break
@@ -65,6 +74,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 export DATA_ROOT   # 确保 compose 替换使用与脚本一致的值（shell env 优先于 --env-file）
+case "$COMPOSE_PROFILE" in
+    prod|local) ;;
+    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local）" ;;
+esac
 [ "$#" -ge 1 ] || { usage; exit 1; }
 CMD="$1"; shift
 
@@ -72,9 +85,12 @@ CMD="$1"; shift
 
 cmd_init() {
     ensure_env_file
-    ensure_caddyfile
     ensure_data_dirs
-    info "初始化完成，DATA_ROOT=$DATA_ROOT"
+    case "$COMPOSE_PROFILE" in
+        local) ensure_caddyfile ;;
+        prod)  ensure_cloudflared_config ;;
+    esac
+    info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
 }
 
@@ -105,7 +121,19 @@ cmd_validate() {
 }
 
 cmd_templates() {
-    local src="$TEMPLATES_DIR/Caddyfile" target="$DATA_ROOT/caddy/Caddyfile" mode="diff"
+    local src target mode="diff" hint
+    case "$COMPOSE_PROFILE" in
+        local)
+            src="$TEMPLATES_DIR/Caddyfile"
+            target="$DATA_ROOT/caddy/Caddyfile"
+            hint="Caddy 不会自动热加载 bind 挂载的 Caddyfile，请执行: deploy.sh stop && deploy.sh up"
+            ;;
+        prod)
+            src="$TEMPLATES_DIR/cloudflared-config.yml"
+            target="$DATA_ROOT/cloudflared/config.yml"
+            hint="cloudflared 启动时读取 config.yml，请执行: deploy.sh stop && deploy.sh up"
+            ;;
+    esac
     [ -f "$src" ] || die "模板不存在: $src"
     for a in "$@"; do
         case "$a" in
@@ -115,7 +143,7 @@ cmd_templates() {
         esac
     done
     if [ ! -f "$target" ]; then
-        warn "目标 $target 不存在，执行: deploy.sh init"
+        warn "目标 ${target} 不存在，执行: deploy.sh init"
         exit 1
     fi
     if diff -u "$target" "$src" >/dev/null 2>&1; then
@@ -131,7 +159,7 @@ cmd_templates() {
             cp "$target" "${target}.bak.$(date +%Y%m%d-%H%M%S)"
             cp "$src" "$target"
             info "已覆盖 ${target}（原文件已备份）"
-            warn "Caddy 不会自动热加载 bind 挂载的 Caddyfile，请执行: deploy.sh stop && deploy.sh up"
+            warn "$hint"
             ;;
     esac
 }

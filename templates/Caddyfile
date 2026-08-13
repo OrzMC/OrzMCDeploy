@@ -1,13 +1,18 @@
 # ===========================================================================
-# OrzMC 反向代理模板（Caddy）
+# OrzMC 反向代理模板（Caddy）— 仅 local profile 使用
 #
 # 本文件是模板，首次 init 时复制到 $DATA_ROOT/caddy/Caddyfile。
 # 已落盘的 Caddyfile 是运行数据的一部分；仓库模板演进后可用
 # `./deploy.sh templates` 查看差异并同步。
 #
 # {$VAR} 占位由 Caddy 启动时从 compose 注入的环境变量解析。
-# EasyBot 监听器仅 HTTP，由本反代承载 TLS；REST 与 WebSocket 共用同一端口，
-# Caddy reverse_proxy 原生支持 WS upgrade。
+# local profile 用 *.localhost + Caddy 本地 CA，不触发 ACME。
+#
+# 公网/本地暴露：MCSManager 面板 + EasyBot 管理后台 + daemon 节点（node）。
+# EasyBot 插件 API 仅内网（插件直连 http://easybot:8080），不反代。
+# daemon 经 node 子域名反代是 MCSManager 的既有连接模型：面板浏览器需直连
+# daemon（终端/控制台/文件），daemon 全部业务路由要求密钥鉴权，无 key 无权限。
+# 生产（prod profile）不使用本文件，改用 cloudflared（Cloudflare Tunnel）。
 # ===========================================================================
 
 {
@@ -15,10 +20,6 @@
 }
 
 {$DOMAIN_EASY_ADMIN} {
-    reverse_proxy easybot:{$EASYBOT_PORT}
-}
-
-{$DOMAIN_EASY_API} {
     reverse_proxy easybot:{$EASYBOT_PORT}
 }
 

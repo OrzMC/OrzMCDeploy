@@ -6,23 +6,32 @@ PaperMC 插件 `easybot.yml` 如何对接。
 ## 架构位置
 
 ```text
-PaperMC 实例（MCSManager 管理，插件 easybot.yml）
-        │  https://DOMAIN_EASY_API   (REST + WebSocket，经公网域名)
+公网（Cloudflare 边缘终止 TLS，prod profile）
+  https://DOMAIN_EASY_ADMIN  （EasyBot 管理后台）
         ▼
-Caddy（TLS 终止）
-        │  easybot:8080（compose 内网，仅 expose 不发布宿主机端口）
+cloudflared（出站隧道）─> easybot:8080（compose 内网，仅 expose 不发布宿主机端口）
         ▼
 EasyBot 网关  ——  QQ / Telegram / Discord / 飞书 / 微信
+
+内网（插件 API，不暴露公网）
+PaperMC 实例（MCSManager 管理，挂 orzmc_default 网络，插件 easybot.yml）
+        │  http://easybot:8080  (REST + WebSocket，服务内网直连)
+        ▼
+EasyBot 网关
 ```
 
-- EasyBot 监听器**仅支持 HTTP**，必须由 Caddy 承担 TLS；故其端口只 `expose`，
-  不发布到宿主机。
-- 插件与 EasyBot 之间走公网域名 `DOMAIN_EASY_API`，Caddy `reverse_proxy`
-  原生支持 WebSocket upgrade，REST 与 WS 共用同一域名。
+- EasyBot 监听器**仅支持 HTTP**，TLS 由边缘层承担：prod=Cloudflare 边缘，
+  local=Caddy。故其端口只 `expose`，不发布到宿主机。
+- **插件 API 仅内网**：插件跑在 `orzmc_default` 网络内，直连 `http://easybot:8080`
+  （REST 与 WS 同端口，内网无需 TLS）。不存在 `easybot-api` 公网域名。
+  - 先决条件：MCSManager 创建 PaperMC 实例时，把实例网络挂到 `orzmc_default`，
+    否则插件容器解析不到 `easybot` 服务名。
+- 管理后台走公网 `DOMAIN_EASY_ADMIN`（prod 即 `easybot.<domain>`）。
 
 ## 管理后台（首次配置）
 
-1. 打开 `https://DOMAIN_EASY_ADMIN`（生产模板中的 `DOMAIN_EASY_ADMIN`）。
+1. 打开 `https://DOMAIN_EASY_ADMIN`（生产模板中的 `DOMAIN_EASY_ADMIN`，即
+   `easybot.<domain>`）。
 2. 使用 `EASYBOT_ADMIN_PASSWORD` 登录/初始化管理后台。
 3. **API 密钥**：后台 → API 密钥 → 创建「客服类」密钥，得到 `sk-xxxxxxxx`，填入插件 `api_key`。
 4. **会话**：后台 → 会话管理 → 为各平台创建会话，复制**会话 key**（如 `qq:conv_xxxxxxxx`），
@@ -44,9 +53,9 @@ QQ 开放平台注册并审核 bot 应用，取得 AppID 与 ClientSecret 后填
 在 MCSManager 面板进入 PaperMC 实例，编辑 `plugins/OrzMC/easybot.yml`：
 
 ```yaml
-# EasyBot 连接地址（DOMAIN_EASY_API 对应生产模板变量）
-api_server: 'https://easyapi.example.com'
-ws_server: 'wss://easyapi.example.com'
+# EasyBot 连接地址（服务内网直连；实例须挂 orzmc_default 网络）
+api_server: 'http://easybot:8080'
+ws_server: 'ws://easybot:8080'
 
 # 客服类 API Key（从 EasyBot 管理后台获取）
 api_key: 'sk-xxxxxxxxxxxxxxxx'
@@ -60,16 +69,15 @@ platforms:
     admin_dm: 'qq:conv_yyyyyyyy'      # 管理员私聊会话 key
 ```
 
-`api_server` / `ws_server` 的值应替换为实际的 `DOMAIN_EASY_API` 域名。
-`api_key` 与会话 key 均从 EasyBot 管理后台获取，属密钥，不应入库。
+`api_server` / `ws_server` 指向 **`http://easybot:8080`**（compose 服务名 `easybot`，
+端口 `EASYBOT_PORT`）。`api_key` 与会话 key 均从 EasyBot 管理后台获取，属密钥，不应入库。
 
 ## 本地验证注意事项
 
-本地模板 `env.local` 使用 `easyapi.localhost:18443`：
-- EasyBot 管理后台（`easyadmin.localhost`）经 Caddy 反代可正常访问。
-- 插件（运行在 PaperMC 容器内）通过 `.localhost` 域名访问 EasyBot 在容器内指向
-  自身，本地验证时建议改用宿主网关地址（如 `http://host.docker.internal:8080`）
-  或跳过机器人连接验证，只验证平台层可达。
+本地模板 `env.local` 使用 `easybot.localhost`：
+- EasyBot 管理后台（`https://easybot.localhost:18443`）经 Caddy 反代可正常访问。
+- 插件若跑在 PaperMC 容器内并挂到 `orzmc_default`，同样可直连
+  `http://easybot:8080`；否则本地验证可跳过机器人连接验证，只验证平台层可达。
 
 ## 可选平台适配器
 
@@ -81,8 +89,8 @@ platforms:
 
 ## 健康检查
 
-EasyBot 提供 `/api/v1/live`，可通过 Caddy 入口验证：
+EasyBot 提供 `/api/v1/live`，可从管理后台入口验证：
 
 ```bash
-curl -k -s https://easyapi.example.com/api/v1/live -o /dev/null -w '%{http_code}\n'
+curl -s https://easybot.example.com/api/v1/live -o /dev/null -w '%{http_code}\n'
 ```

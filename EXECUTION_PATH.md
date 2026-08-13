@@ -164,43 +164,52 @@
 
 当且仅当 MVP 完成后，再进入本阶段。
 
+> 架构（2026-08-13 更新）：采用 **Cloudflare Tunnel**（prod profile，cloudflared 出站
+> 隧道）替代 Caddy；公网暴露 **3 个入口** `mcs.<domain>`（面板）/ `easybot.<domain>`
+> （后台）/ `mcs-node.<domain>`（daemon，浏览器直连、密钥鉴权）；EasyBot 插件 API 仅
+> 内网直连 `http://easybot:8080`，无 `easybot-api` 域名；本地验证保留 Caddy（local
+> profile，`mcs.localhost` / `easybot.localhost` / `mcs-node.localhost`）。详见
+> `docs/architecture.md`。
+
 ### A. 生产环境准备
 
-- [ ] 选择生产宿主机路径，例如 `/srv/orzmc`
-- [ ] 按最小模板准备 `.env`
-- [ ] 明确公网域名与 DNS 解析
-- [ ] 确认公网 `80/443` 可用
-- [ ] 明确 `NapCat`、`MCSManager`、`PaperMC` 的资源预算
+- [x] 选择生产宿主机路径（本机 `/Users/Shared/orzmc`）
+- [x] 按最小模板准备 `.env`（含 `CLOUDFLARE_TUNNEL_ID` 与 3 个真实域名）
+- [x] 明确公网域名与隧道路由（Cloudflare Tunnel `route dns`，无需解析 A 记录到本机）
+- [x] 确认生产主机可出站（cloudflared 出站连接，**无需公网 `80/443` 入站**）
+- [ ] 明确 `MCSManager`、`PaperMC`、`EasyBot` 的资源预算
 - [ ] 明确宿主机备份与监控责任边界
 
 ### B. 平台层生产验证
 
-- [ ] 在生产环境执行目录初始化
-- [ ] 启动平台层容器
-- [ ] 验证 Caddy 自动 HTTPS
-- [ ] 验证 MCSManager Web 可公网访问
-- [ ] 验证 Daemon 节点连接
-- [ ] 验证 EasyBot 管理后台可公网访问（`DOMAIN_EASY_ADMIN`）
-- [ ] 验证 EasyBot 数据持久化（`$DATA_ROOT/easybot/data`）
-- [ ] 验证插件经 `DOMAIN_EASY_API` 连接 EasyBot 的 REST 与 WebSocket（见 `docs/easybot.md`）
-- [ ] 执行一次 `backup.sh --stop` + `restore.sh` 备份还原演练
+- [x] 在生产环境执行目录初始化（`deploy.sh -d /Users/Shared/orzmc init`）
+- [x] 启动平台层容器（`deploy.sh -d /Users/Shared/orzmc up`）
+- [x] 验证 cloudflared 隧道已注册（`docker logs orzmc-cloudflared`）
+- [x] 验证 MCSManager Web 可公网访问（`https://mcs.<domain>`）
+- [x] 验证 Daemon 节点连接（面板添加节点用内部地址 + daemon key；浏览器直连经
+  `wss://mcs-node.<domain>:443`，密钥验证通过）
+- [x] 验证 EasyBot 管理后台可公网访问（`https://easybot.<domain>`，即 `DOMAIN_EASY_ADMIN`）
+- [x] 验证 EasyBot 数据持久化（`$DATA_ROOT/easybot/data`）
+- [ ] 验证插件**内网直连** EasyBot 的 REST 与 WebSocket（`http://easybot:8080`，
+  实例挂 `orzmc_default`；见 `docs/easybot.md`；依赖 monorepo 侧 OrzMC plugin，属下期边界）
+- [x] 执行一次 `backup.sh --stop` + `restore.sh` 备份还原演练
 
 ### C. PaperMC Prod 落地
 
-- [ ] 准备正式服目录
-- [ ] 创建 `PaperMC Prod`
-- [ ] 验证端口 `25565`
+- [x] 准备正式服目录（`$DATA_ROOT/instances/papermc-main/{server,backups}`）
+- [x] 创建 `PaperMC Prod`（uuid `e9249511571a411db4901e640237931a`，网络 `orzmc_default`）
+- [x] 验证端口 `25565`（服务监听，日志 `Done`；客户端进服待用户确认）
 - [ ] 验证备份目录与保留策略
 - [ ] 验证插件更新与回滚方式
 - [ ] 验证升级窗口与停机流程
 
 ### D. 安全收口
 
-- [ ] 明确 MCSManager 管理员账号创建与保管方式
-- [ ] 明确 Daemon key 保存方式
-- [ ] 明确 NapCat WebUI token 保存方式
-- [ ] 明确哪些配置允许入库，哪些必须只保留在线下
-- [ ] 明确 `docker.sock` 风险与宿主机可信边界
+- [x] 明确 MCSManager 管理员账号创建与保管方式（面板登录创建，凭据在 `$DATA_ROOT` 数据内）
+- [x] 明确 Daemon key 保存方式（`daemon/Config/global.json`，权限 600，按最高权限密钥对待）
+- [x] 明确 EasyBot API key 与会话 key 保存方式（`$DATA_ROOT/easybot/data`，替代旧 NapCat WebUI token）
+- [x] 明确哪些配置允许入库，哪些必须只保留在线下（`.env`/cloudflared 凭据/daemon key 不入库）
+- [x] 明确 `docker.sock` 风险与宿主机可信边界
 
 ## 7. Phase 3 Checklist
 
@@ -368,3 +377,38 @@
   - `./restore.sh -d /tmp/orzmc-accept/.local-data <归档> --force` → 还原成功，`.env` DATA_ROOT 自动改写为 `/tmp/orzmc-accept/.local-data`（保留 `.env.bak-restore`），还原栈 validate + up + curl 200 + stop 通过，drill 目录已清理
   - `./deploy.sh templates --diff` → 一致时无需同步；`--force` → 覆盖落盘 Caddyfile 并留 `.bak.<时间戳>`，diff 与模板一致
   - `git status --short` 仅含预期变更；`.env` / `.local-data/` / `.local-backups/` 均被 `.gitignore` 排除，仓库根无 `.env`
+
+### 2026-08-13 Phase 2：Stage 5/6（PaperMC Prod + 安全收口）
+
+- 当前阶段：Phase 2
+- 已完成：
+  - daemon 公网可达：新增 `mcs-node.<domain>` 入口（Cloudflare ingress + Caddy 反代 +
+    `DOMAIN_MCS_NODE` 环境变量）；MCSManager 节点配置 `ip=wss://mcs-node.<domain>:443`，
+    密钥鉴权通过（web 日志"密钥验证通过"）。
+  - `PaperMC Prod`（`papermc-main`，uuid `e9249511571a411db4901e640237931a`）：端口
+    `25565:25565/tcp`（字符串数组格式）、内存 `4096`（MB）、`runAs 1000:1000`、网络
+    `orzmc_default`、镜像 `eclipse-temurin:25-jre`（Paper 26.2 / Java 25）、
+    `online-mode=false` 生效（`OFFLINE/INSECURE MODE`），启动日志 `Done (7.792s)!`。
+  - 文件管理器/配置项修复：daemon 容器自挂载 `${DATA_ROOT}/instances`（同路径，
+    ADR-007），面板文件管理与配置项恢复正常。
+  - 终端乱码根因：docker 实例非 pty 时 stdout/stderr 复用流解复用错位；`terminalOption.pty`
+    改为 `true` 并**验证生效**（容器 `Tty=true`，日志无首字符乱码，离线可进服）。
+  - 安全收口：`daemon/Config/global.json`（daemon key）收紧 600；`.env`/`cert.pem`/
+    隧道凭据 600 复核；仓库密钥泄漏扫描零命中；`.env`/`.local-data` 无入库。
+- 新发现问题：
+  - 旧子域名 `node.<domain>` CNAME 遗留（不在 ingress，仅 404 无害），需在
+    Cloudflare 控制台删除。
+  - macOS / Docker Desktop 写盘走宿主用户：实例目录需 `chown` 给宿主用户
+    （`sudo chown -R joker:staff ...`），见 `docs/papermc-template.md` 与 ADR-006。
+  - 插件内网直连 EasyBot 未验证（依赖 monorepo 侧 OrzMC plugin，属下期边界）。
+- 下一步：
+  - 用户客户端进服验证（`192.168.0.26:25565`）✅ 已确认可进服。
+  - pty 后日志无乱码 ✅ 已验证（容器 `Tty=true`）。
+  - 删除旧 `node.<domain>` CNAME（Cloudflare 控制台）✅ 已删除。
+  - 提交本阶段仓库改动（docs 同步 + 模板 + compose），先经用户确认。
+- 证据：
+  - daemon 密钥验证：web 日志 `[INFO] 远程节点 ... 密钥验证通过`
+  - 实例启动日志：`Done (7.792s)!` + `OFFLINE/INSECURE MODE`
+  - 文件管理/配置项：面板实测可见 `server.properties` / `world/` / `plugins/` / `paper.jar`
+  - 实例配置：`$DATA_ROOT/mcsmanager/daemon/data/InstanceConfig/e9249511571a411db4901e640237931a.json`
+  - 权限：`$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` = `-rw-------`（600）

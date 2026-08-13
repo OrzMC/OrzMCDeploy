@@ -45,7 +45,7 @@
 | 监听地址 | `0.0.0.0` | 允许容器监听全部地址 |
 | 网络模式 | `bridge` | 与平台层编排一致 |
 | 挂载模式 | `rw` | 运行目录必须可写 |
-| 运行 UID/GID | `1000/1000` | 与宿主机持久化目录权限保持一致 |
+| 运行 UID/GID | `1000/1000` | 容器内 uid；macOS 宿主属主需为宿主用户（ADR-006） |
 | 额外 JVM 参数 | `-XX:+UseG1GC -XX:+ParallelRefProcEnabled` | 作为起步参数 |
 | 停止命令 | `stop` | 适配 Minecraft 控制台 |
 | 控制台编码 | `UTF-8` | 避免日志乱码 |
@@ -56,13 +56,15 @@
 
 以下组合已经在本地 `macOS + Docker Desktop + MCSManager Docker 实例` 模式下验证通过：
 
-- 镜像：`eclipse-temurin:21-jre`
+- 镜像：`eclipse-temurin:25-jre`（Paper 26.2 / Java 25；Paper 1.21.1 用 `eclipse-temurin:21-jre`）
 - 工作目录：`/server`
-- 宿主机服务目录：`<server-dir>`
+- 宿主机服务目录：`<server-dir>`（生产 macOS 建议属主改为宿主用户，见下文"Docker 实例字段格式"）
 - 启动命令：`java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui`
+  （正式服可用 `-Xms4G -Xmx4G`）
 - 端口映射：`25566:25566/tcp`（测试服） / `25565:25565/tcp`（正式服）
 - `paper.jar`：预先下载到宿主机服务目录
 - `eula.txt`：预先写入 `eula=true`
+- 正版验证：需要离线进服时把 `server.properties` 的 `online-mode` 设为 `false`
 
 建议的最小宿主机预置文件：
 
@@ -75,6 +77,31 @@
 - 如果 `cwd` 已经指向宿主机服务目录，且容器工作目录设为 `/server`，MCSManager 会自动把工作目录挂到容器内。
 - 不要再把同一个宿主机目录通过 `extraVolumes` 重复挂载到 `/server`，否则会报错：`Duplicate mount point: /server`。
 - 如果要额外挂载备份目录或导入目录，请确保容器目标路径与工作目录挂载目标不同，例如 `/backups`、`/import`。
+
+## Docker 实例字段格式（实测踩坑）
+
+以下为本仓库生产实例（`papermc-main`，uuid `e92495...`）实测结论（MCSManager v10）：
+
+- **端口映射必须为字符串数组**：`docker.ports` 填 `["25565:25565/tcp"]`
+  （`host:container/protocol` 字符串，daemon 内部 `split("/")` + `split(":")` 解析）；
+  **不要**用对象数组 `[{"host":..., "container":..., "protocol":...}]`，否则启动报
+  `此容器的开放端口配置有误！`。
+- **内存单位为 MB**：`docker.memory: 4096` 即 4G（daemon 内部 `*1024*1024` 换算成字节）；
+  填字节值（如 `4294967296`）会让容器内存配额错乱。
+- **强烈建议 `terminalOption.pty: true`**：docker 实例非 pty 时 stdout/stderr 是两路独立
+  流，Docker 用 8 字节帧头复用，MCSManager 解复用错位导致**每行日志首字符乱码**
+  （如 `D[10:52:13 ...`）。开启 pty 后容器分配伪终端（`Tty=true`），单路文本流，日志
+  干净且 Paper 自动启用 ANSI 彩色输出（面板终端为 xterm 渲染，能正确处理 `\r`/`[K`/颜色）。
+- **修改实例配置的姿势**：实例**运行中**直接改 `InstanceConfig/<uuid>.json` 会被 daemon
+  用内存副本覆盖（stop/start 会写回磁盘，`pty` 变回 `false`）。正确顺序：先停实例 →
+  改 JSON → **重启 daemon 容器**（从磁盘重载）→ 再启动实例。
+- **实例 `cwd` 直接用宿主路径**（如 `${DATA_ROOT}/instances/papermc-main/server`）；
+  compose 的 daemon 已自挂载 `${DATA_ROOT}/instances`（同路径），文件管理器才能读到
+  真实文件（见 `docs/architecture.md` ADR-007）。
+- **macOS 目录属主**：容器内 `runAs 1000:1000` 但磁盘写入由宿主用户进程执行，实例目录
+  属主需改为宿主用户（`sudo chown -R joker:staff <instance-dir>`）；Linux 生产保持
+  `1000:1000`（见 ADR-006）。
+- **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`。
 
 ## 选填字段
 

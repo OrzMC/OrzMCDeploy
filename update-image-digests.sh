@@ -12,7 +12,7 @@ fi
 
 source_image_for_service() {
     case "$1" in
-        reverse-proxy) echo "caddy:2-alpine" ;;
+        cloudflared) echo "cloudflare/cloudflared:latest" ;;
         mcsmanager-web) echo "githubyumao/mcsmanager-web:latest" ;;
         mcsmanager-daemon) echo "githubyumao/mcsmanager-daemon:latest" ;;
         easybot) echo "ghcr.io/easyindie/easybot:latest" ;;
@@ -23,7 +23,7 @@ source_image_for_service() {
 }
 
 if [ "$#" -eq 0 ]; then
-    SERVICES=("reverse-proxy" "mcsmanager-web" "mcsmanager-daemon" "easybot")
+    SERVICES=("cloudflared" "mcsmanager-web" "mcsmanager-daemon" "easybot")
 else
     SERVICES=("$@")
 fi
@@ -31,7 +31,7 @@ fi
 for service in "${SERVICES[@]}"; do
     if ! source_image_for_service "$service" >/dev/null; then
         echo "不支持的服务名: $service" >&2
-        echo "可选服务: reverse-proxy mcsmanager-web mcsmanager-daemon easybot" >&2
+        echo "可选服务: cloudflared mcsmanager-web mcsmanager-daemon easybot" >&2
         exit 1
     fi
 done
@@ -51,7 +51,7 @@ from pathlib import Path
 compose_file = Path(sys.argv[1])
 services = sys.argv[2:]
 source_images = {
-    "reverse-proxy": "caddy:2-alpine",
+    "cloudflared": "cloudflare/cloudflared:latest",
     "mcsmanager-web": "githubyumao/mcsmanager-web:latest",
     "mcsmanager-daemon": "githubyumao/mcsmanager-daemon:latest",
     "easybot": "ghcr.io/easyindie/easybot:latest",

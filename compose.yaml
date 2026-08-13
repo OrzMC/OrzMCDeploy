@@ -5,13 +5,22 @@
 # 统一目录 $DATA_ROOT（生产默认 /srv/orzmc）。详见 README"运行时/数据分离"。
 #
 # 统一通过 deploy.sh / local.sh 启动，保证 --env-file $DATA_ROOT/.env 与
-# $DATA_ROOT/caddy/Caddyfile 前置就绪（见 lib/common.sh）。
+# 边缘层配置前置就绪（见 lib/common.sh）。
+#
+# 双 Profile：
+#   - local：reverse-proxy(Caddy) 反代 + 本地 CA（.localhost），仅本地验证使用
+#   - prod ：cloudflared 出站隧道，Cloudflare 边缘终止真实 HTTPS，生产使用
+#   mcsmanager-* 与 easybot 无 profile，两种模式都运行。
+# 公网/本地暴露 3 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
+# 密钥鉴权）；EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）。
 # ===========================================================================
 
 name: orzmc
 
 services:
+  # ---- local profile：Caddy 反代（.localhost + 本地 CA）--------------------
   reverse-proxy:
+    profiles: ["local"]
     image: caddy@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
     container_name: orzmc-caddy
     restart: unless-stopped
@@ -22,9 +31,7 @@ services:
       TZ: "${TZ}"
       CADDY_EMAIL: "${CADDY_EMAIL}"
       DOMAIN_EASY_ADMIN: "${DOMAIN_EASY_ADMIN}"
-      DOMAIN_EASY_API: "${DOMAIN_EASY_API}"
       DOMAIN_MCS_WEB: "${DOMAIN_MCS_WEB}"
-      DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE}"
       EASYBOT_PORT: "${EASYBOT_PORT}"
       MCS_WEB_PORT: "${MCS_WEB_PORT}"
       MCS_DAEMON_PORT: "${MCS_DAEMON_PORT}"
@@ -36,6 +43,17 @@ services:
       - mcsmanager-web
       - mcsmanager-daemon
       - easybot
+
+  # ---- prod profile：cloudflared 出站隧道（Cloudflare Tunnel）---------------
+  cloudflared:
+    profiles: ["prod"]
+    image: cloudflare/cloudflared@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
+    container_name: orzmc-cloudflared
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      # 配置由 init 生成；cert.pem 与隧道凭据 <id>.json 同目录（含密钥，随数据备份）
+      - "${DATA_ROOT}/cloudflared:/etc/cloudflared:ro"
 
   mcsmanager-web:
     image: githubyumao/mcsmanager-web@sha256:7067772d85e75edeb2c7fa38368dbf0d5a959476999810e90da130566e98e15d
@@ -56,7 +74,10 @@ services:
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-      MCSM_DOCKER_WORKSPACE_PATH: "/opt/mcsmanager/daemon/data/InstanceData"
+      # MCSM_DOCKER_WORKSPACE_PATH 须为宿主路径（docker bind Source 由宿主解析）。
+      # 本仓库实例 cwd 直接用宿主路径（见下方 instances 自挂载），此变量仅兜底
+      # MCSManager 默认 data/InstanceData/<uuid> 布局时用。
+      MCSM_DOCKER_WORKSPACE_PATH: "${DATA_ROOT}/instances"
     expose:
       - "${MCS_DAEMON_PORT}"
     volumes:
@@ -64,6 +85,10 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/daemon/data:/opt/mcsmanager/daemon/data"
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
+      # 实例数据以同路径挂进 daemon 容器：MCSManager 文件管理器读 daemon 容器内
+      # 的 instance.absoluteCwdPath()（本仓库实例 cwd = ${DATA_ROOT}/instances/...），
+      # 自挂载后 daemon 能看到真实文件；docker bind Source 仍由宿主解析，互不冲突。
+      - "${DATA_ROOT}/instances:${DATA_ROOT}/instances"
       - /var/run/docker.sock:/var/run/docker.sock
 
   easybot:
@@ -72,8 +97,9 @@ services:
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-      # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP，
-      # 必须由 Caddy 前置 TLS 反向代理，故端口只 expose 不发布到宿主机。
+      # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP，TLS 由
+      # 边缘层承担（local=Caddy / prod=Cloudflare 边缘）。端口只 expose 不发布到
+      # 宿主机；插件（挂 orzmc_default）内网直连 http://easybot:8080。
       EASYBOT_ALLOW_PLAINTEXT: "true"
       EASYBOT_HOME: "/var/lib/easybot"
       EASYBOT_ADMIN_PASSWORD: "${EASYBOT_ADMIN_PASSWORD}"
