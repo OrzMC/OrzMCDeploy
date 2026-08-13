@@ -72,8 +72,9 @@ local.sh                本地验证统一入口（固定 local profile + .local
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
-README.md               用户入口
+README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
 EXECUTION_PATH.md       执行路径、门禁、checklist、状态记录
+docs/usage.md           用户使用指南（全生命周期分步操作）
 docs/architecture.md    架构设计文档（含 ADR 决策记录，长期演进）
 docs/easybot.md         EasyBot 网关与插件 easybot.yml 配置指南
 docs/papermc-template.md PaperMC 实例录入参数参考
