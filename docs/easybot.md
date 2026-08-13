@@ -104,6 +104,12 @@ adapters:
 包含 `wechat`。该覆盖文件由 EasyBot 从 `EASYBOT_HOME`（容器 `/var/lib/easybot`）读取，
 仿 Caddyfile 模式由 init 生成、**绝不覆盖已有文件**。
 
+> 注：**无需在覆盖文件里写 `server.host`**（EasyBot ≥0.0.35 已修复 round-trip 默认值
+> 注入 bug，本地覆盖只按文件显式写出的键合并，不再注入 `server.host` 默认值
+> `127.0.0.1`）。镜像低于 0.0.35 时旧版存在该 bug：只要 `gateway.local.yaml` 存在就会
+> 覆盖基础 gateway.yaml 的 `0.0.0.0`，监听退回容器回环、公网 502（2026-08-14 生产
+> 故障，当时需临时补 `server.host: "0.0.0.0"` 绕过）。
+
 ## 健康检查
 
 EasyBot 提供 `/api/v1/live`，可从管理后台入口验证：

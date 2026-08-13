@@ -520,3 +520,42 @@
 - 教训：EasyBot 微信适配器无凭据即自动启用（扫码登录），官方文档未记载禁用方式；
   从源码确认适配器支持 `enabled: false`（`gateway.local.yaml` 覆盖层，EasyBot 从
   `EASYBOT_HOME` 读取）。
+
+### 2026-08-14 故障修复：启用 gateway.local.yaml 后 easybot 公网入口 502
+
+- 现象：`docker restart orzmc-easybot`（加载微信禁用覆盖）后，easybot 公网入口 502，
+  cloudflared 持续报 `dial tcp 172.18.0.3:8080: connect: connection refused`
+  （`originService=http://easybot:8080`）；容器 `(healthy)`，healthcheck 的
+  `/api/v1/live` 在容器内仍 200。
+- 根因（源码确认）：EasyBot 加载 `gateway.local.yaml` 时走 `load_config` —— 先反序列化为
+  完整 `GatewayConfig` 结构体，缺失键被 **serde 默认值**补齐（`server.host` 默认
+  `127.0.0.1`，见 easybot-core `config/mod.rs`），再 `to_value` 序列化后深合并进基础
+  配置 —— 于是本地文件即使只写了 `adapters`，也会注入一个 `server.host: 127.0.0.1`
+  覆盖基础 gateway.yaml 的 `0.0.0.0`。结果监听只绑容器回环（`/proc/net/tcp` 显示
+  `0100007F:1F90`），compose 内网与 cloudflared 均不可达。
+- 修复：`gateway.local.yaml` 显式钉住
+  `server: { host: "0.0.0.0", port: 8080 }`（显式值不参与默认注入，能原样过 round-trip）。
+  已同步 `templates/gateway.local.yaml`（模板注释记录该坑）与生产运行数据；重启后
+  跨容器探活 `easybot:8080/api/v1/live` 返回 alive、公网入口 200、QQ Gateway 正常、
+  微信仍禁用。
+- 教训：**只要 `gateway.local.yaml` 存在，`server` 段就必须显式钉 0.0.0.0**；容器
+  healthcheck 走 localhost，监听异常时不会体现为 unhealthy，须用跨容器探活或
+  `/proc/net/tcp` 核对 `00000000:1F90`（0.0.0.0:8080）。此为 EasyBot 上游 round-trip
+  默认值注入行为，本地模板已注释防回退。
+
+### 2026-08-14 根治：EasyBot v0.0.35 修复 round-trip 默认值注入，升级并移除 workaround
+
+- 上游修复（`EasyIndie/EasyBot` v0.0.35）：新增 `load_config_value` 按原始 YAML Value
+  解析本地覆盖（不反序列化结构体，不再注入 `server.host` 默认 `127.0.0.1`），合并后
+  仍校验 webhook 防 SSRF；`plugin_cli` 合并路径同步修正。带回归测试
+  （`test_load_config_value_no_default_injection` /
+  `test_merge_local_raw_value_preserves_base_server_host`）。release.yml 全绿
+  （verify / build-binaries / create-release / docker multi-arch + Trivy）。
+- 部署升级：`update-image-digests.sh easybot` 锁 v0.0.35 digest，`deploy.sh up` 升级；
+  生产 `gateway.local.yaml` 移除 `server:` 段（恢复只写 adapters），重启后
+  `/proc/net/tcp` 显示 `00000000:1F90`（0.0.0.0:8080，修复生效）、公网入口 200、
+  QQ Gateway 正常、微信仍禁用。
+- 模板/文档同步：`templates/gateway.local.yaml` 与 `docs/easybot.md` 去掉 `server` 段
+  与 ⚠️ 警告，改为「≥0.0.35 已修复，仅需写显式覆盖键；低于 0.0.35 需补 server.host」。
+- 回滚：deploy `git revert` digest commit → 旧镜像（旧镜像需配合钉 `server.host` 的
+  `gateway.local.yaml`）；EasyBot 可发 0.0.36 取代。

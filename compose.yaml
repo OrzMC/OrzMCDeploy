@@ -92,7 +92,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   easybot:
-    image: ghcr.io/easyindie/easybot@sha256:fe201867ced7175b29d9f1ebe0461cee041c95b936e5ccd148cbbc095940efc4
+    image: ghcr.io/easyindie/easybot@sha256:afa77d6641c4ff0317414687fa435e6c982599538adf7ffc89bf526faf241ac2
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:
