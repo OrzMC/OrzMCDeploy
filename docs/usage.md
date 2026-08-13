@@ -331,7 +331,7 @@ deploy.sh -d <DATA_ROOT> templates --force    # 备份旧文件后覆盖
 > 边缘层改配置需重启生效：Caddy 不热加载 bind 挂载的 Caddyfile，cloudflared 启动时读
 > config——同步后执行 `stop && up`。
 
-### 5.3 升级与回滚
+### 5.3 平台层升级与回滚
 
 `compose.yaml` 镜像一律 **digest 锁定**（`image:xxx@sha256:...`）。升级分两步：
 
@@ -350,7 +350,49 @@ deploy.sh -d <DATA_ROOT> up
 
 **回滚**：`git revert <commit>` 后重新 `up`。升级/回滚**不触碰 `$DATA_ROOT`**，数据不变。
 
-### 5.4 备份
+### 5.4 PaperMC 实例版本升级
+
+PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `updateCommand` 为空 =
+**手动升级**。本质是**替换 `server/paper.jar` + 重启实例**（paperclip 结构：`paper.jar`
+是启动器，实际服务端 jar 在 `versions/<版本>/`，首次启动自动拉取）。
+
+1. **先备份**（跨版本必做）：面板停止实例 → `backup.sh -d <DATA_ROOT> --stop` →
+   校验归档含 `world/`。
+2. **确认新版本的 Java 要求**：
+
+   | Paper 版本 | 需要的 Java | 对应镜像 |
+   |---|---|---|
+   | 26.2（本仓库当前） | Java 25 | `eclipse-temurin:25-jre` |
+   | 1.21.1 | Java 21 | `eclipse-temurin:21-jre` |
+
+   - 同代小版本：镜像不用动。
+   - 跨代升 Java：需改 `InstanceConfig/<uuid>.json` 的 `docker.image`，走
+     [第 6.5 节](#65-生命周期与改配置)的正确姿势（停实例 → 改 JSON → 重启 daemon
+     容器 → 再启动），运行中改会被内存副本覆盖。
+
+3. **替换 jar 并重启**（面板文件管理或宿主机目录均可，先停实例）：
+
+   ```bash
+   SRV=$DATA_ROOT/instances/<实例名>/server
+   mv "$SRV/paper.jar" "$SRV/paper.jar.bak-$(date +%Y%m%d)"   # 备份旧启动器（回滚用）
+   # 从 papermc.io/downloads 下载目标版本的 paperclip jar，命名为 paper.jar 放入 $SRV/
+   ```
+
+   在**面板**启动实例（⚠️ 不要 `docker restart MCSM-<uuid>`，会被 daemon 当停止回收）。
+   首次启动自动拉取 `versions/<新版本>/`；观察：`Done (Xs)!`、`[OrzMC] EasyBot WebSocket
+   认证成功`、世界加载无报错。
+
+4. **跨大版本注意**：
+   - **世界格式只前向兼容**：升大版本后旧版通常读不了新世界，升级前那份含 `world/` 的
+     备份是唯一降级手段。
+   - **插件兼容**：OrzMC 插件 api-version 26.1.2 随 Paper 26.x；换大版本需确认插件版本匹配。
+   - **配置兼容**：`server.properties` 与 Paper 的 `config/` 全局配置跨版本可能要求迁移，
+     以启动日志为准。
+
+**回滚**：把 `paper.jar.bak-<日期>` 改回 `paper.jar`（或 restore 世界备份）→ 面板重启。
+若世界已被新版本写过格式，旧版可能读不了——跨版本前务必先备份。
+
+### 5.5 备份
 
 ```bash
 ./backup.sh -d <DATA_ROOT> --stop      # 先停 compose 再打包再拉起（更一致）
@@ -367,7 +409,7 @@ deploy.sh -d <DATA_ROOT> up
 - 迁移基线建议：先面板停实例 → `backup.sh --stop` → 校验归档（`tar tzf`）确认含
   `world/` 与各密钥文件。
 
-### 5.5 还原
+### 5.6 还原
 
 ```bash
 ./restore.sh -d <目标DATA_ROOT> <归档.tar.gz>       # 还原
@@ -577,7 +619,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 实例镜像 | `eclipse-temurin:25-jre` 等实例镜像是 **tag 不是 digest**，新机需 `docker pull` |
 | 平台层镜像 | `compose.yaml` 已 digest 锁定，还原后 `up` 自动拉取 |
 
-备份/还原命令细节见[第 5.4 / 5.5 节](#54-备份)。
+备份/还原命令细节见[第 5.5 / 5.6 节](#55-备份)。
 
 ---
 
