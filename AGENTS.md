@@ -29,22 +29,26 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   `git add -f` 强制加入。
 - 智能体改代码时，只改仓库内的运行时文件；不要为"跑通"而把测试数据写进仓库。
 
-### 3. 双 Profile（local / prod），同一份 compose
+### 3. 三 Profile（prod / local / lan），同一份 compose
 
 | Profile | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
 | `local` | Caddy（`.localhost` 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` |
 | `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
+| `lan` | 无边缘层（`compose.lan.yaml` 发布 4 个源站宿主端口，纯 HTTP，无域名/TLS） | 局域网直连（可信内网，不做 TLS 终止） | `http://<LAN_HOST_IP>:<LAN_MCS_WEB_PORT>`（web）/ `:<LAN_EASYBOT_PORT>`（easybot）/ `:<LAN_STATUS_PORT>`（status）/ `:<LAN_MCS_DAEMON_PORT>`（daemon） |
 
 - `compose.yaml` 中 `reverse-proxy`(caddy) 挂 `profiles: ["local"]`，
   `cloudflared` 挂 `profiles: ["prod"]`；mcsmanager / easybot / mariadb / status 无 profile
-  （两边都跑）。
+  （三种模式都跑）。lan 无边缘层：`--profile lan` 下 reverse-proxy / cloudflared 均不匹配
+  不运行，`compose_cmd` 追加 `-f compose.lan.yaml` 给 4 个源站发布宿主端口（ADR-012）。
 - 脚本通过 `COMPOSE_PROFILE`（默认 `prod`）选择边缘层：`deploy.sh -p local ...`
-  或 `./local.sh ...` 走 local，`deploy.sh ...` 走 prod。
+  或 `./local.sh ...` 走 local，`./lan.sh ...` 或 `deploy.sh -p lan ...` 走 lan，
+  `deploy.sh ...` 走 prod。
 
-### 4. 网络拓扑：4 个公网入口，EasyBot 插件 API 仅内网
+### 4. 网络拓扑：4 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
 
-- 公网暴露 **4 个入口**：
+- 公网/局域网暴露 4 个入口（prod/local 走边缘层域名；**lan 无边缘层**，走宿主发布端口
+  `http://<LAN_HOST_IP>:<LAN_*_PORT>`，见 ADR-012）：
   - `mcs.<domain>` → MCSManager 面板（Web 登录鉴权）
   - `easybot.<domain>` → EasyBot 管理后台（登录鉴权）
   - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**）
@@ -62,16 +66,20 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   面板浏览器直连 daemon（终端/控制台/文件管理器，密钥鉴权），但生产下受同一 koa 拦截
   当前不可用（已知限制）；本地 Caddy 路径不受影响。daemon 全部业务路由要求密钥鉴权，
   无 key 无权限。
-- 所有服务端口只 `expose`，**不发布宿主机端口**（PaperMC 实例端口 `25565` 由
-  MCSManager 按实例配置映射，供玩家局域网直连）。
+- 服务端口**默认只 `expose`，不发布宿主机端口**（prod/local；PaperMC 实例端口 `25565`
+  由 MCSManager 按实例配置映射，供玩家局域网直连）。**lan 直连模式例外**：经
+  `compose.lan.yaml` 把 4 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网
+  （ADR-012）。
 
 ## 目录地图
 
 ```
-compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，双 profile，含常驻 mariadb）
+compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，三 profile，含常驻 mariadb）
+compose.lan.yaml        lan profile override（无边缘层：给 4 个源站发布宿主端口，纯 HTTP）
 templates/              首次 init 的配置模板
   env.prod              生产 .env 模板（含 CLOUDFLARE_TUNNEL_ID）
   env.local             本地 .env 模板（.localhost）
+  env.lan               局域网 .env 模板（LAN_HOST_IP + LAN_*_PORT，无 DOMAIN_*/CLOUDFLARE）
   cloudflared-config.yml cloudflared 隧道配置模板（__PLACEHOLDER__ 由 init 替换）
   Caddyfile             local profile 反代模板（仅本地使用）
   gatus-config.yml      Gatus 统一状态页配置模板（init 生成到 DATA_ROOT/status/config.yaml）
@@ -80,6 +88,7 @@ templates/              首次 init 的配置模板
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导）
 deploy.sh               生产部署统一入口（默认 prod profile）
 local.sh                本地验证统一入口（固定 local profile + .local-data）
+lan.sh                  局域网直连统一入口（固定 lan profile + .local-data-lan，无边缘层）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
@@ -93,15 +102,15 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 
 ## 命令速查
 
-| 场景 | 本地 | 生产 |
-|---|---|---|
-| 初始化目录/env/边缘配置 | `./local.sh init` | `deploy.sh init` |
-| 启动平台层 | `./local.sh start` | `deploy.sh up` |
-| 停止 | `./local.sh stop` | `deploy.sh stop` |
-| 状态与访问地址 | `./local.sh status` | `deploy.sh status` |
-| 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh validate` |
-| 备份数据 | `./local.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） |
-| 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh <归档>` |
+| 场景 | 本地 | 局域网（lan） | 生产 |
+|---|---|---|---|
+| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh init` |
+| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh up` |
+| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh stop` |
+| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh status` |
+| 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh -d ./.local-data-lan -p lan validate` | `deploy.sh validate` |
+| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） |
+| 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh -d <root> -p lan <归档>` | `restore.sh <归档>` |
 
 - 生产默认 `DATA_ROOT=/srv/orzmc`，实际生产使用 `deploy.sh -d /Users/Shared/orzmc ...`
   或 `ORZMC_DATA_ROOT=/Users/Shared/orzmc`。
@@ -141,7 +150,11 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 - `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，拥有管理宿主机 Docker 的能力，
   **宿主机必须视为可信环境**。
 - EasyBot 监听器仅 HTTP，`EASYBOT_ALLOW_PLAINTEXT=true` 为有意为之；TLS 由
-  local=Caddy / prod=Cloudflare 边缘承担，插件 API 走内网不需 TLS。
+  local=Caddy / prod=Cloudflare 边缘承担，插件 API 走内网不需 TLS。**lan 无边缘层**：
+  EasyBot 面板口令与 daemon 端口均以**明文 HTTP** 暴露给局域网——仅限可信局域网
+  （ADR-012），接入不可信 Wi-Fi 时应改用 prod/local。
+- **lan 对局域网开放 daemon 端口**（`LAN_MCS_DAEMON_PORT`）：daemon key 鉴权（可管理
+  docker.sock），等同对局域网开放最高权限密钥的探测面——仅限可信局域网。
 
 ## 修改守则（智能体改动前必读）
 

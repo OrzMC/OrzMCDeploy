@@ -2,4 +2,5 @@
 .env
 .env.local
 .local-data/
+.local-data-lan/
 .local-backups/

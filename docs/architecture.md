@@ -64,7 +64,33 @@
 - 与生产共用同一份 `compose.yaml`，通过 `profiles` 切换边缘层：`reverse-proxy`(caddy)
   挂 `profiles: ["local"]`，`cloudflared` 挂 `profiles: ["prod"]`。
 
-### 2.3 域名命名约定
+### 2.3 局域网直连（lan profile：无边缘层）
+
+```text
+[局域网设备] ─http─> http://192.168.0.26:18090  ─┐
+[局域网设备] ─http─> http://192.168.0.26:18091  ── 4 个源站直接发布宿主端口（纯 HTTP）
+[局域网设备] ─http─> http://192.168.0.26:18092  ─┤
+[局域网设备] ─http─> http://192.168.0.26:24444  ─┘（daemon API，key 鉴权）
+                                                      └──> 同 prod 的内部服务
+```
+
+- **无边缘层**：`--profile lan` 下 `reverse-proxy`(caddy) 与 `cloudflared` 均不匹配
+  `profiles` 不运行；`compose_cmd` 追加 `-f compose.lan.yaml` override，给
+  `mcsmanager-web` / `easybot` / `status` / `mcsmanager-daemon` 各加 `ports:`
+  （多值字段与 base 的 `expose` 拼接）发布宿主 `LAN_*_PORT` 端口（默认
+  `18090` / `18091` / `18092` / `24444`，避开 local Caddy 的 18080/18443 与实例端口
+  25565/25566）。局域网设备用 `http://<LAN_HOST_IP>:<port>` 访问。
+- **纯 HTTP、无域名/TLS**：`LAN_HOST_IP`（宿主局域网 IP）+ `LAN_*_PORT` 取代
+  `DOMAIN_*`，无 `CLOUDFLARE_TUNNEL_ID` / `CADDY_EMAIL`；TLS 终止不做（可信内网假设）。
+- **daemon 节点地址不变**：仍内网直连 `ws://mcsmanager-daemon:24444`（ADR-011），零改动；
+  浏览器「网页直连」终端在 lan 下依旧不可用（浏览器解析不了 `mcsmanager-daemon`）。
+  发布的 daemon 端口仅作 daemon API 入口（key 鉴权）。
+- **Gatus 健康检查走内网 URL**：lan 下 `ensure_status_config` 把端点 `url` 设为
+  `http://mcsmanager-web:23333` / `http://easybot:8080`（hide-url），按钮仍用
+  `LAN_HOST_IP`——gatus 容器经宿主真实 LAN IP 访问发布端口会超时（macOS Docker Desktop
+  实测容器不可达宿主 LAN IP；见 ADR-012），内网探测只验证进程存活。
+
+### 2.4 域名命名约定
 
 | 子域名 | 用途 | 模板变量 |
 |---|---|---|
@@ -76,6 +102,8 @@
 约定：**子域名 = 产品代号，无后缀即该产品管理控制台**；daemon 组件在代号后加
 `-node` 后缀。`orzmcs` 为平台自身入口（统一状态页）。本地同构镜像：
 `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost`。
+**lan 无域名**：无边缘层时不存在子域名，4 个入口改用 `http://<LAN_HOST_IP>:<LAN_*_PORT>`
+（LAN_HOST_IP = 宿主局域网 IP，见 §2.3）。
 
 ## 3. 网络与数据流
 
@@ -214,7 +242,7 @@ $DATA_ROOT/
   会把状态持久化到 MySQL/MariaDB；原栈中唯一数据库是 EasyBot 自带的 SQLite
   （`gateway.db`），插件侧无任何 DB 连接配置。
 - **决策**：新增 `mariadb` 服务，**默认随平台层启用**（无 profile 门控、无开关，与
-  `mcsmanager-*`/`easybot` 一致双 profile 运行）。数据落 `$DATA_ROOT/database/mariadb`；
+  `mcsmanager-*`/`easybot` 一致三 profile 运行，含 ADR-012 后的 lan）。数据落 `$DATA_ROOT/database/mariadb`；
   端口 3306 仅 `expose`，不发布宿主机、不设公网/边缘入口，插件挂 `orzmc_default` 内网
   直连 `mariadb:3306`。`MARIADB_ROOT_PASSWORD / MARIADB_DATABASE / MARIADB_USER /
   MARIADB_PASSWORD` 为必需变量（`REQUIRED_ENV_VARS_PROD/LOCAL` + `templates/env.*`）。
@@ -234,7 +262,7 @@ $DATA_ROOT/
   专业、响应式多端。
 - **决策**：
   - 采用 **Gatus**（`twinproduction/gatus`，digest 锁定）作为统一状态页，新增无 profile
-    常驻 `status` 服务（双 profile 都运行），暴露第 4 入口 `orzmcs.<domain>`（最初定为
+    常驻 `status` 服务（三 profile 都运行），暴露第 4 入口 `orzmcs.<domain>`（最初定为
     `status.<domain>`，后按 ADR-010 改名）。
   - 配置 `${DATA_ROOT}/status/config.yaml` 由 `init` 的 `ensure_status_config` 按 profile
     替换占位符生成，**绝不覆盖已有文件**（用户可自行扩展 endpoints/buttons）。
@@ -262,7 +290,7 @@ $DATA_ROOT/
 
 - **状态**：已实施。
 - **背景**：`status.<domain>` 是泛化功能名（`status`/`health`/`uptime`/`monitor`/
-  `dashboard` 属通用基建名），违反 §2.3「子域名 = 产品代号，避免泛化子域名占用」约定。
+  `dashboard` 属通用基建名），违反 §2.4「子域名 = 产品代号，避免泛化子域名占用」约定。
   且 `jokerhub.cn` 为多产品共用域名：`www` → GitHub Pages 个人站、根域 TXT 挂飞书站点验证、
   `*.jokerhub.cn` 通配符全量代理到 Cloudflare——未来任一产品要加状态/健康页，`status`
   均易撞车。
@@ -312,6 +340,45 @@ $DATA_ROOT/
     usage.md §6.2 已如此指引）。
   - 文档同步：`AGENTS.md` §4、`docs/usage.md` §1.2/§6.2、`EXECUTION_PATH.md`。
 
+### ADR-012：lan 直连模式（无 TLS 终止边缘层，局域网）（2026-08-14）
+
+- **状态**：已实施。
+- **背景**：既有双 profile（local/prod）都覆盖不到局域网——`local`（`.localhost` 按 RFC
+  只解析回环，局域网其他设备解析到自己的 127.0.0.1）与 `prod`（强制公网域名 + Cloudflare
+  Tunnel）均不适用。真实需求是**支持一个不需要做 TLS 终止的可选模式**，局域网部署是
+  典型场景。
+- **决策**：
+  - 新增第三 profile `lan`：**无边缘层**（`--profile lan` 下 reverse-proxy/cloudflared
+    均不匹配 `profiles` 不运行），新增 `compose.lan.yaml` override（`compose_cmd` 在
+    `COMPOSE_PROFILE=lan` 时追加 `-f` 合并，多值字段 `ports` 与 base 的 `expose` 拼接）
+    给 4 个源站发布宿主 `LAN_*_PORT` 端口，纯 HTTP、无域名/TLS。
+  - 新增必需变量 `LAN_HOST_IP` + `LAN_MCS_WEB_PORT` / `LAN_EASYBOT_PORT` /
+    `LAN_STATUS_PORT` / `LAN_MCS_DAEMON_PORT`（默认 `18090`/`18091`/`18092`/`24444`，
+    避开 local Caddy 的 18080/18443 与实例端口 25565/25566）；无 `DOMAIN_*` /
+    `CLOUDFLARE_TUNNEL_ID` / `CADDY_EMAIL`。新增 `lan.sh` 入口（固定 `-p lan` +
+    `templates/env.lan`，`DATA_ROOT=.local-data-lan`）。
+  - **daemon 节点连接地址不变**：保持内网直连 `ws://mcsmanager-daemon:24444`，零运行时
+    改动；浏览器「网页直连」终端在 lan 下依旧不可用（ADR-011 限制照常）。发布的 daemon
+    端口仅作 daemon API 入口（key 鉴权）。
+  - **Gatus 健康检查走内网 URL**：lan 分支把端点 `url` 改为
+    `http://mcsmanager-web:23333` / `http://easybot:8080`（hide-url），按钮仍用
+    `LAN_HOST_IP`（面向局域网真机浏览器）。
+- **影响**：
+  - 容器不可达宿主真实 LAN IP 的实证：macOS Docker Desktop 下 gatus 容器经
+    `http://192.168.0.26:<port>`（宿主 LAN IP + 发布端口）探测会超时，只能经
+    `host.docker.internal` / 内网服务名可达——故 lan 健康检查端点改用内网 URL（进程存活
+    语义），按钮保留 LAN_IP。local 的 `extra_hosts: *.localhost:host-gateway` 是另一种
+    机制（Caddy 反代场景 URL 相同、只需解析），lan 因检查 URL 与按钮 URL 本就不同需拆
+    占位符（`__*_ENDPOINT__` 与 `__*_BASE__`）。
+  - 安全边界：lan 为局域网明文 HTTP（面板/EasyBot 登录口令走局域网）+ daemon 端口对
+    局域网开放（daemon key 鉴权，可管理 docker.sock）——**仅限可信局域网**（接入不可信
+    Wi-Fi 应改用 prod/local）。
+  - 同机互斥：lan 与 local/prod 共用 compose 项目名 `orzmc` 与容器名，一次只跑一个，
+    切换需先 stop（写入 `lan.sh` 头注释）。
+  - 文档同步：`AGENTS.md`（三 Profile 表/§4 lan 形态/命令速查/安全约束/目录地图）、
+    `README.md`、`docs/usage.md`（三路径 + env/profile 表 + 附录）、`docs/easybot.md`、
+    `EXECUTION_PATH.md`。
+
 ## 7. 演进路径
 
 - **未来候选**（尚未排期）：
@@ -325,8 +392,8 @@ $DATA_ROOT/
 
 | 架构改动类型 | 必同步文件 |
 |---|---|
-| 服务增减 / 入口变更 | `compose.yaml`、`templates/*`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
-| `.env` 必需变量增减 | `templates/env.*`、`lib/common.sh`(REQUIRED_ENV_VARS_PROD/LOCAL) |
+| 服务增减 / 入口变更 | `compose.yaml`、`compose.lan.yaml`（lan 发布端口）、`templates/*`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
+| `.env` 必需变量增减 | `templates/env.*`、`lib/common.sh`(REQUIRED_ENV_VARS_PROD/LOCAL/LAN) |
 | 卷 / 网络调整 | `compose.yaml`、`lib/common.sh`(ensure_data_dirs) |
 | 镜像升级/回滚 | `compose.yaml`(digest)、`update-image-digests.sh`(映射) |
 | 安全边界变化 | `docs/architecture.md`(ADR)、`AGENTS.md`(安全约束) |

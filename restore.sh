@@ -41,8 +41,8 @@ done
 
 export DATA_ROOT
 case "$COMPOSE_PROFILE" in
-    prod|local) ;;
-    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local）" ;;
+    prod|local|lan) ;;
+    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
 esac
 [ -f "$ARCHIVE" ] || die "备份文件不存在: $ARCHIVE"
 
@@ -94,6 +94,9 @@ case "$COMPOSE_PROFILE" in
         ;;
     prod)
         [ -f "$DATA_ROOT/cloudflared/config.yml" ] || die "还原内容缺少 cloudflared/config.yml，备份可能不完整"
+        ;;
+    lan)
+        :  # lan 无边缘层，无 Caddyfile / cloudflared config 可校验；.env 已在上方校验
         ;;
 esac
 

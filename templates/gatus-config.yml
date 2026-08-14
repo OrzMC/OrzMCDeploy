@@ -4,10 +4,25 @@
 # init 时由 lib/common.sh 的 ensure_status_config 按 profile 替换占位符，生成到
 # $DATA_ROOT/status/config.yaml。与 Caddyfile 一样**绝不覆盖已有文件**（用户可自行
 # 增删 endpoints/buttons；改域名后需删除已落盘文件再 init 重新生成）。
-#   - prod ：__MCS_WEB_BASE__ / __EASY_ADMIN_BASE__ / __MCS_NODE_LINK__ =
-#            https://<真实域名>；__TLS_INSECURE__=false
-#   - local：同上并追加 :<PROXY_HTTPS_PORT>（.localhost）；__TLS_INSECURE__=true
-# 健康检查走各产品真实入口（可达性）；daemon / MariaDB / 状态页自检走内网（进程存活）。
+#
+# 占位符分工：
+#   __MCS_WEB_BASE__ / __EASY_ADMIN_BASE__ / __MCS_NODE_LINK__ —— 页头按钮链接
+#       （面向真实用户浏览器；prod/local=https 域名，lan=http://<LAN_HOST_IP>:<LAN_*_PORT>）
+#   __MCS_WEB_ENDPOINT__ / __EASY_ADMIN_ENDPOINT__            —— 健康检查端点 URL
+#       （prod/local=同上真实入口，可测可达性；lan=内网 URL http://mcsmanager-web:23333
+#       等——gatus 容器经宿主真实 LAN IP 访问发布端口会超时，见 ADR-012）
+#   __TLS_INSECURE__                                          —— 客户端 TLS 校验开关
+#   __STATUS_PORT__                                           —— 状态页自身端口
+#
+# 各 profile 下占位符取值：
+#   - prod ：三 base = https://<真实域名>；两 endpoint = 同 base；__TLS_INSECURE__=false
+#   - local：三 base = https://<域名>:<PROXY_HTTPS_PORT>（.localhost）；两 endpoint = 同 base；
+#            __TLS_INSECURE__=true
+#   - lan  ：三 base = http://<LAN_HOST_IP>:<LAN_*_PORT>；两 endpoint = 内网 URL（进程存活）；
+#            __TLS_INSECURE__=false
+# daemon / MariaDB / 状态页自检 / PaperMC 实例走内网（进程存活），与 profile 无关。
+# lan 下按钮的 MCSManager Daemon 仅作 daemon API 入口（key 鉴权），浏览器「网页直连」
+# 终端不可用（ADR-011）。
 # 页面无鉴权、不含密钥（仅服务名与状态）；如需登录可后续加 security 块。
 # ===========================================================================
 
@@ -29,7 +44,7 @@ ui:
 endpoints:
   - name: "MCSManager 面板"
     group: "平台层"
-    url: "__MCS_WEB_BASE__"
+    url: "__MCS_WEB_ENDPOINT__"
     interval: 30s
     client:
       insecure: __TLS_INSECURE__
@@ -40,7 +55,7 @@ endpoints:
 
   - name: "EasyBot 管理后台"
     group: "平台层"
-    url: "__EASY_ADMIN_BASE__/api/v1/live"
+    url: "__EASY_ADMIN_ENDPOINT__/api/v1/live"
     interval: 30s
     client:
       insecure: __TLS_INSECURE__

@@ -690,3 +690,45 @@
   - 用户观察到面板节点详情页「网页直连」显示**异常**——预期现象（浏览器直连 daemon 的
     socket.io 在 prod 下本就不可用，ADR-011），非故障；核心实例管理经面板后端内网连接
     不受影响。已在 usage.md §6.3 / ADR-011 标注，勿为消除指示改回隧道 URL。
+
+### 2026-08-14 新增第三 profile：lan 直连模式（无 TLS 终止边缘层）
+
+- 当前阶段：Phase 2 — 支持"不做 TLS 终止的可选模式"（局域网直连是典型场景），新增
+  `lan` profile（ADR-012）。
+- 已完成（代码 + 文档）：
+  - `compose.lan.yaml`（override：`compose_cmd` 在 `COMPOSE_PROFILE=lan` 时追加 `-f`
+    合并，给 web/easybot/status/daemon 4 个源站发布宿主 `LAN_*_PORT` 端口，默认
+    `18090/18091/18092/24444`）；`templates/env.lan`（`LAN_HOST_IP` + 4 个 `LAN_*_PORT`，
+    无 `DOMAIN_*`/`CLOUDFLARE_TUNNEL_ID`/`CADDY_EMAIL`）；`lan.sh`（固定 `-p lan` +
+    `DATA_ROOT=.local-data-lan`）。
+  - `lib/common.sh`：`compose_cmd` lan 分支（`local -a extra` 追加 `-f`）、
+    `REQUIRED_ENV_VARS_LAN`、`validate_required_env` / `ensure_status_config` /
+    `print_access_info` lan 分支；`deploy.sh` / `backup.sh` / `restore.sh` profile 白名单
+    加 `lan`。daemon 节点地址保持内网直连（ADR-011），零运行时改动。
+  - `compose.yaml` / `templates/gatus-config.yml`：reverse-proxy 的 `DOMAIN_*`/端口加
+    `${VAR:-默认}` 兜底（避免 lan 下对未运行边缘服务的空替换警告）；gatus 模板拆
+    `__*_ENDPOINT__`（检查 URL）与 `__*_BASE__`（按钮）占位符。
+  - 文档：`AGENTS.md`（三 Profile 表/§4/命令速查/安全约束/目录地图）、`README.md`、
+    `docs/usage.md`（三路径 §3.4、env/profile 表、附录 A/B/D）、`docs/architecture.md`
+    （§2.3 lan 拓扑 + ADR-012 + §8 清单）、`docs/easybot.md`。
+- 已验证（隔离项目名 `-p orzmc-lan` + rename override，不动运行中的 prod 栈）：
+  - `./lan.sh init` → `.local-data-lan/.env`（env.lan）与 `status/config.yaml`；lan
+    validate 通过（必需变量 + compose override 合并解析）。
+  - 容器级：5 服务无边缘（web/daemon/easybot/mariadb/status），无 reverse-proxy/
+    cloudflared；4 宿主端口全部可达（`18090/18091/18092` → HTTP 200，
+    `24444` → TCP）；easybot `/api/v1/live` → `{"status":"alive","version":"0.0.35"}`。
+  - gatus：平台层全部端点 UP（lan 下检查端点走内网 URL `mcsmanager-web:23333` /
+    `easybot:8080`，按钮用 `LAN_HOST_IP`）。
+  - 回归：`deploy.sh -d ./.local-data -p local validate` 与
+    `deploy.sh -d /Users/Shared/orzmc -p prod validate` 均通过；隔离栈已清理。
+- 新发现问题（已按计划预定的回退解决）：
+  - **gatus 容器不可达宿主真实 LAN IP**（macOS Docker Desktop 实测：
+    `http://192.168.0.26:<port>` 从容器内 `wget` 超时，仅 `host.docker.internal` / 内网
+    服务名可达）。lan 下健康检查端点改内网 URL（进程存活语义），按钮保留 LAN_IP
+    （面向局域网真机浏览器）。local 的 `extra_hosts: host-gateway` 方案不适用——lan 的
+    检查 URL 与按钮 URL 本就不同，需拆占位符（ADR-012 影响段）。
+  - 验证用 `-p orzmc-lan` 隔离栈必须额外 `-f` rename override（base `compose.yaml` 的
+    `container_name: orzmc-*` 硬编码，`-p` 无法覆盖）。
+- 下一步：
+  - 提交并推送本阶段改动（lan profile + 文档），先经用户确认。
+  - 局域网真机访问验证（用户侧：另一设备浏览器开 `http://<LAN_HOST_IP>:18090`）。

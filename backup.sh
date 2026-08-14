@@ -44,8 +44,8 @@ done
 
 export DATA_ROOT
 case "$COMPOSE_PROFILE" in
-    prod|local) ;;
-    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local）" ;;
+    prod|local|lan) ;;
+    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
 esac
 [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$(norm_path "${DATA_ROOT%/*}/orzmc-backups")"
 

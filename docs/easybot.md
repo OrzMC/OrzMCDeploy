@@ -21,7 +21,9 @@ EasyBot 网关
 ```
 
 - EasyBot 监听器**仅支持 HTTP**，TLS 由边缘层承担：prod=Cloudflare 边缘，
-  local=Caddy。故其端口只 `expose`，不发布到宿主机。
+  local=Caddy；**lan 无边缘层**（`compose.lan.yaml` 把 easybot 发布宿主
+  `LAN_EASYBOT_PORT`，纯 HTTP，仅限可信局域网，见 ADR-012）。故端口默认只 `expose`、
+  不发布到宿主机（prod/local；lan 例外发布）。
 - **插件 API 仅内网**：插件跑在 `orzmc_default` 网络内，直连 `http://easybot:8080`
   （REST 与 WS 同端口，内网无需 TLS）。不存在 `easybot-api` 公网域名。
   - 先决条件：MCSManager 创建 PaperMC 实例时，把实例网络挂到 `orzmc_default`，
@@ -31,7 +33,8 @@ EasyBot 网关
 ## 管理后台（首次配置）
 
 1. 打开 `https://DOMAIN_EASY_ADMIN`（生产模板中的 `DOMAIN_EASY_ADMIN`，即
-   `easybot.<domain>`）。
+   `easybot.<domain>`；lan 下为 `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`，纯 HTTP，
+   仅限可信局域网）。
 2. 使用 `EASYBOT_ADMIN_PASSWORD` 登录/初始化管理后台。
 3. **API 密钥**：后台 → API 密钥 → 创建「客服类」密钥，得到 `sk-xxxxxxxx`，填入插件 `api_key`。
 4. **会话**：后台 → 会话管理 → 为各平台创建会话，复制**会话 key**（如 `qq:conv_xxxxxxxx`），

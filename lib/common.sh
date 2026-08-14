@@ -3,7 +3,8 @@
 # OrzMC deploy 共享函数库
 #
 # 架构原则：仓库只承载"运行时"，全部配置与数据落在 $DATA_ROOT（统一目录）。
-# 双 Profile：local=Caddy(.localhost 反代) / prod=cloudflared(Cloudflare Tunnel)。
+# 三 Profile：local=Caddy(.localhost 反代) / prod=cloudflared(Cloudflare Tunnel) /
+#            lan=无边缘层直连（compose.lan.yaml 发布源站宿主端口，纯 HTTP，局域网）。
 # 本库统一处理：
 #   - DATA_ROOT 解析与一致性校验
 #   - env 文件（$DATA_ROOT/.env）读写
@@ -25,7 +26,8 @@ TEMPLATES_DIR="${REPO_ROOT}/templates"
 DEFAULT_DATA_ROOT="/srv/orzmc"
 DEFAULT_TEMPLATE="${TEMPLATES_DIR}/env.prod"
 
-# compose 双 Profile：local=Caddy(.localhost) / prod=cloudflared(Cloudflare Tunnel)
+# compose 三 Profile：local=Caddy(.localhost) / prod=cloudflared(Cloudflare Tunnel) /
+# lan=无边缘层直连（compose.lan.yaml 发布宿主端口，纯 HTTP，局域网）
 # 可由 deploy.sh / backup.sh / restore.sh 的 -p/--profile 覆盖
 COMPOSE_PROFILE="${COMPOSE_PROFILE:-prod}"
 
@@ -126,8 +128,13 @@ ensure_easybot_local_config() {
 #   - prod ：__*_BASE__/__MCS_NODE_LINK__ = https://<真实域名>；TLS 校验开启
 #   - local：追加 :<PROXY_HTTPS_PORT>（.localhost）；TLS 为 Caddy 本地 CA，
 #            status 服务 extra_hosts 把 *.localhost 解析到宿主，校验关闭
+#   - lan  ：按钮 base = http://<LAN_HOST_IP>:<LAN_*_PORT>（无边缘层，纯 HTTP，局域网）；
+#            健康检查端点 __*_ENDPOINT__ 改用内网 URL——gatus 容器经宿主真实 LAN IP
+#            访问发布端口会超时（macOS Docker Desktop 实测，见 ADR-012），内网探测
+#            只验证进程存活；__TLS_INSECURE__=false
 ensure_status_config() {
-    local target mcs_base easy_base node_link tls_insecure status_port https_port
+    local target mcs_base easy_base node_link mcs_endpoint easy_endpoint tls_insecure \
+          status_port https_port lan_ip lan_web lan_eb lan_daemon
     target="$DATA_ROOT/status/config.yaml"
     if [ -f "$target" ]; then
         info "status config 已存在: $target"
@@ -148,12 +155,34 @@ ensure_status_config() {
             node_link="${node_link}:${https_port}"
             tls_insecure="true"
             ;;
+        lan)
+            # 无边缘层纯 HTTP：按钮链接用宿主发布端口（LAN_*_PORT），面向局域网真机
+            # 浏览器；健康检查端点走内网 URL（gatus 容器经 LAN_HOST_IP 访问发布端口
+            # 会超时——macOS Docker Desktop 实测容器不可达宿主真实 LAN IP，ADR-012）。
+            # daemon 直连入口仅作 daemon API（key 鉴权），浏览器「网页直连」终端不可用（ADR-011）。
+            lan_ip="$(read_env_value LAN_HOST_IP)"
+            [ -n "$lan_ip" ] || die "lan profile 缺少 LAN_HOST_IP（status 链接生成需要）"
+            lan_web="$(read_env_value LAN_MCS_WEB_PORT)";  [ -n "$lan_web" ]  || lan_web="18090"
+            lan_eb="$(read_env_value LAN_EASYBOT_PORT)";   [ -n "$lan_eb" ]   || lan_eb="18091"
+            lan_daemon="$(read_env_value LAN_MCS_DAEMON_PORT)"; [ -n "$lan_daemon" ] || lan_daemon="24444"
+            mcs_base="http://${lan_ip}:${lan_web}"
+            easy_base="http://${lan_ip}:${lan_eb}"
+            node_link="http://${lan_ip}:${lan_daemon}"
+            mcs_endpoint="http://mcsmanager-web:$(read_env_value MCS_WEB_PORT)"
+            easy_endpoint="http://easybot:$(read_env_value EASYBOT_PORT)"
+            tls_insecure="false"
+            ;;
     esac
+    # 非 lan 下端点与按钮同源（真实入口，可测可达性）
+    [ -n "$mcs_endpoint" ] || mcs_endpoint="$mcs_base"
+    [ -n "$easy_endpoint" ] || easy_endpoint="$easy_base"
     status_port="$(read_env_value STATUS_PORT)"
     [ -n "$status_port" ] || status_port="8080"
     sed -e "s#__MCS_WEB_BASE__#${mcs_base}#g" \
         -e "s#__EASY_ADMIN_BASE__#${easy_base}#g" \
         -e "s#__MCS_NODE_LINK__#${node_link}#g" \
+        -e "s#__MCS_WEB_ENDPOINT__#${mcs_endpoint}#g" \
+        -e "s#__EASY_ADMIN_ENDPOINT__#${easy_endpoint}#g" \
         -e "s#__TLS_INSECURE__#${tls_insecure}#g" \
         -e "s#__STATUS_PORT__#${status_port}#g" \
         "$TEMPLATES_DIR/gatus-config.yml" > "$target"
@@ -284,9 +313,11 @@ ensure_data_dirs() {
 
 # ---- compose 统一入口 ----------------------------------------------------
 # compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件；
-# --profile 按 COMPOSE_PROFILE 选择边缘层（local=caddy / prod=cloudflared）。
+# --profile 按 COMPOSE_PROFILE 选择边缘层（local=caddy / prod=cloudflared /
+# lan=无边缘层，追加 compose.lan.yaml 发布源站宿主端口）。
 compose_cmd() {
     local file profile="${COMPOSE_PROFILE:-prod}"
+    local -a extra=()
     file="$(env_file)"
     [ -f "$file" ] || die "缺少 ${file}，请先执行 init"
     case "$profile" in
@@ -296,9 +327,14 @@ compose_cmd() {
         prod)
             [ -f "$DATA_ROOT/cloudflared/config.yml" ] || die "缺少 cloudflared/config.yml，请先执行 init 并配置 CLOUDFLARE_TUNNEL_ID"
             ;;
-        *) die "未知 profile: ${profile}（可选 prod|local）" ;;
+        lan)
+            # 无边缘层：--profile lan 下 reverse-proxy/cloudflared 均不匹配不运行；
+            # 追加 compose.lan.yaml 给 4 个源站发布宿主端口（纯 HTTP，局域网）
+            extra=(-f "${COMPOSE_FILE%.yaml}.lan.yaml")
+            ;;
+        *) die "未知 profile: ${profile}（可选 prod|local|lan）" ;;
     esac
-    docker compose --env-file "$file" -f "$COMPOSE_FILE" --profile "$profile" "$@"
+    docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" --profile "$profile" "$@"
 }
 
 # ---- 校验 ---------------------------------------------------------------
@@ -330,12 +366,26 @@ REQUIRED_ENV_VARS_LOCAL=(
     MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
 )
 
+# lan：无边缘层直连（compose.lan.yaml 发布宿主端口）。无 DOMAIN_*/CLOUDFLARE_TUNNEL_ID/
+# CADDY_EMAIL；LAN_HOST_IP 为局域网访问入口（Gatus 按钮与 init 打印用），LAN_*_PORT
+# 为宿主发布端口（避开 local Caddy 的 18080/18443 与实例端口 25565/25566）。
+REQUIRED_ENV_VARS_LAN=(
+    TZ LAN_HOST_IP
+    LAN_MCS_WEB_PORT LAN_EASYBOT_PORT LAN_STATUS_PORT LAN_MCS_DAEMON_PORT
+    EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
+    MCS_WEB_PORT MCS_DAEMON_PORT
+    STATUS_PORT
+    QQBOT_APP_ID QQBOT_CLIENT_SECRET
+    MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
+)
+
 validate_required_env() {
     local k v list
     case "${COMPOSE_PROFILE:-prod}" in
         local) list=("${REQUIRED_ENV_VARS_LOCAL[@]}") ;;
         prod)  list=("${REQUIRED_ENV_VARS_PROD[@]}") ;;
-        *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local）" ;;
+        lan)   list=("${REQUIRED_ENV_VARS_LAN[@]}") ;;
+        *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
     esac
     for k in "${list[@]}"; do
         v="$(read_env_value "$k")"
@@ -352,14 +402,25 @@ print_access_info() {
     status_domain="$(read_env_value DOMAIN_STATUS)"
     profile="${COMPOSE_PROFILE:-prod}"
     echo "访问地址（profile: ${profile}）:"
-    if [ "$profile" = "prod" ]; then
-        # prod：Cloudflare 边缘终止 TLS，标准 443，无端口后缀
-        echo "  MCSManager Web: https://${mcs_web}"
-        echo "  EasyBot 管理后台: https://${easy_admin}"
-        echo "  统一状态页: https://${status_domain}"
-    else
-        echo "  MCSManager Web: https://${mcs_web}:$(read_env_value PROXY_HTTPS_PORT)"
-        echo "  EasyBot 管理后台: https://${easy_admin}:$(read_env_value PROXY_HTTPS_PORT)"
-        echo "  统一状态页: https://${status_domain}:$(read_env_value PROXY_HTTPS_PORT)"
-    fi
+    case "$profile" in
+        prod)
+            # prod：Cloudflare 边缘终止 TLS，标准 443，无端口后缀
+            echo "  MCSManager Web: https://${mcs_web}"
+            echo "  EasyBot 管理后台: https://${easy_admin}"
+            echo "  统一状态页: https://${status_domain}"
+            ;;
+        lan)
+            # lan：无边缘层纯 HTTP，局域网设备用 http://<LAN_HOST_IP>:<LAN_*_PORT>
+            echo "  MCSManager Web: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_MCS_WEB_PORT)"
+            echo "  EasyBot 管理后台: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_EASYBOT_PORT)"
+            echo "  统一状态页: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_STATUS_PORT)"
+            echo "  MCSManager Daemon: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_MCS_DAEMON_PORT)"
+            ;;
+        *)
+            # local：Caddy 本地 CA，.localhost + 非特权端口
+            echo "  MCSManager Web: https://${mcs_web}:$(read_env_value PROXY_HTTPS_PORT)"
+            echo "  EasyBot 管理后台: https://${easy_admin}:$(read_env_value PROXY_HTTPS_PORT)"
+            echo "  统一状态页: https://${status_domain}:$(read_env_value PROXY_HTTPS_PORT)"
+            ;;
+    esac
 }

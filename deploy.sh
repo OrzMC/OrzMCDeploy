@@ -12,7 +12,8 @@
 #   deploy.sh print-root
 #
 # DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 默认 /srv/orzmc
-# PROFILE：prod（默认，cloudflared/Cloudflare Tunnel）| local（Caddy/.localhost）。
+# PROFILE：prod（默认，cloudflared/Cloudflare Tunnel）| local（Caddy/.localhost）|
+#          lan（无边缘层直连，compose.lan.yaml 发布源站宿主端口，纯 HTTP，局域网）。
 # 全部 compose 调用统一走 lib/common.sh 的 compose_cmd（显式 --env-file + --profile）。
 # ===========================================================================
 
@@ -36,8 +37,9 @@ usage() {
   deploy.sh [-d DATA_ROOT] [-p PROFILE] templates [--diff|--force]  # 边缘层配置模板同步
   deploy.sh print-root                                              # 打印解析后的 DATA_ROOT
 
-PROFILE: prod（默认，cloudflared）| local（Caddy）。
-  local 模式下 init 生成 Caddyfile，prod 模式下 init 生成 cloudflared/config.yml。
+PROFILE: prod（默认，cloudflared）| local（Caddy）| lan（无边缘层直连）。
+  local 模式下 init 生成 Caddyfile，prod 模式下 init 生成 cloudflared/config.yml，
+  lan 模式无边缘层配置（compose.lan.yaml 发布源站宿主端口，纯 HTTP）。
 EOF
 }
 
@@ -75,8 +77,8 @@ done
 
 export DATA_ROOT   # 确保 compose 替换使用与脚本一致的值（shell env 优先于 --env-file）
 case "$COMPOSE_PROFILE" in
-    prod|local) ;;
-    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local）" ;;
+    prod|local|lan) ;;
+    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
 esac
 [ "$#" -ge 1 ] || { usage; exit 1; }
 CMD="$1"; shift
@@ -91,6 +93,7 @@ cmd_init() {
     case "$COMPOSE_PROFILE" in
         local) ensure_caddyfile ;;
         prod)  ensure_cloudflared_config ;;
+        lan)   : ;;  # lan 无边缘层，无 Caddyfile / cloudflared config 可生成
     esac
     info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
@@ -134,6 +137,11 @@ cmd_templates() {
             src="$TEMPLATES_DIR/cloudflared-config.yml"
             target="$DATA_ROOT/cloudflared/config.yml"
             hint="cloudflared 启动时读取 config.yml，请执行: deploy.sh stop && deploy.sh up"
+            ;;
+        lan)
+            # lan 无边缘层，没有可同步的边缘层模板（gatus/easybot 配置由 init 生成）
+            info "lan profile 无边缘层模板可同步（无 Caddy / cloudflared）"
+            return 0
             ;;
     esac
     [ -f "$src" ] || die "模板不存在: $src"
