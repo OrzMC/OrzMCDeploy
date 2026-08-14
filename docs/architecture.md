@@ -43,10 +43,13 @@
   （REST + WebSocket 同端口，内网无 TLS）。
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 网络，直连 `mariadb:3306`
   （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件使用。
-- **daemon 经边缘入口可达**：MCSManager 连接模型要求面板浏览器直连 daemon
-  （终端/控制台/文件管理器），生产 `mcs-node.<domain>`（Cloudflare）、本地
-  `mcs-node.localhost`（Caddy）反代到 `mcsmanager-daemon:24444`；daemon 全部业务
-  路由密钥鉴权，无 key 无权限。
+- **daemon 连接（面板内网直连；浏览器终端受限，ADR-011）**：面板**服务端**连接 daemon 走
+  Docker 内网直连——节点配置 `ip=ws://mcsmanager-daemon:24444`（官方默认部署模型；勿填
+  隧道 URL `wss://mcs-node.<domain>:443`：daemon 的 socket.io 在 cloudflared 转发下会被
+  自身 koa 确定性拦截，节点永远离线）。`mcs-node.<domain>` 入口仍保留，设计供浏览器直连
+  daemon（终端/控制台/文件管理器，密钥鉴权），但生产下受同一 koa 拦截**当前不可用**
+  （已知限制）；本地 Caddy 不受影响，`mcs-node.localhost` 可用。daemon 全部业务路由
+  密钥鉴权，无 key 无权限。
 - 所有服务端口只 `expose`，不发布宿主机端口（PaperMC 实例端口 `25565` 由 MCSManager
   按实例配置映射，供玩家局域网直连）。
 
@@ -67,7 +70,7 @@
 |---|---|---|
 | `mcs.<domain>` | MCSManager 面板 | `DOMAIN_MCS_WEB` |
 | `easybot.<domain>` | EasyBot 管理后台 | `DOMAIN_EASY_ADMIN` |
-| `mcs-node.<domain>` | MCSManager daemon/节点（浏览器直连，密钥鉴权） | `DOMAIN_MCS_NODE` |
+| `mcs-node.<domain>` | MCSManager daemon/节点（浏览器直连，密钥鉴权；prod 下受限，ADR-011） | `DOMAIN_MCS_NODE` |
 | `orzmcs.<domain>` | 统一状态页（Gatus，聚合入口 + 实时健康，无鉴权仅状态） | `DOMAIN_STATUS` |
 
 约定：**子域名 = 产品代号，无后缀即该产品管理控制台**；daemon 组件在代号后加
@@ -78,8 +81,10 @@
 
 1. 管理浏览器 → Cloudflare 边缘（TLS）→ cloudflared（出站隧道，compose 网络内按
    hostname 路由）→ `mcsmanager-web:23333`（面板）/ `easybot:8080`（后台）。
-2. 管理浏览器 → `mcs-node.<domain>` → Cloudflare 边缘 → `mcsmanager-daemon:24444`
-   （**浏览器直连** daemon，密钥鉴权；面板服务端不代理 daemon）。
+2. 面板服务端 → `ws://mcsmanager-daemon:24444`（Docker 内网直连，节点配置的 ip/port，
+   不经边缘、不经代理；ADR-011）。浏览器直连 daemon（终端/文件管理）经
+   `mcs-node.<domain>` 入口，生产下因 daemon koa 拦截 socket.io 受限（已知问题，ADR-011）；
+   本地 Caddy 路径可用。
 3. 管理浏览器 → `orzmcs.<domain>` → Cloudflare 边缘 → `status:8080`（Gatus 统一状态页，
    聚合产品入口 + 实时健康；页面无鉴权，仅服务名与状态、不含密钥）。
 4. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
@@ -164,7 +169,10 @@ $DATA_ROOT/
 
 ### ADR-005：daemon 经边缘层入口暴露（mcs-node，密钥鉴权）（2026-08-13，Phase 2）
 
-- **状态**：已实施。
+- **状态**：已实施；**面板↔daemon 传输层由 ADR-011 修正**——面板服务端连接 daemon 改走
+  Docker 内网直连（节点配置 `ip=ws://mcsmanager-daemon:24444`），不再填隧道 URL；
+  `mcs-node.<domain>` 入口仍保留（设计供浏览器直连终端/文件管理，prod 下受 koa 拦截
+  限制为已知问题）。
 - **背景**：MCSManager 连接模型要求面板浏览器**直连** daemon（终端/控制台/文件管理器
   经 WebSocket，面板服务端不代理 daemon）。内网地址 `mcsmanager-daemon:24444` 在浏览器
   侧不可解析，面板报"无法连接到远程节点"。
@@ -172,8 +180,8 @@ $DATA_ROOT/
   反代）转发到 `mcsmanager-daemon:24444`。daemon 全部业务路由要求密钥鉴权
   （`checkLogin` 校验 key + session），无 key 即拒绝，公网暴露不扩大权限面。
 - **影响**：环境变量新增 `DOMAIN_MCS_NODE`；`cloudflared-config.yml` / `Caddyfile`
-  ingress 各加一条；MCSManager 节点配置 `ip=wss://mcs-node.<domain>:443`。命名沿用
-  约定（产品代号 `mcs` + 组件 `-node`），避免泛化子域名占用。
+  ingress 各加一条；MCSManager 节点配置 `ip=wss://mcs-node.<domain>:443`（ADR-011 后改
+  内网直连）。命名沿用约定（产品代号 `mcs` + 组件 `-node`），避免泛化子域名占用。
 
 ### ADR-006：macOS Docker Desktop 写盘走宿主用户（uid 例外）（2026-08-13，Phase 2）
 
@@ -269,6 +277,36 @@ $DATA_ROOT/
     ingress、`status/config.yaml`（删后 `init` 重新生成，遵循"绝不覆盖"）。
   - DNS：新增 `orzmcs.<domain>` CNAME，清理旧 `status.<domain>` 记录（通配符下旧名虽可解析
     但不再路由到隧道，必须显式删）。
+
+### ADR-011：面板↔daemon 改 Docker 内网直连（隧道 socket.io 被 daemon koa 拦截）（2026-08-14）
+
+- **状态**：已实施。
+- **背景**：面板「节点管理」中 `orzmc-daemon` 离线/异常，状态页同步显示测试服不健康。
+  面板经隧道 URL `wss://mcs-node.<domain>:443/socket.io` 连接 daemon。排查排除了三层：
+  ① 宿主 fake-ip 代理（Clash/Surge 类）把域名解析成 198.18.0.0/15 假地址（`dns:` 覆写
+  缓解，非根因）；② Node ≥17 verbatim 解析（AAAA 优先）+ 容器无 IPv6 路由 → ENETUNREACH
+  （`NODE_OPTIONS=--dns-result-order=ipv4first` 缓解，仍非根因）；③ **真正根因**——daemon
+  的 socket.io（挂同一 httpServer）事件分发在 **cloudflared 转发路径下会被自身 koa 确定性
+  拦截**：koa 是 'request' 监听 #1、socket.io 是监听 #2，直连时 socket.io 先赢，经
+  cloudflared 转发时 koa 恒赢 → 轮询 404 / WebSocket EOF。全 Cloudflare 头、keep-alive 复用
+  均无法复现，属 cloudflared 转发路径 + daemon 事件分发层的固有问题；**daemon 镜像不可改**。
+- **决策**：
+  - 面板节点配置 `ip` 由 `wss://mcs-node.<domain>` + `port 443` 改为 **`ws://mcsmanager-daemon`
+    + `port 24444`**（Docker 网络内直连，即 MCSManager 官方默认部署模型；apiKey 不变）。
+  - 改节点配置属**运行时数据**（`$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/*.json`，
+    不入库）；改后需 `docker restart orzmc-mcsmanager-web`（仅改 JSON 不重建容器）。
+  - 移除 investiga 期在 compose.yaml `mcsmanager-web` 加的 `dns:` / `NODE_OPTIONS`
+    （连接已内网化，注释过时）；cloudflared 的 `dns:` 隧道加固仍保留。
+- **影响**：
+  - 面板↔daemon 连接不再依赖公网域名，天然避开 fake-ip 与 IPv6 路径；节点上线稳定
+    （验证：面板「远程节点 orzmc-daemon 已连接 / 密钥验证通过」，daemon「会话验证身份成功」）。
+  - **浏览器直连 daemon**（终端/控制台/文件管理器，前端按节点 ip/port 拼 socket.io）在
+    prod 下本就走隧道 `mcs-node.<domain>`、同样被 koa 拦截而**本就不可用**；改内网后浏览器
+    解析不到 `mcsmanager-daemon` → **无功能回退**。`mcs-node.<domain>` 入口保留（设计供
+    浏览器直连），当前为已知限制。本地 Caddy 不受此 koa 拦截影响，`mcs-node.localhost` 可用。
+  - 后续新增远程节点一律在面板填**内网地址** `ws://mcsmanager-daemon:24444`（勿填隧道 URL；
+    usage.md §6.2 已如此指引）。
+  - 文档同步：`AGENTS.md` §4、`docs/usage.md` §1.2/§6.2、`EXECUTION_PATH.md`。
 
 ## 7. 演进路径
 

@@ -658,3 +658,32 @@
 - 附带修复（compose.yaml）：`cloudflared` 服务加 `dns: [223.5.5.5, 1.1.1.1]`——重启时发现
   宿主 fake-ip 代理（Clash/Surge 类）把 Cloudflare 边缘主机名解析成 198.18.0.0/15 假地址，
   导致 QUIC 控制连接失败、隧道 530；显式公网 DNS 后隧道恢复（sin18，4 入口全部 200）。
+
+### 2026-08-14 面板↔daemon 节点离线：改内网直连（隧道 socket.io 被 daemon koa 拦截）
+
+- 背景：状态页仅 PaperMC 测试服不健康，且面板「节点管理」里 `orzmc-daemon` 离线/异常。
+- 根因链（逐层排除）：
+  1. 宿主 fake-ip 代理（Clash/Surge）把 `mcs-node.jokerhub.cn` 解析成 198.18.0.0/15 假地址
+     → 面板容器内无法连接（曾用 `dns:` 覆写缓解，但**非根因**）。
+  2. Node ≥17 verbatim 解析（AAAA 优先）+ 面板容器无 IPv6 路由 → ENETUNREACH（曾用
+     `NODE_OPTIONS=--dns-result-order=ipv4first` 缓解，**仍非根因**）。
+  3. **真正根因**：面板经隧道 URL `wss://mcs-node.jokerhub.cn:443/socket.io` 连 daemon 时，
+     daemon 内部 koa（httpServer 'request' 监听 #1）**确定性抢在** socket.io（监听 #2）之前
+     处理转发来的请求 → 轮询 404 / WebSocket EOF；直连、全 Cloudflare 头、keep-alive 复用
+     均复现不了，属 cloudflared 转发路径 + daemon 事件分发层的固有问题；**daemon 镜像不可改**。
+- 修复（**运行时数据**，落 `$DATA_ROOT`，不入库）：面板节点配置
+  `mcsmanager/web/data/RemoteServiceConfig/<uuid>.json` 的 `ip` 由 `wss://mcs-node.jokerhub.cn`
+  + `port 443` 改为 **`ws://mcsmanager-daemon` + `port 24444`**（Docker 内网直连，即
+  MCSManager 官方默认部署模型；apiKey 不变，与 daemon key 匹配）。改后 `docker restart
+  orzmc-mcsmanager-web` 生效（改 compose 不重建容器、改 JSON 需重启进程）。
+- 验证（稳定 >90s 无 exception）：面板日志 `远程节点 orzmc-daemon 已连接` +
+  `密钥验证通过`；daemon 日志 `会话 ... 验证身份成功`。
+- 影响与已知限制：
+  - **浏览器直连 daemon**（终端/控制台/文件管理器，前端按节点 ip/port 拼 socket.io）在
+    prod 下本就走隧道 `mcs-node.<domain>`，同样被 koa 拦截而**本就不可用**；改为内网后
+    浏览器解析不到 `mcsmanager-daemon` → **无功能回退**（两者都不通）。Local（Caddy）
+    不受此 koa 拦截影响，`mcs-node.localhost` 入口保留可用。详见 ADR-011。
+  - 移除 investiga 期在 compose.yaml `mcsmanager-web` 加的 `dns:` + `NODE_OPTIONS`
+    （连接已内网化，注释过时；cloudflared 的 `dns:` 隧道加固仍保留）。
+  - 后续新增远程节点一律在面板填**内网地址** `ws://mcsmanager-daemon:24444`，勿填隧道 URL
+    （usage.md §6.2 已如此指引）。

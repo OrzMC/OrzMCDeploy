@@ -79,8 +79,11 @@ flowchart TB
 - **本地（local）**：换成 Caddy 反代 `.localhost` 域名 + 本地 CA，用于本机验证。
 - **插件 API 仅内网**：PaperMC 插件挂 `orzmc_default` 网络，直连 `http://easybot:8080`，
   不走公网，没有 `easybot-api` 域名。
-- **daemon 直连**：面板浏览器需直连 daemon 才能用终端/文件管理，经 `mcs-node.<domain>`
-  （生产）或 `mcs-node.localhost`（本地）入口，daemon 全部业务路由要 **daemon key** 鉴权。
+- **daemon 连接**：面板服务端**内网直连** daemon——节点配置填 `ws://mcsmanager-daemon:24444`，
+  勿填隧道 URL（daemon 的 socket.io 在 cloudflared 转发下被自身 koa 拦截，节点离线；
+  ADR-011）。`mcs-node.<domain>` 入口仍保留，设计供浏览器直连 daemon（终端/文件管理），
+  但生产下受同一 koa 拦截**当前不可用**（已知限制）。daemon 全部业务路由要
+  **daemon key** 鉴权。
 
 ### 1.3 术语表
 
@@ -477,13 +480,18 @@ MCSManager 需要把 **daemon** 作为"节点"接入 Web 端：
    字段（权限 600，属最高权限密钥，不要外泄）。
 4. 保存后节点应显示 `connected`（已连接）。
 
-### 6.3 面板直连 daemon
+### 6.3 节点连接地址（内网直连，ADR-011）
 
-MCSManager 的连接模型要求**面板浏览器直连 daemon**（终端/控制台/文件管理器走
-WebSocket）。添加节点后，把节点设置里的**连接地址**改为公网/本地直连入口：
+节点的「连接地址」同时被**面板服务端**（实例生命周期管理）与**浏览器**（终端/控制台/
+文件管理）使用。**一律填内网地址** `ws://mcsmanager-daemon:24444`（与 §6.2 一致）：
 
-- 生产：`wss://mcs-node.<domain>:443`（或 `https://mcs-node.<domain>`）
-- 本地：`https://mcs-node.localhost:18443`
+- **面板服务端**经 Docker 内网直连 daemon → 实例启动/停止/配置/状态管理稳定可用。
+- **勿填**公网隧道地址 `wss://mcs-node.<domain>:443`：daemon 的 socket.io 在 cloudflared
+  转发路径下会被自身 koa 确定性拦截（轮询 404 / WebSocket EOF），节点永远离线
+  （ADR-011；§6.2 填内部地址即已规避）。
+- **浏览器直连**（终端/控制台/文件管理）在 prod 下本就走隧道、同样被拦截，**当前不可用**
+  （daemon 镜像不可改，已知限制）；内网主机名浏览器侧也不可解析，无回退。本地 Caddy
+  不受该 koa 拦截影响，`mcs-node.localhost` 入口保留。
 
 daemon 全部业务路由要求 daemon key 鉴权，无 key 无权限——这是有意的安全边界。
 

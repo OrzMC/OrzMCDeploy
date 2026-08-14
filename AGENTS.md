@@ -55,10 +55,13 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 内网直连 `mariadb:3306`
   （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件
   （Dynmap/CoreProtect/LuckPerms/Towny 等）使用；数据落 `$DATA_ROOT/database/mariadb`。
-- **daemon 经边缘层入口可达**：MCSManager 连接模型要求面板浏览器**直连** daemon
-  （终端/控制台/文件管理器，WebSocket）；生产 `mcs-node.<domain>`（Cloudflare）、
-  本地 `mcs-node.localhost`（Caddy）反代到 `mcsmanager-daemon:24444`。daemon 全部
-  业务路由要求密钥鉴权，无 key 无权限。
+- **daemon 连接：面板服务端内网直连，浏览器终端受限**：MCSManager 面板**服务端**连接
+  daemon 走 Docker 内网直连——节点配置 `ip` 填 `ws://mcsmanager-daemon:24444`，**勿填**
+  隧道 URL `wss://mcs-node.<domain>:443`（daemon 的 socket.io 在 cloudflared 转发路径下
+  会被自身 koa 确定性拦截，节点永远离线；ADR-011）。`mcs-node.*` 入口仍保留，设计供
+  面板浏览器直连 daemon（终端/控制台/文件管理器，密钥鉴权），但生产下受同一 koa 拦截
+  当前不可用（已知限制）；本地 Caddy 路径不受影响。daemon 全部业务路由要求密钥鉴权，
+  无 key 无权限。
 - 所有服务端口只 `expose`，**不发布宿主机端口**（PaperMC 实例端口 `25565` 由
   MCSManager 按实例配置映射，供玩家局域网直连）。
 
