@@ -306,6 +306,8 @@ $DATA_ROOT/
     prod 下本就走隧道 `mcs-node.<domain>`、同样被 koa 拦截而**本就不可用**；改内网后浏览器
     解析不到 `mcsmanager-daemon` → **无功能回退**。`mcs-node.<domain>` 入口保留（设计供
     浏览器直连），当前为已知限制。本地 Caddy 不受此 koa 拦截影响，`mcs-node.localhost` 可用。
+    面板节点详情页「网页直连」状态因此显示**异常**——预期现象，非故障；面板服务端的实例
+    管理（启动/停止/配置/状态）经内网连接不受影响。
   - 后续新增远程节点一律在面板填**内网地址** `ws://mcsmanager-daemon:24444`（勿填隧道 URL；
     usage.md §6.2 已如此指引）。
   - 文档同步：`AGENTS.md` §4、`docs/usage.md` §1.2/§6.2、`EXECUTION_PATH.md`。
