@@ -817,3 +817,37 @@
   标注被回改/部分推翻）、`docs/usage.md`（§1.2/§5/§6.2/§6.3）。
 - 证据：节点配置 ip/port（备份在 `$DATA_ROOT/backups/RemoteServiceConfig-*.bak-pre-tunnel-20260815`）、
   面板/daemon 日志连接 + 鉴权记录、本记录。
+
+### 2026-08-15 三档验收实录（prod / local / lan 全 PASS + ADR-014）
+
+- 当前阶段：Phase 3 — 运维动作标准化；三档（prod/local/lan）**实际验收完成**，浏览器终端直连
+  三档全部可用。完整实录、清单、问题与解决见 **`docs/acceptance.md`**（后续验收直接照做）。
+- 验收方式：平台层容器 + 入口可达 + 面板登录 + 节点连通 + Gatus 状态页 + 用户浏览器实际确认。
+- 三档结果（逐档独立验收，用户浏览器确认后算通过）：
+  - **prod**：6 容器 Up、cloudflared 隧道注册、4 公网入口 200、节点 `已连接+密钥验证通过`、
+    mariadb/easybot healthy、gatus 全 UP、25565 可达。**PASS**。
+  - **local**：6 容器 Up（含 caddy，无 cloudflared）、4 `.localhost` 入口 200、`./local.sh validate`
+    PASS、节点 connected、浏览器直连终端可用。**PASS**。
+  - **lan**：5 容器 Up（无边缘层）、4 宿主端口（真实 LAN IP）200、节点 connected、浏览器/局域网
+    设备直连终端可用。**PASS**。
+- 三档节点地址（原则：**面板服务端与浏览器同一地址**）：
+  - prod `wss://mcs-node.jokerhub.cn:443`（隧道，ADR-013）；local `wss://mcs-node.localhost:18443`
+    （Caddy + web `extra_hosts`，ADR-014）；lan `ws://192.168.0.26:24444`（宿主发布端口，ADR-014）。
+- 本次改动（入库）：
+  - `compose.yaml`：`mcsmanager-web` 加 `extra_hosts: ["mcs-node.localhost:host-gateway"]`
+    （local 面板容器把 `.localhost` 解析到宿主 Caddy；prod/lan 未使用无副作用，ADR-014）。
+  - 文档：新增 `docs/acceptance.md`（三档验收实录）；`AGENTS.md` §4、`docs/architecture.md`
+    （§2.1/§2.3/§2.4/§3.2 + 新增 ADR-014 + ADR-011/012/013 状态修订）、`docs/usage.md`
+    （§1.2/§3.4/§6.2/§6.3）按真实流程更新。
+- 发现的问题与解决（详见 acceptance.md §2.3/§3.3/§4.3）：
+  - **local 节点离线**：web 容器无 `extra_hosts`（`.localhost` 解析到自身回环）+ ip 缺 `wss://`
+    → 加 extra_hosts + 节点 ip 改 `wss://mcs-node.localhost:18443`。
+  - **local「网页直连」异常**：浏览器不信任 Caddy 本地根证书 → `security add-trusted-cert`
+    导入 + **完全重启**浏览器（Node 进程不读钥匙串，验证须 `NODE_EXTRA_CA_CERTS`）。
+  - **lan 实例页 `ws://mcsmanager-daemon` 报错**：节点地址改 `ws://<LAN_HOST_IP>:24444`
+    （daemon 端口发布宿主，解除 ADR-011 lan 遗留）。
+  - **`LAN_HOST_IP` 过期**：`.env` 配 `192.168.1.100`（死地址）→ 实际 `192.168.0.26`
+    （`ipconfig getifaddr en0`）；⚠️ DHCP 换 IP 需同步改 `.env` + 状态页 re-init + 节点地址。
+  - **状态页残留「测试服」端点**：模板已删但落盘 `config.yaml` 未变（`ensure_*` 绝不覆盖）
+    → 删文件重新 init + `docker restart orzmc-status`。
+- 证据：本记录 + `docs/acceptance.md`（含三档清单/命令速查）+ 三档节点配置与日志。

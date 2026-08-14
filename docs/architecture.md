@@ -43,12 +43,14 @@
   （REST + WebSocket 同端口，内网无 TLS）。
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 网络，直连 `mariadb:3306`
   （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件使用。
-- **daemon 连接（prod 节点地址 = 隧道 URL，浏览器直连可用，ADR-013）**：prod 节点配置
-  `ip=wss://mcs-node.<domain>:443`，面板服务端与浏览器经 cloudflared 隧道连 daemon（隧道
-  socket.io 已实测可用——ADR-011 的 koa 拦截结论已过时，见 ADR-013），浏览器终端/控制台/
-  文件管理器可用；代价是面板↔daemon 依赖隧道在线。local 走 Caddy `mcs-node.localhost`；
-  lan 无边缘层，浏览器直连终端不可用（解析不了内网主机名，ADR-011 遗留）。daemon 全部
-  业务路由密钥鉴权，无 key 无权限。
+- **daemon 连接（三档浏览器直连均可用，ADR-013 + ADR-014）**：节点地址统一「面板服务端
+  与浏览器同一地址」，按档不同：prod `wss://mcs-node.<domain>:443`（cloudflared 隧道，
+  隧道 socket.io 已实测可用——ADR-011 的 koa 拦截结论已过时，见 ADR-013）；local
+  `wss://mcs-node.localhost:18443`（Caddy，web 容器 `extra_hosts: mcs-node.localhost:
+  host-gateway` 使容器把 `.localhost` 解析到宿主，ADR-014）；lan `ws://<LAN_HOST_IP>:
+  <LAN_MCS_DAEMON_PORT>`（daemon 端口本就发布到宿主，浏览器/局域网设备经 LAN IP 可达，
+  解除 ADR-011 lan 遗留，ADR-014）。三档浏览器终端/控制台/文件管理器均可用；prod 代价是
+  面板↔daemon 依赖隧道在线。daemon 全部业务路由密钥鉴权，无 key 无权限。
 - 所有服务端口只 `expose`，不发布宿主机端口（PaperMC 实例端口 `25565` 由 MCSManager
   按实例配置映射，供玩家局域网直连）。
 
@@ -81,9 +83,10 @@
   25565/25566）。局域网设备用 `http://<LAN_HOST_IP>:<port>` 访问。
 - **纯 HTTP、无域名/TLS**：`LAN_HOST_IP`（宿主局域网 IP）+ `LAN_*_PORT` 取代
   `DOMAIN_*`，无 `CLOUDFLARE_TUNNEL_ID` / `CADDY_EMAIL`；TLS 终止不做（可信内网假设）。
-- **daemon 节点地址不变**：仍内网直连 `ws://mcsmanager-daemon:24444`（ADR-011），零改动；
-  浏览器「网页直连」终端在 lan 下依旧不可用（浏览器解析不了 `mcsmanager-daemon`）。
-  发布的 daemon 端口仅作 daemon API 入口（key 鉴权）。
+- **daemon 节点地址 = LAN IP（ADR-014）**：节点配置 `ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`
+  ——面板容器经宿主网络、浏览器/局域网设备经 LAN IP，同一地址双向可达，浏览器「网页直连」
+  终端**可用**（解除 ADR-011 lan 遗留）。⚠️ LAN IP 多为 DHCP，换 IP 需同步改 `.env` 与
+  节点配置。
 - **Gatus 健康检查走内网 URL**：lan 下 `ensure_status_config` 把端点 `url` 设为
   `http://mcsmanager-web:23333` / `http://easybot:8080`（hide-url），按钮仍用
   `LAN_HOST_IP`——gatus 容器经宿主真实 LAN IP 访问发布端口会超时（macOS Docker Desktop
@@ -95,7 +98,7 @@
 |---|---|---|
 | `mcs.<domain>` | MCSManager 面板 | `DOMAIN_MCS_WEB` |
 | `easybot.<domain>` | EasyBot 管理后台 | `DOMAIN_EASY_ADMIN` |
-| `mcs-node.<domain>` | MCSManager daemon/节点（浏览器直连，密钥鉴权；prod 可用，ADR-013） | `DOMAIN_MCS_NODE` |
+| `mcs-node.<domain>` | MCSManager daemon/节点（浏览器直连，密钥鉴权；三档均可用，ADR-013/014） | `DOMAIN_MCS_NODE` |
 | `orzmcs.<domain>` | 统一状态页（Gatus，聚合入口 + 实时健康，无鉴权仅状态） | `DOMAIN_STATUS` |
 
 约定：**子域名 = 产品代号，无后缀即该产品管理控制台**；daemon 组件在代号后加
@@ -108,10 +111,11 @@
 
 1. 管理浏览器 → Cloudflare 边缘（TLS）→ cloudflared（出站隧道，compose 网络内按
    hostname 路由）→ `mcsmanager-web:23333`（面板）/ `easybot:8080`（后台）。
-2. 面板服务端 → `wss://mcs-node.<domain>:443`（cloudflared 隧道，节点配置的 ip/port，
-   与浏览器同地址；ADR-013）。浏览器直连 daemon（终端/文件管理）经 `mcs-node.<domain>`
-   入口，prod 下可用（隧道 socket.io 已实测通过，ADR-013；ADR-011 的 koa 拦截结论
-   已过时）。本地 Caddy 路径可用；lan 无边缘层不可用（浏览器解析不了内网主机名）。
+2. 面板服务端 → 节点地址（与浏览器同一地址，ADR-013 + ADR-014）：prod
+   `wss://mcs-node.<domain>:443`（cloudflared 隧道，浏览器直连终端可用，隧道 socket.io
+   已实测通过——ADR-011 的 koa 拦截结论已过时）；local `wss://mcs-node.localhost:18443`
+   （Caddy，浏览器直连可用）；lan `ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`（宿主发布
+   端口，浏览器/局域网设备直连可用）。三档浏览器终端/控制台/文件管理器均可用。
 3. 管理浏览器 → `orzmcs.<domain>` → Cloudflare 边缘 → `status:8080`（Gatus 统一状态页，
    聚合产品入口 + 实时健康；页面无鉴权，仅服务名与状态、不含密钥）。
 4. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
@@ -308,8 +312,9 @@ $DATA_ROOT/
 ### ADR-011：面板↔daemon 改 Docker 内网直连（隧道 socket.io 被 daemon koa 拦截）（2026-08-14）
 
 - **状态**：已实施；**已被 ADR-013（2026-08-15）部分推翻**——prod 节点地址回改隧道 URL
-  `wss://mcs-node.<domain>:443`，浏览器直连可用；本 ADR 的 koa 拦截结论在当栈已过时。
-  保留为历史决策记录（lan 无边缘层下「浏览器解析不了内网主机名」的限制仍成立）。
+  `wss://mcs-node.<domain>:443`，浏览器直连可用；**ADR-014（2026-08-15）解除剩余限制**——
+  local 用 Caddy + web `extra_hosts`、lan 用 LAN IP 发布端口，三档浏览器直连均可用。
+  本 ADR 的 koa 拦截结论在当栈已过时，保留为历史决策记录。
 - **背景**：面板「节点管理」中 `orzmc-daemon` 离线/异常，状态页同步显示测试服不健康。
   面板经隧道 URL `wss://mcs-node.<domain>:443/socket.io` 连接 daemon。排查排除了三层：
   ① 宿主 fake-ip 代理（Clash/Surge 类）把域名解析成 198.18.0.0/15 假地址（`dns:` 覆写
@@ -358,9 +363,10 @@ $DATA_ROOT/
     避开 local Caddy 的 18080/18443 与实例端口 25565/25566）；无 `DOMAIN_*` /
     `CLOUDFLARE_TUNNEL_ID` / `CADDY_EMAIL`。新增 `lan.sh` 入口（固定 `-p lan` +
     `templates/env.lan`，`DATA_ROOT=.local-data-lan`）。
-  - **daemon 节点连接地址不变**：保持内网直连 `ws://mcsmanager-daemon:24444`，零运行时
-    改动；浏览器「网页直连」终端在 lan 下依旧不可用（ADR-011 限制照常）。发布的 daemon
-    端口仅作 daemon API 入口（key 鉴权）。
+  - **daemon 节点连接地址 = LAN IP（ADR-014 修订）**：初始设计沿用内网直连
+    `ws://mcsmanager-daemon:24444`（ADR-011）；2026-08-15 验收后改为
+    `ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`——daemon 端口本就发布到宿主，面板容器与
+    浏览器经同一地址双向可达，浏览器「网页直连」终端可用（ADR-014）。
   - **Gatus 健康检查走内网 URL**：lan 分支把端点 `url` 改为
     `http://mcsmanager-web:23333` / `http://easybot:8080`（hide-url），按钮仍用
     `LAN_HOST_IP`（面向局域网真机浏览器）。
@@ -402,8 +408,10 @@ $DATA_ROOT/
     `docker restart orzmc-mcsmanager-web`。
   - 浏览器终端/控制台/文件管理器恢复可用（前端按节点 ip/port 拼 socket.io 直连 daemon，
     `wss://mcs-node.<domain>:443` 浏览器可达、协议实测通过）。
-  - lan/local 不受影响：各自 DATA_ROOT 的节点配置保持原样（lan 无边缘层，浏览器解析不了
-    内网主机名，直连终端仍不可用——ADR-011 遗留）。
+  - lan/local 当时保持原样，后续由 ADR-014（2026-08-15）各自解决：local 给 web 容器加
+    `extra_hosts: mcs-node.localhost:host-gateway` 使 `.localhost` 解析到宿主 Caddy；lan
+    节点地址改 `ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`（宿主发布端口）——三档浏览器
+    直连终端均可用。
 - **影响**：
   - 面板↔daemon 从 Docker 内网改为经 Cloudflare 边缘：延迟略增（面板 API 多一跳）、依赖
     隧道在线；`connectOpts` 自带重连（`reconnection:true`）兜底。
@@ -414,6 +422,46 @@ $DATA_ROOT/
     uuid 加载 null）；配置备份一律放 `$DATA_ROOT/backups/`。
   - 文档同步：`AGENTS.md` §4、`docs/architecture.md`（本 ADR + §2.1/§3.2/§2.4）、
     `docs/usage.md`（§1.2/§5/§6.2/§6.3）、`EXECUTION_PATH.md`。
+
+### ADR-014：local/lan 面板节点地址改为浏览器可达地址（三档浏览器直连全部可用）（2026-08-15）
+
+- **状态**：已实施。
+- **背景**：ADR-013 解决 prod 浏览器直连（节点地址回改隧道 URL）。local 与 lan 仍有同
+  一根因的遗留：面板节点地址用 Docker 内网主机名（`mcsmanager-daemon`），浏览器解析不
+  了——local 面板服务端能连、浏览器直连却「异常」；lan 实例页报「浏览器无法连接到地址：
+  ws://mcsmanager-daemon:24444」。本质是违反「节点地址 = 面板服务端与浏览器同一地址」
+  原则（浏览器按节点 ip/port 拼 socket.io 直连 daemon）。
+- **决策**：
+  - **local**：节点配置 `ip=wss://mcs-node.localhost` + `port 18443`（Caddy 非特权 TLS
+    端口）。面板容器把 `.localhost` 按 RFC 6761 解析成自身回环 `127.0.0.1`、连不到宿主
+    Caddy（节点「离线」）——在 `compose.yaml` 的 `mcsmanager-web` 服务加
+    `extra_hosts: ["mcs-node.localhost:host-gateway"]`（`host-gateway` 解析到宿主，Docker
+    ≥20.10；与 status 服务既有 `*.localhost:host-gateway` 做法一致；prod/lan 下该主机名
+    未使用、无副作用）。
+  - **lan**：节点配置 `ip=ws://<LAN_HOST_IP>` + `port <LAN_MCS_DAEMON_PORT>`——daemon
+    端口经 `compose.lan.yaml` 本就发布到宿主（`24444`），面板容器经宿主网络、浏览器/局
+    域网设备经 LAN IP，**同一地址双向可达**；纯 HTTP，无 CA 信任问题。
+  - **local 浏览器 CA 信任（一次性）**：导入 Caddy 本地根证书到钥匙串并**完全重启**浏览器
+    （否则「网页直连」异常）：
+    ```
+    security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain \
+      $DATA_ROOT/caddy/data/caddy/pki/authorities/local/root.crt
+    ```
+    验证技巧：Node 进程不读 macOS 钥匙串，本机 Node 严格 TLS 测试须
+    `NODE_EXTRA_CA_CERTS=<root.crt>` 才能复刻浏览器行为；用 `curl` 不带 `-k` 验证系统信任。
+  - 改节点配置属运行时数据（`$DATA_ROOT/.../RemoteServiceConfig/*.json`，不入库），改后
+    `docker restart orzmc-mcsmanager-web`。
+- **影响**：
+  - 三档浏览器终端/控制台/文件管理器**全部可用**：prod=隧道、local=Caddy、lan=LAN IP；
+    ADR-011「lan 无边缘层下浏览器直连不可用」的遗留**解除**。
+  - **⚠️ LAN IP 多为 DHCP**：换 IP 需同步改 `.env` 的 `LAN_HOST_IP`、删 `status/config.yaml`
+    重新 init（状态页按钮）、并改 lan 节点配置——`LAN_HOST_IP` 过期（曾配 `192.168.1.100`
+    死地址、实际 `192.168.0.26`）会让 lan.sh 入口与状态页按钮全指向不可达地址。
+  - local 浏览器首次使用前需信任 Caddy 本地 CA；Caddy 数据在 `$DATA_ROOT`，重装后需重新
+    信任。lan 无边缘层为明文 HTTP + daemon 端口开放——仅限可信局域网（ADR-012 不变）。
+  - 文档同步：`AGENTS.md` §4、`docs/architecture.md`（本 ADR + §2.1/§2.3/§2.4/§3.2 +
+    ADR-011/012/013 状态修订）、`docs/usage.md`（§1.2/§5/§6.2/§6.3）、
+    `docs/acceptance.md`（三档验收实录）、`EXECUTION_PATH.md`。
 
 ## 7. 演进路径
 

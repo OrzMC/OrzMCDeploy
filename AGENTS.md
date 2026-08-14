@@ -59,14 +59,23 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 内网直连 `mariadb:3306`
   （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件
   （Dynmap/CoreProtect/LuckPerms/Towny 等）使用；数据落 `$DATA_ROOT/database/mariadb`。
-- **daemon 连接（prod 节点地址 = 隧道 URL，浏览器直连可用）**：prod 节点配置 `ip` 填
-  `wss://mcs-node.<domain>:443`——面板服务端与浏览器**同一地址**，经 cloudflared 隧道连
-  daemon。隧道上的 socket.io 已实测可用（polling/websocket + `{uuid,data}` 鉴权全通；
-  ADR-011 的 koa 拦截结论已过时，见 ADR-013），因此 prod 下浏览器**终端/控制台/文件管理
-  器可用**。代价：面板↔daemon 走 Cloudflare 边缘（延迟略增、依赖隧道在线；
-  `connectOpts.reconnection` 兜底重连）。local 走 Caddy `mcs-node.localhost`；lan 无边缘层，
-  浏览器解析不了内网主机名，直连终端不可用（ADR-011 遗留）。daemon 全部业务路由要求
-  密钥鉴权，无 key 无权限。
+- **daemon 连接（三档浏览器直连均可用）**：节点地址统一「面板服务端与浏览器**同一地址**」，
+  按档不同：
+  - **prod**：节点 `ip` 填 `wss://mcs-node.<domain>:443`——经 cloudflared 隧道连 daemon。
+    隧道 socket.io 已实测可用（polling/websocket + `{uuid,data}` 鉴权全通；ADR-011 的 koa
+    拦截结论已过时，见 ADR-013）。代价：面板↔daemon 走 Cloudflare 边缘（延迟略增、依赖
+    隧道在线；`connectOpts.reconnection` 兜底重连）。
+  - **local**：节点 `ip` 填 `wss://mcs-node.localhost` + 端口 `18443`（Caddy 非特权 TLS 端
+    口）；`compose.yaml` 的 `mcsmanager-web` 有 `extra_hosts: mcs-node.localhost:host-gateway`
+    使容器把 `.localhost` 解析到宿主 Caddy（ADR-014）。浏览器直连前须一次性信任 Caddy 本
+    地根证书并完全重启浏览器（`security add-trusted-cert -d -r trustRoot -k
+    ~/Library/Keychains/login.keychain $DATA_ROOT/caddy/data/caddy/pki/authorities/local/root.crt`）。
+  - **lan**：节点 `ip` 填 `ws://<LAN_HOST_IP>` + 端口 `<LAN_MCS_DAEMON_PORT>`——daemon 端口
+    本就发布到宿主，浏览器/局域网设备经 LAN IP 直连，解除 ADR-011 lan 遗留（ADR-014）。
+    ⚠️ LAN IP 多为 DHCP，换 IP 需同步改 `.env` 与节点配置。
+  - 三档浏览器**终端/控制台/文件管理器均可用**；节点配置在
+    `$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/*.json`，改后
+    `docker restart orzmc-mcsmanager-web`。daemon 全部业务路由要求密钥鉴权，无 key 无权限。
 - 服务端口**默认只 `expose`，不发布宿主机端口**（prod/local；PaperMC 实例端口 `25565`
   由 MCSManager 按实例配置映射，供玩家局域网直连）。**lan 直连模式例外**：经
   `compose.lan.yaml` 把 4 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网

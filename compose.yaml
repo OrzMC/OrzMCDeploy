@@ -86,6 +86,11 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/web/data:/opt/mcsmanager/web/data"
       - "${DATA_ROOT}/mcsmanager/web/logs:/opt/mcsmanager/web/logs"
+    extra_hosts:
+      # local：面板服务端（容器）连 daemon 走节点地址 wss://mcs-node.localhost:18443（Caddy，
+      # 与浏览器同一地址，ADR-013）；容器内把 mcs-node.localhost 解析到宿主（Caddy 非特权端口）。
+      # host-gateway 需 Docker ≥20.10（Desktop ≥4.x）；prod/lan 下该主机名未使用，无副作用。
+      - "mcs-node.localhost:host-gateway"
 
   mcsmanager-daemon:
     image: githubyumao/mcsmanager-daemon@sha256:70c69471142047e1670e85858cd0ca64d2ff396566f63c4d2abb489ea37d65cf
