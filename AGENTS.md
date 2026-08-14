@@ -59,13 +59,14 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 内网直连 `mariadb:3306`
   （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件
   （Dynmap/CoreProtect/LuckPerms/Towny 等）使用；数据落 `$DATA_ROOT/database/mariadb`。
-- **daemon 连接：面板服务端内网直连，浏览器终端受限**：MCSManager 面板**服务端**连接
-  daemon 走 Docker 内网直连——节点配置 `ip` 填 `ws://mcsmanager-daemon:24444`，**勿填**
-  隧道 URL `wss://mcs-node.<domain>:443`（daemon 的 socket.io 在 cloudflared 转发路径下
-  会被自身 koa 确定性拦截，节点永远离线；ADR-011）。`mcs-node.*` 入口仍保留，设计供
-  面板浏览器直连 daemon（终端/控制台/文件管理器，密钥鉴权），但生产下受同一 koa 拦截
-  当前不可用（已知限制）；本地 Caddy 路径不受影响。daemon 全部业务路由要求密钥鉴权，
-  无 key 无权限。
+- **daemon 连接（prod 节点地址 = 隧道 URL，浏览器直连可用）**：prod 节点配置 `ip` 填
+  `wss://mcs-node.<domain>:443`——面板服务端与浏览器**同一地址**，经 cloudflared 隧道连
+  daemon。隧道上的 socket.io 已实测可用（polling/websocket + `{uuid,data}` 鉴权全通；
+  ADR-011 的 koa 拦截结论已过时，见 ADR-013），因此 prod 下浏览器**终端/控制台/文件管理
+  器可用**。代价：面板↔daemon 走 Cloudflare 边缘（延迟略增、依赖隧道在线；
+  `connectOpts.reconnection` 兜底重连）。local 走 Caddy `mcs-node.localhost`；lan 无边缘层，
+  浏览器解析不了内网主机名，直连终端不可用（ADR-011 遗留）。daemon 全部业务路由要求
+  密钥鉴权，无 key 无权限。
 - 服务端口**默认只 `expose`，不发布宿主机端口**（prod/local；PaperMC 实例端口 `25565`
   由 MCSManager 按实例配置映射，供玩家局域网直连）。**lan 直连模式例外**：经
   `compose.lan.yaml` 把 4 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网

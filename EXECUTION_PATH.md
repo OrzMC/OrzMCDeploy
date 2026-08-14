@@ -792,3 +792,28 @@
   （digest 锁定精确回退，不触碰 DATA_ROOT）。
 - 证据：本记录 + CI run `31822845873` 绿；`docker logs orzmc-cloudflared` 注册连接；
   `docker logs orzmc-mcsmanager-web` 节点密钥验证通过；实例日志 `Done` + 插件 WS 认证成功。
+
+### 2026-08-15 prod 节点地址回改隧道 URL（浏览器直连终端恢复可用，ADR-013）
+
+- 当前阶段：Phase 3 — 运维动作标准化；ADR-011「面板↔daemon 内网直连」被**实证推翻并回改**。
+- 现象：生产档进入 mcs 实例页提示「浏览器无法连接到地址：`ws://mcsmanager-daemon:24444`」。
+- 根因：节点配置 `ip` 是 Docker 内网主机名（ADR-011 时代改内网直连的遗留），浏览器解析不了。
+- 处置（用户选「节点地址改隧道 URL」）：
+  - 节点配置 `$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/<uuid>.json`：
+    `ip` `ws://mcsmanager-daemon` → `wss://mcs-node.jokerhub.cn`，`port` `24444` → `443`；
+    `apiKey` 原样保留（长度未变）。改后 `docker restart orzmc-mcsmanager-web`（面板启动时读节点配置）。
+  - **隧道 socket.io 实证**（ADR-013）：Engine.IO polling + websocket 传输握手经 cloudflared 全通；
+    按 `{uuid,data}` 信封发 `auth`（`data`=原始 key 字符串）→ 回 `data:true`；daemon 日志确认来自
+    cloudflared `172.18.0.4` 的鉴权；面板 web 日志 `URL: wss://mcs-node.jokerhub.cn:443 已连接 + 密钥验证通过`。
+    ADR-011 的「daemon koa 确定性拦截隧道 socket.io」结论**已过时**（当时未按 `{uuid,data}` 信封测试）。
+  - 恢复后浏览器终端/控制台/文件管理可用；实例仍可管理；全部容器 Up。
+- 事故与教训：
+  - 改配置前把原文件备份为 `.bak` **放进 `RemoteServiceConfig/` 目录** → 面板 crash-loop
+    `Cannot read properties of null (reading 'ip')`：storage `list()` 扫描目录**所有文件**，
+    把 `.bak` 当成第二个节点配置，null 加载即崩。**教训：备份文件严禁放该目录**（移到
+    `$DATA_ROOT/backups/`）；诊断同类崩溃先查目录里有无非配置文件。
+  - macOS `cp` 被 alias 成交互 `-i`，覆盖用 python `shutil.copyfile`（写文件勿依赖 `cp -f`）。
+- 文档同步：`AGENTS.md` §4、`docs/architecture.md`（§2.1/§2.4/§3.2 + 新增 ADR-013，ADR-005/011
+  标注被回改/部分推翻）、`docs/usage.md`（§1.2/§5/§6.2/§6.3）。
+- 证据：节点配置 ip/port（备份在 `$DATA_ROOT/backups/RemoteServiceConfig-*.bak-pre-tunnel-20260815`）、
+  面板/daemon 日志连接 + 鉴权记录、本记录。
