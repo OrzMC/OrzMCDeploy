@@ -87,11 +87,14 @@ fi
 
 # 保留最近 N 份（整机归档 + MariaDB 逻辑备份同一策略）
 if [ -n "$KEEP" ]; then
+    # shellcheck disable=SC2012  # 文件名均为脚本自生成（无空格）；ls -1t 按 mtime 排序
+    # 找最近 N 份是有意为之，且跨 GNU/BSD find 可移植（find -printf 仅 GNU 可用）
     mapfile -t old < <(ls -1t "$BACKUP_DIR"/orzmc-backup-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)))
     for f in "${old[@]}"; do
         rm -f "$f"
         warn "清理旧备份: $f"
     done
+    # shellcheck disable=SC2012  # 同上：脚本自生成文件名 + mtime 排序语义
     mapfile -t old_dumps < <(ls -1t "$DATA_ROOT"/database/dumps/mariadb-all-*.sql 2>/dev/null | tail -n +$((KEEP + 1)))
     for f in "${old_dumps[@]}"; do
         rm -f "$f"

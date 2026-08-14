@@ -24,6 +24,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/compose.yaml"
 TEMPLATES_DIR="${REPO_ROOT}/templates"
 DEFAULT_DATA_ROOT="/srv/orzmc"
+# shellcheck disable=SC2034  # 供 deploy.sh 读取（TEMPLATE 默认值），跨文件可见
 DEFAULT_TEMPLATE="${TEMPLATES_DIR}/env.prod"
 
 # compose 三 Profile：local=Caddy(.localhost) / prod=cloudflared(Cloudflare Tunnel) /
@@ -75,12 +76,13 @@ assert_data_root_matches() {
 
 # init 专用：生成 $DATA_ROOT/.env，绝不覆盖已有文件
 ensure_env_file() {
-    local file template
+    local file
     file="$(env_file)"
     if [ -f "$file" ]; then
         info "env 已存在: $file"
         return 0
     fi
+    # shellcheck disable=SC2153  # TEMPLATE 为调用方（deploy.sh/local.sh/lan.sh）设置的全局
     [ -f "$TEMPLATE" ] || die "env 模板不存在: $TEMPLATE"
     mkdir -p "$DATA_ROOT"
     if grep -q '^DATA_ROOT=' "$TEMPLATE"; then
@@ -133,7 +135,7 @@ ensure_easybot_local_config() {
 #            访问发布端口会超时（macOS Docker Desktop 实测，见 ADR-012），内网探测
 #            只验证进程存活；__TLS_INSECURE__=false
 ensure_status_config() {
-    local target mcs_base easy_base node_link mcs_endpoint easy_endpoint tls_insecure \
+    local target mcs_base easy_base node_link mcs_endpoint="" easy_endpoint="" tls_insecure \
           status_port https_port lan_ip lan_web lan_eb lan_daemon
     target="$DATA_ROOT/status/config.yaml"
     if [ -f "$target" ]; then

@@ -35,7 +35,10 @@ while [ "$#" -gt 0 ]; do
         --start) START=1; shift ;;
         -h|--help) usage ;;
         -*) usage ;;
-        *) [ -z "$ARCHIVE" ] && ARCHIVE="$1" || usage; shift ;;
+        *)
+            if [ -z "$ARCHIVE" ]; then ARCHIVE="$1"; else usage; fi
+            shift
+            ;;
     esac
 done
 

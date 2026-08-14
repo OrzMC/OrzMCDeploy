@@ -1,5 +1,7 @@
 # OrzMC Docker 部署
 
+[![CI](https://github.com/OrzMC/OrzMCDeploy/actions/workflows/ci.yml/badge.svg)](https://github.com/OrzMC/OrzMCDeploy/actions/workflows/ci.yml)
+
 OrzMC 的最小容器化落地方案。平台层包括：
 
 - `cloudflared`（生产，prod profile）作为公网入口——Cloudflare Tunnel 出站隧道，
@@ -64,13 +66,25 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh -d <DATA_ROOT> up` |
 | 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh -d <DATA_ROOT> stop` |
 | 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh -d <DATA_ROOT> status` |
-| 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh -d ./.local-data-lan -p lan validate` | `deploy.sh -d <DATA_ROOT> validate` |
+| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh -d <DATA_ROOT> validate` |
 | 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh -d <DATA_ROOT> --stop`（含 MariaDB 逻辑备份） |
 | 还原/迁移 | `./restore.sh -d <目标> <归档>` | `restore.sh -d <目标> -p lan <归档>` | `restore.sh -d <目标> <归档> --force` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` | 同左 | 同左 |
 
 `<DATA_ROOT>` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
 生产 macOS 用 `-d /Users/Shared/orzmc`；Linux 默认 `/srv/orzmc`。
+
+## 质量门禁（CI）
+
+push 到 `main` 或开 PR 时，GitHub Actions 自动跑两道校验（见 `.github/workflows/ci.yml`）：
+
+- **lint**：shell 语法（`bash -n`）+ `shellcheck` + 模板 YAML 解析 + 禁入路径守卫
+  （`.env` / `.local-data*` / `.local-backups*` 永不入库）
+- **validate**：`local` / `lan` / `prod` 三 profile 各自 `init && validate`
+  （必需环境变量检查 + `docker compose config -q`，纯解析不拉镜像、不触碰 `$DATA_ROOT`）
+
+本地想先自查同一套检查，跑 `./local.sh init && ./local.sh validate` 即可覆盖 env 与
+compose 解析；`shellcheck *.sh lib/*.sh` 覆盖静态检查。
 
 ## 文档导航
 

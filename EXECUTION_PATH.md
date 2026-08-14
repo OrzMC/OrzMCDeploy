@@ -213,10 +213,10 @@
 
 ### A. 自动化校验
 
-- [ ] 增加 `docker compose config` 校验入口
-- [ ] 增加 shell 脚本静态检查
-- [ ] 增加环境变量缺失检查
-- [ ] 增加目录存在性检查
+- [x] 增加 `docker compose config` 校验入口（`deploy.sh validate`；CI 对三 profile 均执行）
+- [x] 增加 shell 脚本静态检查（CI：`bash -n` + `shellcheck`，见 `.github/workflows/ci.yml`）
+- [x] 增加环境变量缺失检查（`validate_required_env`；CI validate 覆盖）
+- [ ] 增加目录存在性检查（属宿主侧运行时检查，CI 无 `$DATA_ROOT` 不适用；留待环境自检脚本）
 
 ### B. 运维动作标准化
 
@@ -732,3 +732,32 @@
 - 下一步：
   - 提交并推送本阶段改动（lan profile + 文档），先经用户确认。
   - 局域网真机访问验证（用户侧：另一设备浏览器开 `http://<LAN_HOST_IP>:18090`）。
+
+### 2026-08-14 CI 质量门禁落地（GitHub Actions）
+
+- 当前阶段：Phase 3 — 自动化校验落地。新增 `.github/workflows/ci.yml`，push(main)/PR
+  自动跑两个并行 job：
+  - **lint**：`bash -n` + `shellcheck -x *.sh lib/*.sh`（清零既有 7 条告警：
+    backup.sh SC2012×2 disable、restore.sh SC2015 改 if/else、common.sh SC2034×2 /
+    SC2153 disable 或删未用 local）+ 模板 YAML 解析（python3+yaml 逐个 `safe_load`
+    templates/*.yml） + 禁入路径守卫（`git ls-files` 不得含 `.env` / `.local-data*` /
+    `.local-backups*`）。
+  - **validate**：local / lan / prod 三 profile 各 `init && validate`（`validate_required_env`
+    必需变量 + `docker compose config -q`，纯解析不拉镜像、不用真实 `$DATA_ROOT`；prod
+    用 env.prod 模板占位值 `CLOUDFLARE_TUNNEL_ID=<tunnel-uuid>` 触发 cloudflared config
+    生成，非真实密钥）。
+- 连带修复：
+  - `local.sh` 补 `validate` 子命令（与 `lan.sh` 对称）；AGENTS.md / README.md 命令速查
+    「校验配置」行原来写 `deploy.sh -d ./.local-data validate`（相对路径与 init 生成的
+    env 内绝对路径 `DATA_ROOT` 不一致，`assert_data_root_matches` 实测必报错），改为
+    `./local.sh validate` / `./lan.sh validate`。
+  - **发现并修复全新部署 init 崩溃 bug**：`lib/common.sh` `ensure_status_config` 的
+    `mcs_endpoint`/`easy_endpoint` 只在 lan 分支赋值，prod/local 分支在 `set -u` 下
+    读到未绑定变量报 `mcs_endpoint: unbound variable`（exit 1）。因 init 对已落盘
+    `status/config.yaml` 早退，仅**全新 DATA_ROOT** 首次 init 会触发——已通过 CI 验证
+    暴露，修复为 local 声明处初始化为空串。此 bug 之前未被发现：既有部署 config.yaml
+    已存在走早退路径。
+- 验证：本地 shellcheck 0 告警、`bash -n` 全过、**三 profile 用全新临时目录**各
+  `init && validate` 均 exit 0（覆盖此前必崩的首次 init 路径）、模板 YAML 解析全过、
+  禁入路径守卫为空；真实 push 后以 GitHub Actions 绿勾为准。
+- 下一步：CI 跑通后核 `git status` 无数据文件，提交并推送本阶段改动。

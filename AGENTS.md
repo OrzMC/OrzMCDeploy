@@ -91,6 +91,7 @@ local.sh                本地验证统一入口（固定 local profile + .local
 lan.sh                  局域网直连统一入口（固定 lan profile + .local-data-lan，无边缘层）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
+.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + 三 profile validate）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
 EXECUTION_PATH.md       执行路径、门禁、checklist、状态记录
@@ -108,7 +109,7 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 | 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh up` |
 | 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh stop` |
 | 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh status` |
-| 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh -d ./.local-data-lan -p lan validate` | `deploy.sh validate` |
+| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh validate` |
 | 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） |
 | 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh -d <root> -p lan <归档>` | `restore.sh <归档>` |
 
@@ -164,7 +165,8 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 3. 涉及架构（服务增减、入口变更、卷/网络调整）：**同步更新** `docs/architecture.md`
    （新增 ADR 记录）、`AGENTS.md`（如规则变化）、`README.md`、相关 `docs/*.md`。
 4. 改动共享库 `lib/common.sh` 后，跑一遍本地回归：`./local.sh init && ./local.sh start`
-   与 `deploy.sh -d ./.local-data validate`。
+   与 `./local.sh validate`（push/PR 后 CI 会自动跑 shellcheck + 三 profile validate，
+   见 `.github/workflows/ci.yml`）。
 5. 新增 `.env` 必需变量：同步更新 `lib/common.sh` 的 `REQUIRED_ENV_VARS_PROD/LOCAL`
    与 `templates/env.*`。
 6. 需要用户输入密钥/凭据时，引导用户编辑 `$DATA_ROOT/.env`，不要把真实值写进仓库或

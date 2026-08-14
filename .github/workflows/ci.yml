@@ -1,0 +1,97 @@
+# ===========================================================================
+# OrzMC deploy 质量门禁
+#
+# 仓库只承载"运行时"，无构建产物；本 CI 是纯校验，不构建/不发布镜像、
+# 不拉取容器镜像（docker compose config 为纯解析，无需 daemon/镜像）。
+#
+# 两个并行 job：
+#   lint     —— shell 语法（bash -n）+ shellcheck + 模板 YAML 解析 + 禁入路径守卫
+#   validate —— 三 profile（local / lan / prod）init && validate：
+#                必需变量检查（validate_required_env）+ docker compose config -q
+#   详见 AGENTS.md 命令速查与 docs/architecture.md。
+# ===========================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Shell & YAML lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck & PyYAML
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck python3-yaml
+
+      - name: Bash syntax check
+        run: |
+          for f in *.sh lib/*.sh; do
+            bash -n "$f"
+          done
+          echo "bash -n OK"
+
+      - name: Shellcheck
+        run: shellcheck -x --shell=bash *.sh lib/*.sh
+
+      - name: YAML template parse check
+        run: |
+          python3 - <<'EOF'
+          import glob
+          import sys
+          import yaml
+
+          files = sorted(glob.glob("templates/*.yml") + glob.glob("templates/*.yaml"))
+          for f in files:
+              with open(f) as fh:
+                  yaml.safe_load(fh)
+          print(f"yaml parse OK: {len(files)} templates")
+          EOF
+
+      - name: Forbidden paths guard (secrets/data must never be tracked)
+        run: |
+          bad="$(git ls-files | grep -E '(^|/)(\.env|\.env\.local|\.local-data|\.local-data-lan|\.local-backups)(/|$)' || true)"
+          if [ -n "$bad" ]; then
+            echo "以下禁入路径被纳入版本控制："
+            echo "$bad"
+            echo "（AGENTS.md 铁律：密钥与运行数据一律落 \$DATA_ROOT，永不入库）"
+            exit 1
+          fi
+          echo "forbidden paths guard OK"
+
+  validate:
+    name: Compose config (local / lan / prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: local profile init + validate
+        run: |
+          ./local.sh init
+          ./local.sh validate
+
+      - name: lan profile init + validate
+        run: |
+          ./lan.sh init
+          ./lan.sh validate
+
+      - name: prod profile init + validate
+        run: |
+          # 全部为 env.prod 模板占位值（CLOUDFLARE_TUNNEL_ID=<tunnel-uuid> 等），
+          # 非真实密钥；跑在 $RUNNER_TEMP 避免污染 checkout。
+          ./deploy.sh -d "$RUNNER_TEMP/orzmc-ci-prod" -p prod init
+          ./deploy.sh -d "$RUNNER_TEMP/orzmc-ci-prod" -p prod validate
