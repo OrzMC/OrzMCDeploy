@@ -20,12 +20,14 @@
 
 ```text
 公网（真 HTTPS，Cloudflare 边缘终止 TLS）
-  [管理浏览器] ─https─> mcs.example.com ────┐
-  [管理浏览器] ─https─> easybot.example.com ─┼─ Cloudflare 边缘 <─出站隧道─ cloudflared(容器, orzmc_default)
-  [管理浏览器] ─https─> mcs-node.example.com ─┘       │                │
-                                                     │                ├─ http://mcsmanager-web:23333      (MCS 面板)
-                                                     │                ├─ http://easybot:8080              (EasyBot 后台)
-                                                     │                └─ http://mcsmanager-daemon:24444   (daemon/节点，密钥鉴权)
+  [管理浏览器] ─https─> mcs.example.com          ┐
+  [管理浏览器] ─https─> easybot.example.com      ┼─ Cloudflare 边缘 <─出站隧道─ cloudflared(容器, orzmc_default)
+  [管理浏览器] ─https─> mcs-node.example.com     ┤
+  [管理浏览器] ─https─> status.example.com       ┘
+                                                             │           ├─ http://mcsmanager-web:23333      (MCS 面板)
+                                                             │           ├─ http://easybot:8080              (EasyBot 后台)
+                                                             │           ├─ http://mcsmanager-daemon:24444   (daemon/节点，密钥鉴权)
+                                                             │           └─ http://status:8080              (Gatus 统一状态页)
 内网
   [玩家] ── Mac 局域网 IP:25565 ──> PaperMC Prod（MCSManager 管理）
   [插件]  PaperMC 实例(挂 orzmc_default) ──http──> http://easybot:8080   (REST+WS，内网直连，不走公网)
@@ -33,8 +35,10 @@
   [QQ bot] EasyBot 出站连 QQ 服务器（NAT 下正常）
 ```
 
-- 公网暴露 **3 个入口**：`mcs.<domain>`（MCSManager 面板）、`easybot.<domain>`
-  （EasyBot 管理后台）、`mcs-node.<domain>`（daemon/节点，浏览器直连入口，密钥鉴权）。
+- 公网暴露 **4 个入口**：`mcs.<domain>`（MCSManager 面板）、`easybot.<domain>`
+  （EasyBot 管理后台）、`mcs-node.<domain>`（daemon/节点，浏览器直连入口，密钥鉴权）、
+  `status.<domain>`（统一状态页，Gatus，聚合产品入口 + 实时健康；页面无鉴权，仅服务名与
+  状态、不含密钥）。
 - **EasyBot 插件 API 仅内网**：插件挂 `orzmc_default` 网络，直连 `http://easybot:8080`
   （REST + WebSocket 同端口，内网无 TLS）。
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 网络，直连 `mariadb:3306`
@@ -64,9 +68,11 @@
 | `mcs.<domain>` | MCSManager 面板 | `DOMAIN_MCS_WEB` |
 | `easybot.<domain>` | EasyBot 管理后台 | `DOMAIN_EASY_ADMIN` |
 | `mcs-node.<domain>` | MCSManager daemon/节点（浏览器直连，密钥鉴权） | `DOMAIN_MCS_NODE` |
+| `status.<domain>` | 统一状态页（Gatus，聚合入口 + 实时健康，无鉴权仅状态） | `DOMAIN_STATUS` |
 
 约定：**子域名 = 产品代号，无后缀即该产品管理控制台**；daemon 组件在代号后加
-`-node` 后缀。本地同构镜像：`mcs.localhost` / `easybot.localhost` / `mcs-node.localhost`。
+`-node` 后缀。本地同构镜像：`mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` /
+`status.localhost`。
 
 ## 3. 网络与数据流
 
@@ -74,11 +80,13 @@
    hostname 路由）→ `mcsmanager-web:23333`（面板）/ `easybot:8080`（后台）。
 2. 管理浏览器 → `mcs-node.<domain>` → Cloudflare 边缘 → `mcsmanager-daemon:24444`
    （**浏览器直连** daemon，密钥鉴权；面板服务端不代理 daemon）。
-3. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
-4. PaperMC 插件 → `mariadb:3306`（MySQL/MariaDB 插件数据持久化，同 `orzmc_default` 网络，
+3. 管理浏览器 → `status.<domain>` → Cloudflare 边缘 → `status:8080`（Gatus 统一状态页，
+   聚合产品入口 + 实时健康；页面无鉴权，仅服务名与状态、不含密钥）。
+4. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
+5. PaperMC 插件 → `mariadb:3306`（MySQL/MariaDB 插件数据持久化，同 `orzmc_default` 网络，
    默认启用；备份含逻辑 dump）。
-5. MCSManager Daemon → 宿主机 Docker（挂载 `/var/run/docker.sock`），管理 PaperMC 实例。
-6. EasyBot → 出站连接 QQ / Telegram / Discord / 飞书 / 微信服务器（NAT 下正常）。
+6. MCSManager Daemon → 宿主机 Docker（挂载 `/var/run/docker.sock`），管理 PaperMC 实例。
+7. EasyBot → 出站连接 QQ / Telegram / Discord / 飞书 / 微信服务器（NAT 下正常）。
 
 ## 4. 服务职责
 
@@ -90,6 +98,7 @@
 | `mcsmanager-daemon` | digest 锁定 | 实例生命周期 + Docker 管理 | `$DATA_ROOT/mcsmanager/daemon/{data,logs}` + `/var/run/docker.sock` |
 | `easybot` | digest 锁定 | 统一 IM 网关（HTTP 监听，uid/gid=10001） | `$DATA_ROOT/easybot/data` |
 | `mariadb` | digest 锁定 | 应用数据库（MariaDB 11.4，uid/gid=999），插件数据持久化 | `$DATA_ROOT/database/mariadb`（仅内网 expose 3306） |
+| `status` | digest 锁定 | 统一首页/状态页（Gatus，scratch 镜像无 shell），聚合入口 + 实时健康 | `$DATA_ROOT/status/config.yaml`（ro，init 生成不覆盖） |
 
 ## 5. `$DATA_ROOT` 目录树
 
@@ -105,6 +114,7 @@ $DATA_ROOT/
     daemon/
       {data,logs}         # Config/global.json 含 daemon key（权限 600，最高权限密钥）
   easybot/data/           # EasyBot 网关数据（uid/gid=10001）
+  status/config.yaml      # Gatus 统一状态页配置（init 生成、绝不覆盖；ro 挂载）
   database/               # 应用数据库 MariaDB
     mariadb/              # InnoDB 数据目录（uid/gid=999）
     dumps/                # backup.sh 自动逻辑备份（含 mysql 系统库，按密钥 chmod 600）
@@ -207,6 +217,37 @@ $DATA_ROOT/
   新增 `database/mariadb` 并 chown `999:999`；`backup.sh` 新增逻辑 dump 与 `--keep` 剪枝；
   `restore.sh` 校验数据目录存在；`update-image-digests.sh` 注册 `mariadb:11.4`（LTS）；
   `docs/usage.md` 附录 F 硬件选型修订（平台层固定成本 ~250 MB → ~0.5–0.6 GB）。
+
+### ADR-009：统一首页/状态页（Gatus，第 4 入口）（2026-08-14）
+
+- **状态**：已实施。
+- **背景**：此前 3 个入口（`mcs` / `easybot` / `mcs-node`）各自为政，无统一聚合入口，
+  平台层与游戏实例健康不可见。需求：主页面聚合各产品服务入口 + 实时健康状态，风格简洁
+  专业、响应式多端。
+- **决策**：
+  - 采用 **Gatus**（`twinproduction/gatus`，digest 锁定）作为统一状态页，新增无 profile
+    常驻 `status` 服务（双 profile 都运行），暴露第 4 入口 `status.<domain>`。
+  - 配置 `${DATA_ROOT}/status/config.yaml` 由 `init` 的 `ensure_status_config` 按 profile
+    替换占位符生成，**绝不覆盖已有文件**（用户可自行扩展 endpoints/buttons）。
+  - 页头 `ui.buttons` 以真实链接聚合三个产品入口；健康检查走各产品**真实公网/本地入口**
+    （可达性）；daemon / MariaDB / 状态页自检走内网 TCP；local profile 经
+    `extra_hosts: host-gateway` 解析 `.localhost` 并 `client.insecure: true` 跳过本地 CA
+    校验。
+  - 存储用默认**内存**（实时健康，无历史持久化）；页面**无鉴权**——仅服务名与状态、
+    不含密钥（`ui.buttons` 指向的产品入口本身有登录鉴权）。如需登录/历史可后续加
+    `security` 块与 sqlite（future 选项）。
+- **影响**：
+  - 新增必需变量 `DOMAIN_STATUS` / `STATUS_PORT`（`REQUIRED_ENV_VARS_PROD/LOCAL` +
+    `templates/env.*`，存量 `.env` 需手动补）。
+  - 第 4 入口贯穿全链路：`compose.yaml`（reverse-proxy env + `status` 服务）/
+    `Caddyfile` / `cloudflared-config.yml` ingress / `update-image-digests.sh`。
+  - 游戏实例卡片经 `host.docker.internal` 探测宿主映射端口（25565/25566），无实例时如实
+    DOWN。
+  - **修复历史遗留 bug**：Caddyfile 引用 `{$DOMAIN_MCS_NODE}` 但 `reverse-proxy`
+    `environment` 自 Phase 2 起缺该变量，导致 local profile 下 Caddy 崩溃循环
+    （"server block without any key"）；已补 `DOMAIN_MCS_NODE` 入环境块。
+  - 文档同步：`AGENTS.md` / `README.md` / `docs/architecture.md` / `docs/usage.md` /
+    `EXECUTION_PATH.md`。
 
 ## 7. 演进路径
 

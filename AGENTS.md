@@ -33,20 +33,23 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 | Profile | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
-| `local` | Caddy（`.localhost` 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` |
+| `local` | Caddy（`.localhost` 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `status.localhost` |
+| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `status.<domain>` |
 
 - `compose.yaml` 中 `reverse-proxy`(caddy) 挂 `profiles: ["local"]`，
-  `cloudflared` 挂 `profiles: ["prod"]`；mcsmanager / easybot 无 profile（两边都跑）。
+  `cloudflared` 挂 `profiles: ["prod"]`；mcsmanager / easybot / mariadb / status 无 profile
+  （两边都跑）。
 - 脚本通过 `COMPOSE_PROFILE`（默认 `prod`）选择边缘层：`deploy.sh -p local ...`
   或 `./local.sh ...` 走 local，`deploy.sh ...` 走 prod。
 
-### 4. 网络拓扑：3 个公网入口，EasyBot 插件 API 仅内网
+### 4. 网络拓扑：4 个公网入口，EasyBot 插件 API 仅内网
 
-- 公网暴露 **3 个入口**：
+- 公网暴露 **4 个入口**：
   - `mcs.<domain>` → MCSManager 面板（Web 登录鉴权）
   - `easybot.<domain>` → EasyBot 管理后台（登录鉴权）
   - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**）
+  - `status.<domain>` → 统一状态页（Gatus，聚合产品入口 + 实时健康；页面无鉴权，
+    仅服务名与状态、不含密钥）
 - **EasyBot 的插件 API 不外露**：PaperMC 插件跑在 `orzmc_default` 网络内，
   直连 `http://easybot:8080`（REST + WebSocket 同端口，内网无 TLS）。
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 内网直连 `mariadb:3306`
@@ -68,6 +71,7 @@ templates/              首次 init 的配置模板
   env.local             本地 .env 模板（.localhost）
   cloudflared-config.yml cloudflared 隧道配置模板（__PLACEHOLDER__ 由 init 替换）
   Caddyfile             local profile 反代模板（仅本地使用）
+  gatus-config.yml      Gatus 统一状态页配置模板（init 生成到 DATA_ROOT/status/config.yaml）
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   env.papermc           PaperMC 参数参考（compose 不消费）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导）

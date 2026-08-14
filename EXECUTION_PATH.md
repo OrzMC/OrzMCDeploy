@@ -607,3 +607,37 @@
   - 提交本阶段改动（compose + lib/common.sh + backup/restore + 模板 + 文档 + 本记录）。
   - 存量生产 `.env` 需手动补 4 个 `MARIADB_*`（`deploy.sh validate` 强制校验；ADR-008）。
   - 低内存(<8G)环境按附录 F 备注调 `--innodb-buffer-pool-size=64M`。
+
+### 2026-08-14 统一状态页（Gatus 第 4 入口）+ 修复 local Caddy 崩溃（DOMAIN_MCS_NODE 缺失）
+
+- 当前阶段：Phase 2 — 新增第 4 入口 `status.<domain>` 统一状态页（ADR-009），聚合产品
+  入口 + 平台层/游戏实例实时健康；用户诉求"统一首页 + 实时健康状态"。
+- 已完成（代码 + 文档）：
+  - `compose.yaml` 新增 `status` 服务（`twinproduction/gatus`，digest 锁定，无 profile 双
+    profile 运行，`expose ${STATUS_PORT}`，`extra_hosts` host-gateway 解析 `.localhost`）；
+    `reverse-proxy` env 补 `DOMAIN_STATUS`/`STATUS_PORT` 并 `depends_on status`。
+  - `templates/gatus-config.yml` 新建：`ui.buttons` 聚合 3 产品入口 + 7 个健康端点（平台层
+    5 + 游戏实例 2），按 profile 替换 `__*_BASE__`/`__TLS_INSECURE__`/`__STATUS_PORT__`。
+  - `lib/common.sh`：新增 `ensure_status_config`（绝不覆盖，local 拼 `:PROXY_HTTPS_PORT` +
+    `insecure: true`）；`ensure_cloudflared_config` 加 status ingress；`ensure_data_dirs` 加
+    `status/`；`DOMAIN_STATUS`/`STATUS_PORT` 入 `REQUIRED_ENV_VARS_PROD/LOCAL`；
+    `print_access_info` 两分支加统一状态页。
+  - `deploy.sh init` 挂 `ensure_status_config`；`templates/{Caddyfile,cloudflared-config.yml,
+    env.prod,env.local}` 加第 4 入口；`update-image-digests.sh` 注册 `status`（4 处）并回填
+    digest `sha256:0009b90a...`；文档同步 `AGENTS.md`/`README.md`/`docs/{architecture,usage}.md`
+    （含 **ADR-009**）与本记录。
+- 本地验证（`.local-data`，macOS + Docker Desktop，全套 PASS）：
+  - 4 入口全部 `200`：`mcs` / `easybot` / `mcs-node` / `status`（`https://*.localhost:18443`）。
+  - `./local.sh init` 幂等（status config 绝不覆盖）；validate 通过；`docker port orzmc-status`
+    无输出（仅 expose）。
+  - `GET /api/v1/endpoints/statuses`：7 端点齐，平台层 5 端点全部 UP，游戏实例如实反映
+    （正式服 25565 UP、测试服 25566 DOWN——无测试实例，属预期）。
+- 修复历史遗留 bug：**Caddyfile 引用 `{$DOMAIN_MCS_NODE}` 但 `reverse-proxy` `environment`
+  自 Phase 2（a3b62ec）起缺该变量**，local 下 Caddy 崩溃循环（"server block without any
+  key is global configuration, and if used, it must be first"——空 env 使该块变成无 key 全局
+  块且不在文件首）。已补 `DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE}"` 入 environment 块并重建容器
+  验证（4 域名证书全部签发、server running）。
+- 下一步：
+  - 提交并推送本阶段改动。
+  - 存量生产 `.env` 需手动补 `DOMAIN_STATUS` / `STATUS_PORT` 两行（`deploy.sh validate`
+    强制校验；ADR-009）；公网侧 `route dns` 补 `status.<domain>` 第 4 条 CNAME。

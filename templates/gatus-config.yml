@@ -1,0 +1,95 @@
+# ===========================================================================
+# OrzMC 统一状态页（Gatus）配置模板
+#
+# init 时由 lib/common.sh 的 ensure_status_config 按 profile 替换占位符，生成到
+# $DATA_ROOT/status/config.yaml。与 Caddyfile 一样**绝不覆盖已有文件**（用户可自行
+# 增删 endpoints/buttons；改域名后需删除已落盘文件再 init 重新生成）。
+#   - prod ：__MCS_WEB_BASE__ / __EASY_ADMIN_BASE__ / __MCS_NODE_LINK__ =
+#            https://<真实域名>；__TLS_INSECURE__=false
+#   - local：同上并追加 :<PROXY_HTTPS_PORT>（.localhost）；__TLS_INSECURE__=true
+# 健康检查走各产品真实入口（可达性）；daemon / MariaDB / 状态页自检走内网（进程存活）。
+# 页面无鉴权、不含密钥（仅服务名与状态）；如需登录可后续加 security 块。
+# ===========================================================================
+
+web:
+  port: __STATUS_PORT__
+
+ui:
+  header: "OrzMC 平台状态"
+  dashboard-heading: "平台层服务健康"
+  dashboard-subheading: "统一首页 · 实时健康监测（Gatus）"
+  buttons:
+    - name: "MCSManager 面板"
+      link: "__MCS_WEB_BASE__"
+    - name: "EasyBot 管理后台"
+      link: "__EASY_ADMIN_BASE__"
+    - name: "MCSManager Daemon"
+      link: "__MCS_NODE_LINK__"
+
+endpoints:
+  - name: "MCSManager 面板"
+    group: "平台层"
+    url: "__MCS_WEB_BASE__"
+    interval: 30s
+    client:
+      insecure: __TLS_INSECURE__
+    conditions:
+      - "[STATUS] == 200"
+    ui:
+      hide-url: true
+
+  - name: "EasyBot 管理后台"
+    group: "平台层"
+    url: "__EASY_ADMIN_BASE__/api/v1/live"
+    interval: 30s
+    client:
+      insecure: __TLS_INSECURE__
+    conditions:
+      - "[STATUS] == 200"
+    ui:
+      hide-url: true
+
+  - name: "MCSManager Daemon 节点"
+    group: "平台层"
+    url: "tcp://mcsmanager-daemon:24444"   # 内网进程存活（不经边缘）
+    interval: 30s
+    conditions:
+      - "[CONNECTED] == true"
+    ui:
+      hide-url: true
+
+  - name: "MariaDB 数据库"
+    group: "平台层"
+    url: "tcp://mariadb:3306"
+    interval: 30s
+    conditions:
+      - "[CONNECTED] == true"
+    ui:
+      hide-url: true
+
+  - name: "统一状态页（Gatus）"
+    group: "平台层"
+    url: "http://status:__STATUS_PORT__/health"
+    interval: 30s
+    conditions:
+      - "[STATUS] == 200"
+    ui:
+      hide-url: true
+
+  - name: "PaperMC 正式服"
+    group: "游戏实例"
+    url: "tcp://host.docker.internal:25565"   # 实例端口由 MCSManager 映射
+    interval: 30s
+    conditions:
+      - "[CONNECTED] == true"
+    ui:
+      hide-url: true
+
+  - name: "PaperMC 测试服"
+    group: "游戏实例"
+    url: "tcp://host.docker.internal:25566"
+    interval: 30s
+    conditions:
+      - "[CONNECTED] == true"
+    ui:
+      hide-url: true

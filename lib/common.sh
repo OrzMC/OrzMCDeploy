@@ -119,18 +119,62 @@ ensure_easybot_local_config() {
     info "已生成 gateway.local.yaml: $target"
 }
 
+# 统一状态页（Gatus）配置：由 templates/gatus-config.yml 按 profile 替换占位符
+# 生成 $DATA_ROOT/status/config.yaml。与 Caddyfile/gateway.local.yaml 一样**绝不
+# 覆盖**已有文件（用户可能自行扩展 endpoints/buttons）；改域名后需删除已落盘
+# 文件再 init 重新生成。
+#   - prod ：__*_BASE__/__MCS_NODE_LINK__ = https://<真实域名>；TLS 校验开启
+#   - local：追加 :<PROXY_HTTPS_PORT>（.localhost）；TLS 为 Caddy 本地 CA，
+#            status 服务 extra_hosts 把 *.localhost 解析到宿主，校验关闭
+ensure_status_config() {
+    local target mcs_base easy_base node_link tls_insecure status_port https_port
+    target="$DATA_ROOT/status/config.yaml"
+    if [ -f "$target" ]; then
+        info "status config 已存在: $target"
+        return 0
+    fi
+    [ -f "$TEMPLATES_DIR/gatus-config.yml" ] || die "模板不存在: $TEMPLATES_DIR/gatus-config.yml"
+    mkdir -p "$DATA_ROOT/status"
+    mcs_base="https://$(read_env_value DOMAIN_MCS_WEB)"
+    easy_base="https://$(read_env_value DOMAIN_EASY_ADMIN)"
+    node_link="https://$(read_env_value DOMAIN_MCS_NODE)"
+    tls_insecure="false"
+    case "${COMPOSE_PROFILE:-prod}" in
+        local)
+            https_port="$(read_env_value PROXY_HTTPS_PORT)"
+            [ -n "$https_port" ] || die "local profile 缺少 PROXY_HTTPS_PORT（status 链接生成需要）"
+            mcs_base="${mcs_base}:${https_port}"
+            easy_base="${easy_base}:${https_port}"
+            node_link="${node_link}:${https_port}"
+            tls_insecure="true"
+            ;;
+    esac
+    status_port="$(read_env_value STATUS_PORT)"
+    [ -n "$status_port" ] || status_port="8080"
+    sed -e "s#__MCS_WEB_BASE__#${mcs_base}#g" \
+        -e "s#__EASY_ADMIN_BASE__#${easy_base}#g" \
+        -e "s#__MCS_NODE_LINK__#${node_link}#g" \
+        -e "s#__TLS_INSECURE__#${tls_insecure}#g" \
+        -e "s#__STATUS_PORT__#${status_port}#g" \
+        "$TEMPLATES_DIR/gatus-config.yml" > "$target"
+    info "已生成 status config: $target"
+}
+
 # prod profile 专用：由 templates/cloudflared-config.yml 用 .env 的
 # CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE
 # 替换占位符，生成 $DATA_ROOT/cloudflared/config.yml。仅当 CLOUDFLARE_TUNNEL_ID
 # 已填写时生成；与当前 .env 一致时不动（已落盘 config 属运行数据），不一致时
 # 覆盖并留备份（config.yml 完全由 .env 派生，.env 为唯一事实源）。
 ensure_cloudflared_config() {
-    local tid mcs_domain easy_domain node_domain target tmp
+    local tid mcs_domain easy_domain node_domain status_domain status_port target tmp
     tid="$(read_env_value CLOUDFLARE_TUNNEL_ID)"
     [ -n "$tid" ] || { warn "CLOUDFLARE_TUNNEL_ID 未设置，跳过 cloudflared config 生成"; return 0; }
     mcs_domain="$(read_env_value DOMAIN_MCS_WEB)"
     easy_domain="$(read_env_value DOMAIN_EASY_ADMIN)"
     node_domain="$(read_env_value DOMAIN_MCS_NODE)"
+    status_domain="$(read_env_value DOMAIN_STATUS)"
+    status_port="$(read_env_value STATUS_PORT)"
+    [ -n "$status_port" ] || status_port="8080"
     mkdir -p "$DATA_ROOT/cloudflared"
     target="$DATA_ROOT/cloudflared/config.yml"
     tmp="$(mktemp)"
@@ -138,6 +182,8 @@ ensure_cloudflared_config() {
         -e "s#__DOMAIN_MCS_WEB__#${mcs_domain}#g" \
         -e "s#__DOMAIN_EASY_ADMIN__#${easy_domain}#g" \
         -e "s#__DOMAIN_MCS_NODE__#${node_domain}#g" \
+        -e "s#__DOMAIN_STATUS__#${status_domain}#g" \
+        -e "s#__STATUS_PORT__#${status_port}#g" \
         "$TEMPLATES_DIR/cloudflared-config.yml" > "$tmp"
     if [ -f "$target" ] && cmp -s "$target" "$tmp"; then
         info "cloudflared config 已就绪: $target"
@@ -216,6 +262,7 @@ ensure_data_dirs() {
         "$DATA_ROOT/mcsmanager/daemon/data" \
         "$DATA_ROOT/mcsmanager/daemon/logs" \
         "$DATA_ROOT/easybot/data" \
+        "$DATA_ROOT/status" \
         "$DATA_ROOT/instances/papermc-main/server" \
         "$DATA_ROOT/instances/papermc-main/backups" \
         "$DATA_ROOT/instances/papermc-test/server" \
@@ -263,9 +310,10 @@ compose_cmd() {
 REQUIRED_ENV_VARS_PROD=(
     TZ
     CLOUDFLARE_TUNNEL_ID
-    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE
+    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE DOMAIN_STATUS
     EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
     MCS_WEB_PORT MCS_DAEMON_PORT
+    STATUS_PORT
     QQBOT_APP_ID QQBOT_CLIENT_SECRET
     MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
 )
@@ -274,9 +322,10 @@ REQUIRED_ENV_VARS_PROD=(
 REQUIRED_ENV_VARS_LOCAL=(
     TZ CADDY_EMAIL
     PROXY_HTTP_PORT PROXY_HTTPS_PORT
-    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE
+    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE DOMAIN_STATUS
     EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
     MCS_WEB_PORT MCS_DAEMON_PORT
+    STATUS_PORT
     QQBOT_APP_ID QQBOT_CLIENT_SECRET
     MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
 )
@@ -297,17 +346,20 @@ validate_required_env() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local mcs_web easy_admin profile
+    local mcs_web easy_admin status_domain profile
     mcs_web="$(read_env_value DOMAIN_MCS_WEB)"
     easy_admin="$(read_env_value DOMAIN_EASY_ADMIN)"
+    status_domain="$(read_env_value DOMAIN_STATUS)"
     profile="${COMPOSE_PROFILE:-prod}"
     echo "访问地址（profile: ${profile}）:"
     if [ "$profile" = "prod" ]; then
         # prod：Cloudflare 边缘终止 TLS，标准 443，无端口后缀
         echo "  MCSManager Web: https://${mcs_web}"
         echo "  EasyBot 管理后台: https://${easy_admin}"
+        echo "  统一状态页: https://${status_domain}"
     else
         echo "  MCSManager Web: https://${mcs_web}:$(read_env_value PROXY_HTTPS_PORT)"
         echo "  EasyBot 管理后台: https://${easy_admin}:$(read_env_value PROXY_HTTPS_PORT)"
+        echo "  统一状态页: https://${status_domain}:$(read_env_value PROXY_HTTPS_PORT)"
     fi
 }

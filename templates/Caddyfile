@@ -8,7 +8,7 @@
 # {$VAR} 占位由 Caddy 启动时从 compose 注入的环境变量解析。
 # local profile 用 *.localhost + Caddy 本地 CA，不触发 ACME。
 #
-# 公网/本地暴露：MCSManager 面板 + EasyBot 管理后台 + daemon 节点（node）。
+# 公网/本地暴露：MCSManager 面板 + EasyBot 管理后台 + daemon 节点（node）+ 状态页（status）。
 # EasyBot 插件 API 仅内网（插件直连 http://easybot:8080），不反代。
 # daemon 经 node 子域名反代是 MCSManager 的既有连接模型：面板浏览器需直连
 # daemon（终端/控制台/文件），daemon 全部业务路由要求密钥鉴权，无 key 无权限。
@@ -29,4 +29,8 @@
 
 {$DOMAIN_MCS_NODE} {
     reverse_proxy mcsmanager-daemon:{$MCS_DAEMON_PORT}
+}
+
+{$DOMAIN_STATUS} {
+    reverse_proxy status:{$STATUS_PORT}
 }

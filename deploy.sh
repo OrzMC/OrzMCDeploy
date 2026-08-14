@@ -87,6 +87,7 @@ cmd_init() {
     ensure_env_file
     ensure_data_dirs
     ensure_easybot_local_config
+    ensure_status_config
     case "$COMPOSE_PROFILE" in
         local) ensure_caddyfile ;;
         prod)  ensure_cloudflared_config ;;

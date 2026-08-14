@@ -10,9 +10,10 @@
 # 双 Profile：
 #   - local：reverse-proxy(Caddy) 反代 + 本地 CA（.localhost），仅本地验证使用
 #   - prod ：cloudflared 出站隧道，Cloudflare 边缘终止真实 HTTPS，生产使用
-#   mcsmanager-*、easybot 与 mariadb 无 profile，两种模式都运行。
-# 公网/本地暴露 3 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
-# 密钥鉴权）；EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）；
+#   mcsmanager-*、easybot、mariadb 与 status 无 profile，两种模式都运行。
+# 公网/本地暴露 4 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
+# 密钥鉴权）与 status（统一状态页，Gatus，实时健康，无鉴权仅状态，不含密钥）；
+# EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）；
 # mariadb（默认启用，插件应用数据库）同样仅内网，插件挂 orzmc_default 直连 mariadb:3306。
 # ===========================================================================
 
@@ -33,9 +34,12 @@ services:
       CADDY_EMAIL: "${CADDY_EMAIL}"
       DOMAIN_EASY_ADMIN: "${DOMAIN_EASY_ADMIN}"
       DOMAIN_MCS_WEB: "${DOMAIN_MCS_WEB}"
+      DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE}"
+      DOMAIN_STATUS: "${DOMAIN_STATUS}"
       EASYBOT_PORT: "${EASYBOT_PORT}"
       MCS_WEB_PORT: "${MCS_WEB_PORT}"
       MCS_DAEMON_PORT: "${MCS_DAEMON_PORT}"
+      STATUS_PORT: "${STATUS_PORT}"
     volumes:
       - "${DATA_ROOT}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
       - "${DATA_ROOT}/caddy/data:/data"
@@ -44,6 +48,7 @@ services:
       - mcsmanager-web
       - mcsmanager-daemon
       - easybot
+      - status
 
   # ---- prod profile：cloudflared 出站隧道（Cloudflare Tunnel）---------------
   cloudflared:
@@ -138,3 +143,31 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  # ---- 统一首页/状态页：Gatus（无 profile，双 profile 都运行）---------------
+  # 页头按钮聚合产品入口 + 实时健康卡片；配置 $DATA_ROOT/status/config.yaml 由
+  # init 生成（按 profile 替换公网/本地链接与 TLS 校验），绝不覆盖已有文件。
+  # scratch 镜像无 shell/curl，不设 compose healthcheck（页面本身即存活信号）。
+  status:
+    image: twinproduction/gatus@sha256:0009b90a11c042809f7f988c05c3f398dbf24b7498a0b7083efe3b9e8e126550
+    container_name: orzmc-status
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ}"
+    expose:
+      - "${STATUS_PORT}"
+    volumes:
+      - "${DATA_ROOT}/status/config.yaml:/config/config.yaml:ro"
+    depends_on:
+      - mcsmanager-web
+      - mcsmanager-daemon
+      - easybot
+      - mariadb
+    extra_hosts:
+      # local：容器内把 *.localhost 解析到宿主（Caddy 非特权端口），健康检查走真实入口；
+      # prod 下这些主机名未使用，无副作用。host-gateway 需 Docker ≥20.10（Desktop ≥4.x）。
+      - "mcs.localhost:host-gateway"
+      - "easybot.localhost:host-gateway"
+      - "mcs-node.localhost:host-gateway"
+      # 游戏实例端口由 MCSManager 映射在宿主机，经 host-gateway 探测真实进服口
+      - "host.docker.internal:host-gateway"
