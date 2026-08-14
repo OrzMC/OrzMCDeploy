@@ -49,6 +49,9 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**）
 - **EasyBot 的插件 API 不外露**：PaperMC 插件跑在 `orzmc_default` 网络内，
   直连 `http://easybot:8080`（REST + WebSocket 同端口，内网无 TLS）。
+- **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 内网直连 `mariadb:3306`
+  （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件
+  （Dynmap/CoreProtect/LuckPerms/Towny 等）使用；数据落 `$DATA_ROOT/database/mariadb`。
 - **daemon 经边缘层入口可达**：MCSManager 连接模型要求面板浏览器**直连** daemon
   （终端/控制台/文件管理器，WebSocket）；生产 `mcs-node.<domain>`（Cloudflare）、
   本地 `mcs-node.localhost`（Caddy）反代到 `mcsmanager-daemon:24444`。daemon 全部
@@ -59,7 +62,7 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 ## 目录地图
 
 ```
-compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，双 profile）
+compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，双 profile，含常驻 mariadb）
 templates/              首次 init 的配置模板
   env.prod              生产 .env 模板（含 CLOUDFLARE_TUNNEL_ID）
   env.local             本地 .env 模板（.localhost）
@@ -90,7 +93,7 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 | 停止 | `./local.sh stop` | `deploy.sh stop` |
 | 状态与访问地址 | `./local.sh status` | `deploy.sh status` |
 | 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh validate` |
-| 备份数据 | `./local.sh backup` | `backup.sh --stop` |
+| 备份数据 | `./local.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） |
 | 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh <归档>` |
 
 - 生产默认 `DATA_ROOT=/srv/orzmc`，实际生产使用 `deploy.sh -d /Users/Shared/orzmc ...`
@@ -118,14 +121,16 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 
 ## 安全约束（必须遵守）
 
-- `$DATA_ROOT/.env` 含 `QQBOT_APP_ID/CLIENT_SECRET`、`EASYBOT_ADMIN_PASSWORD` 等密钥，
-  权限收紧为 600，**永不入库**。
+- `$DATA_ROOT/.env` 含 `QQBOT_APP_ID/CLIENT_SECRET`、`EASYBOT_ADMIN_PASSWORD`、
+  `MARIADB_ROOT_PASSWORD/MARIADB_PASSWORD` 等密钥，权限收紧为 600，**永不入库**。
 - `$DATA_ROOT/cloudflared/` 含账号级 `cert.pem` 与隧道凭据 `<id>.json`（可控制该
   Cloudflare 账号下的隧道）——按密钥对待：只存在于 DATA_ROOT 内、随数据备份、
   权限收紧。
 - `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` 含 **daemon key**——daemon
   控制 docker.sock（可管理宿主机 Docker），该 key 等同最高权限密钥：权限 600、
   只存在于 DATA_ROOT 内、随数据备份、**永不入库**。
+- `$DATA_ROOT/database/dumps/*.sql` 是 MariaDB 逻辑备份，含 `mysql` 系统库
+  （用户/授权哈希）——按密钥对待：`chmod 600`、随数据备份、**永不入库**。
 - `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，拥有管理宿主机 Docker 的能力，
   **宿主机必须视为可信环境**。
 - EasyBot 监听器仅 HTTP，`EASYBOT_ALLOW_PLAINTEXT=true` 为有意为之；TLS 由

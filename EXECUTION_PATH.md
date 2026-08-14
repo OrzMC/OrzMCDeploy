@@ -558,3 +558,52 @@
   与 ⚠️ 警告，改为「≥0.0.35 已修复，仅需写显式覆盖键；镜像 digest 已锁定 0.0.35+」。
 - 回滚：deploy `git revert` digest commit → 旧镜像（旧镜像需配合钉 `server.host` 的
   `gateway.local.yaml`）；EasyBot 可发 0.0.36 取代。
+
+### 2026-08-14 平台层常驻 MariaDB（默认启用）+ 备份/还原集成 + 硬件选型修订
+
+- 当前阶段：Phase 2 — 平台层新增应用数据库（ADR-008），为 PaperMC 插件
+  （Dynmap/CoreProtect/LuckPerms/Towny/economy 等）提供内网 `mariadb:3306`。
+- 已完成（代码 + 文档）：
+  - `compose.yaml` 新增 `mariadb` 服务（11.4 LTS，digest 锁定 `sha256:67873d30...`，**无
+    profile 默认启用**，`expose 3306`，healthcheck 官方脚本，数据落
+    `$DATA_ROOT/database/mariadb`）。
+  - `lib/common.sh`：新增 `wait_for_mariadb` / `dump_db_logical` / `db_root_pw`；
+    `ensure_data_dirs` 常驻创建并 chown `999:999` `database/mariadb`；
+    `MARIADB_ROOT_PASSWORD/DATABASE/USER/PASSWORD` 加入 `REQUIRED_ENV_VARS_PROD/LOCAL`。
+  - `backup.sh`：`compose down` 之前自动 `mariadb-dump --all-databases` 逻辑快照
+    （`$DATA_ROOT/database/dumps/`，chmod 600，`--keep` 一并剪枝）；dump 失败 `|| warn`
+    兜底不中断整机备份。
+  - `restore.sh`：校验还原内容含 `database/mariadb` 冷数据目录（权威），缺目录仅提示
+    手动导入 dump（兜底）。
+  - `templates/env.{prod,local}` 末尾追加 4 个 `MARIADB_*` 必需变量；`update-image-digests.sh`
+    注册 `mariadb:11.4`（4 处）；`docs/{architecture,usage,papermc-template}.md`、`env.papermc`、
+    `AGENTS.md`、`README.md` 同步（含 **ADR-008** 与 **附录 F 硬件选型修订**：平台层固定成本
+    ~250 MB → 0.5–0.6 GB，mariadb 约 0.3 GB）。
+- 本地验证（`.local-data`，macOS + Docker Desktop，全套 PASS）：
+  - 迁移演练：既有 `.env` 无 `MARIADB_*` → `validate` 报缺失 → 手动补 4 行 → local validate
+    通过；负向（清空 `MARIADB_DATABASE`）正确报"缺少必需变量"。
+  - `./local.sh start` 后 `orzmc-mariadb` `(healthy)`；`docker port` 无输出（未发布端口）；
+    daemon 容器解析 `mariadb` → 172.18.0.7（orzmc_default）；`SELECT 1` 返回 1。
+  - 备份往返：写入标记表 `t1` → `./local.sh backup --keep 2` → 归档含
+    `database/dumps/mariadb-all-*.sql`（含标记行）与 `database/mariadb/`；dump 文件 600；
+    `--keep` 正确剪除旧归档。
+  - 还原往返：`./local.sh stop` → `restore.sh -d /tmp/orzmc-restore-test/.local-data <归档>
+    --start` → 还原栈 mariadb healthy、`SELECT * FROM t1` 返回 `1|roundtrip-ok`、`.env`
+    DATA_ROOT 改写为 `/tmp` 路径、`.env.bak-restore` 保留、4 个 `MARIADB_*` 原样保留 →
+    清理 /tmp 栈并 `./local.sh start` 恢复本地栈。
+  - `./update-image-digests.sh mariadb` 交叉检查：未变化（digest 已正确）。
+- 新发现问题（本次验证发现并修复，均已在仓库内落地）：
+  1. **mariadb-dump 免密失败**：设置 `MARIADB_ROOT_PASSWORD` 后 root 需密码登录，
+     `dump_db_logical` 原以无密码执行 dump 失败（backup 降级只含数据目录）。修复：
+     dump/ping 均通过 `MYSQL_PWD` 环境变量传入密码（避免 `-p` 出现在进程列表）。
+  2. **restore.sh --start 遗留 bug**：`source lib/common.sh` 会把 `SCRIPT_DIR` 覆写为
+     `lib/`（BASH_SOURCE），导致 `${SCRIPT_DIR}/deploy.sh` 解析成 `lib/deploy.sh` 不存在。
+     修复：改以 `REPO_ROOT`（common.sh 正确按仓库根计算）定位 `deploy.sh`。
+  3. **restore 同父目录改名还原隐患**：把 `.local-data` 的归档 `--force` 还原成同父目录下
+     `.local-data-2` 时，tar 会把归档**解压合并进在用的 `.local-data`**，再 mv 整体改名，
+     等于把在用数据目录一起改走。修复：restore.sh 新增守卫——目标父目录已存在与归档顶层
+     同名的旧目录时一律拒绝（无论 `--force`），提示改用独立父目录。
+- 下一步：
+  - 提交本阶段改动（compose + lib/common.sh + backup/restore + 模板 + 文档 + 本记录）。
+  - 存量生产 `.env` 需手动补 4 个 `MARIADB_*`（`deploy.sh validate` 强制校验；ADR-008）。
+  - 低内存(<8G)环境按附录 F 备注调 `--innodb-buffer-pool-size=64M`。

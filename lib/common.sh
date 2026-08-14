@@ -153,6 +153,59 @@ ensure_cloudflared_config() {
     info "已生成 cloudflared config: $target"
 }
 
+# ---- 应用数据库 MariaDB 支持 ----------------------------------------------
+# 平台层常驻服务；数据落 $DATA_ROOT/database/mariadb，backup.sh 用逻辑 dump 保证一致快照。
+
+# .env 里 mariadb root 密码（dump / ping 需要；不输出值）。设置 MARIADB_ROOT_PASSWORD
+# 后 root 需密码登录，连接统一走 MYSQL_PWD 环境变量（避免 -p 出现在进程列表）。
+db_root_pw() { read_env_value MARIADB_ROOT_PASSWORD; }
+
+# 轮询 mariadb 容器可连接（最多 ~60s）；供 backup.sh --stop 模式拉起后等待
+wait_for_mariadb() {
+    local i=0 root_pw
+    root_pw="$(db_root_pw)"
+    while [ "$i" -lt 60 ]; do
+        if compose_cmd exec -T -e "MYSQL_PWD=${root_pw}" mariadb mariadb-admin ping >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# 逻辑备份：向 $DATA_ROOT/database/dumps/ 产出 --all-databases 一致快照
+# （随整机 tar 归档）。必须在 compose down 之前执行（--stop 模式下容器仍 UP）。
+# dump 失败返回非零由调用方（backup.sh）用 || warn 兜底，不中断整机备份。
+dump_db_logical() {
+    local running dump_file root_pw
+    [ -f "$(env_file)" ] || return 0
+    mkdir -p "$DATA_ROOT/database/dumps"
+    root_pw="$(db_root_pw)"
+    running="$(compose_cmd ps -q mariadb 2>/dev/null | head -n1 || true)"
+    if [ -z "$running" ]; then
+        if [ "${STOP:-0}" = 1 ]; then
+            info "mariadb 未运行，先拉起以生成逻辑备份..."
+            compose_cmd up -d mariadb || return 1
+            wait_for_mariadb || { warn "mariadb 启动超时，跳过逻辑备份"; return 1; }
+        else
+            warn "mariadb 容器未运行，跳过逻辑备份（归档仅含数据目录）"
+            return 0
+        fi
+    fi
+    dump_file="$DATA_ROOT/database/dumps/mariadb-all-$(date +%Y%m%d-%H%M%S).sql"
+    if compose_cmd exec -T -e "MYSQL_PWD=${root_pw}" mariadb \
+            mariadb-dump --all-databases --single-transaction --routines --triggers \
+            > "$dump_file" 2>/dev/null; then
+        chmod 600 "$dump_file"   # 含 mysql 系统库（用户/授权），按密钥收紧
+        info "已生成 MariaDB 逻辑备份: ${dump_file}"
+    else
+        rm -f "$dump_file"
+        warn "mariadb-dump 失败，归档仅含数据库数据目录"
+        return 1
+    fi
+}
+
 ensure_data_dirs() {
     mkdir -p \
         "$DATA_ROOT/caddy/data" \
@@ -172,6 +225,13 @@ ensure_data_dirs() {
     # 此时依赖 Docker Desktop 文件共享即可正常读写。
     if ! chown 10001:10001 "$DATA_ROOT/easybot/data" 2>/dev/null; then
         warn "非 root 无法 chown easybot 数据目录（10001:10001）；Linux 生产部署请以 root 执行 init"
+    fi
+    # 应用数据库 MariaDB 数据目录：mariadb 镜像以 uid/gid=999(mysql) 运行；
+    # root 下 chown（Linux 生产常态），非 root（如 macOS 本地）降级为告警（依赖 Docker
+    # Desktop 文件共享，见 ADR-006）。
+    mkdir -p "$DATA_ROOT/database/mariadb"
+    if ! chown 999:999 "$DATA_ROOT/database/mariadb" 2>/dev/null; then
+        warn "非 root 无法 chown mariadb 数据目录（999:999）；Linux 生产部署请以 root 执行 init"
     fi
 }
 
@@ -199,6 +259,7 @@ compose_cmd() {
 # 按 profile 区分的必需变量（QQBOT_APP_ID/CLIENT_SECRET 被 easybot 服务消费）
 # prod：cloudflared 入口，无 Caddy；插件 API 仅内网，无 DOMAIN_EASY_API。
 # DOMAIN_MCS_NODE：daemon 浏览器直连入口（MCSManager 连接模型，密钥鉴权）。
+# MARIADB_*：应用数据库常驻服务（默认启用），四项均为必需变量。
 REQUIRED_ENV_VARS_PROD=(
     TZ
     CLOUDFLARE_TUNNEL_ID
@@ -206,6 +267,7 @@ REQUIRED_ENV_VARS_PROD=(
     EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
     MCS_WEB_PORT MCS_DAEMON_PORT
     QQBOT_APP_ID QQBOT_CLIENT_SECRET
+    MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
 )
 
 # local：Caddy 入口
@@ -216,6 +278,7 @@ REQUIRED_ENV_VARS_LOCAL=(
     EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
     MCS_WEB_PORT MCS_DAEMON_PORT
     QQBOT_APP_ID QQBOT_CLIENT_SECRET
+    MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
 )
 
 validate_required_env() {

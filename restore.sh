@@ -52,6 +52,14 @@ top="$(tar tzf "$ARCHIVE" | head -n1)"; top="${top%/}"
 [ "$top" = "$(basename "$DATA_ROOT")" ] || [ "$FORCE" = 1 ] \
     || die "归档顶层目录($top)与目标目录名($(basename "$DATA_ROOT"))不一致；确认后用 --force"
 
+# 防坑：--force 改名还原到"同父目录下的新路径"时，若父目录中已存在与归档顶层同名的
+# 旧目录（如把 .local-data 的归档还原成 ./.local-data-2），tar 会把旧目录当作解压目标
+# 覆盖/合并进去，随后 mv 把合并结果整目录改名——等于把仍在用的旧数据目录一起改走。
+# 此风险与 --force 意图（覆盖目标路径）无关，属另一目录，一律拒绝。
+if [ "$top" != "$(basename "$DATA_ROOT")" ] && [ -e "$(dirname "$DATA_ROOT")/$top" ]; then
+    die "目标父目录已存在与归档顶层同名目录($(dirname "$DATA_ROOT")/$top)，可能是仍在使用的数据目录；请改用独立父目录还原（如 /tmp/<root>/）"
+fi
+
 # 非空目标
 if [ -d "$DATA_ROOT" ] && [ -n "$(ls -A "$DATA_ROOT" 2>/dev/null)" ]; then
     if [ "$FORCE" = 1 ]; then
@@ -89,7 +97,15 @@ case "$COMPOSE_PROFILE" in
         ;;
 esac
 
+# 应用数据库校验：还原内容应含 database/mariadb 冷数据目录（权威）；
+# 仅有逻辑备份则提示手动导入（mariadb 是平台层常驻服务）
+if [ ! -d "$DATA_ROOT/database/mariadb" ]; then
+    warn "还原内容缺少 database/mariadb 数据目录；若归档含 database/dumps/*.sql，请解压后手动导入再启动"
+fi
+
 info "还原完成。验证: deploy.sh -d ${DATA_ROOT} -p ${COMPOSE_PROFILE} validate"
 if [ "$START" = 1 ]; then
-    "${SCRIPT_DIR}/deploy.sh" -d "$DATA_ROOT" -p "$COMPOSE_PROFILE" up
+    # 注意：不能用 ${SCRIPT_DIR} —— source lib/common.sh 会把 SCRIPT_DIR 覆写为
+    # lib/ 目录；REPO_ROOT 是 common.sh 按仓库根算出的正确路径。
+    "${REPO_ROOT}/deploy.sh" -d "$DATA_ROOT" -p "$COMPOSE_PROFILE" up
 fi

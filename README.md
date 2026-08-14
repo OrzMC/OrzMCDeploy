@@ -7,6 +7,7 @@ OrzMC 的最小容器化落地方案。平台层包括：
 - `Caddy`（本地验证，local profile）作为 `.localhost` 反代 + 本地 CA
 - `MCSManager Web` + `MCSManager Daemon` 管理实例
 - `EasyBot` 统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
+- `MariaDB` 应用数据库（默认启用，供 PaperMC 插件使用，仅内网可达）
 
 `PaperMC` 不直接写在 `compose.yaml` 中，而是由 `MCSManager` 创建和管理。
 
@@ -59,7 +60,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 停止 | `./local.sh stop` | `deploy.sh -d <DATA_ROOT> stop` |
 | 状态与访问地址 | `./local.sh status` | `deploy.sh -d <DATA_ROOT> status` |
 | 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh -d <DATA_ROOT> validate` |
-| 备份数据 | `./local.sh backup` | `backup.sh -d <DATA_ROOT> --stop` |
+| 备份数据 | `./local.sh backup` | `backup.sh -d <DATA_ROOT> --stop`（含 MariaDB 逻辑备份） |
 | 还原/迁移 | `./restore.sh -d <目标> <归档>` | `restore.sh -d <目标> <归档> --force` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` | 同左 |
 
@@ -77,7 +78,8 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 ## 安全
 
-- `$DATA_ROOT/.env`、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、daemon key
-  （`global.json`）均属密钥：权限收紧、随数据备份、**永不入库**。
+- `$DATA_ROOT/.env`（含 `MARIADB_*`）、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、
+  daemon key（`global.json`）、MariaDB 逻辑备份（`database/dumps/*.sql`）均属密钥：
+  权限收紧、随数据备份、**永不入库**。
 - 公网仅暴露 3 个入口；`mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为
   可信环境。详见 [`docs/usage.md`](docs/usage.md) 第 8 章。

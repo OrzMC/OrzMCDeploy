@@ -10,6 +10,8 @@
 # 默认在线打包（best-effort，可能产生不一致快照）；
 # --stop 会先停 compose 服务再打包再拉起，但 MCSManager 管理的 PaperMC 实例
 # 不属于 compose，如需完全一致的快照请先在 MCSManager 面板停止实例。
+# MariaDB 平台层常驻服务：打包前自动产出 mariadb-dump 逻辑快照（database/dumps/），
+# 归档无论是否 --stop 都含一致逻辑备份；dump 失败不中断整机备份。
 # PROFILE（默认 prod）：--stop 的 compose 操作按 profile 选择边缘层。
 # ===========================================================================
 
@@ -54,6 +56,10 @@ esac
 mkdir -p "$BACKUP_DIR"
 archive="$BACKUP_DIR/orzmc-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
 
+# MariaDB 逻辑备份：必须早于 --stop 的 compose down（此时容器仍 UP）；失败用 || warn
+# 兜底（set -e 下吞掉非零返回），归档仍含数据库数据目录。
+dump_db_logical || warn "MariaDB 逻辑备份失败，归档仅含数据库数据目录"
+
 # 停服快照（仅 compose 服务；PaperMC 实例需面板手动停止）
 if [ "$STOP" = 1 ]; then
     if [ -f "$(env_file)" ]; then
@@ -79,11 +85,16 @@ else
     die "备份校验失败: $archive"
 fi
 
-# 保留最近 N 份
+# 保留最近 N 份（整机归档 + MariaDB 逻辑备份同一策略）
 if [ -n "$KEEP" ]; then
     mapfile -t old < <(ls -1t "$BACKUP_DIR"/orzmc-backup-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)))
     for f in "${old[@]}"; do
         rm -f "$f"
         warn "清理旧备份: $f"
+    done
+    mapfile -t old_dumps < <(ls -1t "$DATA_ROOT"/database/dumps/mariadb-all-*.sql 2>/dev/null | tail -n +$((KEEP + 1)))
+    for f in "${old_dumps[@]}"; do
+        rm -f "$f"
+        warn "清理旧逻辑备份: $f"
     done
 fi

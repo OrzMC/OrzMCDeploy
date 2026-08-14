@@ -268,10 +268,20 @@ deploy.sh -d <DATA_ROOT> up
 | `MCS_DAEMON_PORT` | ✔ | ✔ | MCSManager Daemon 端口（默认 `24444`） |
 | `QQBOT_APP_ID` | ✔ | ✔ | QQ 开放平台 AppID（接 QQ 时必填） |
 | `QQBOT_CLIENT_SECRET` | ✔ | ✔ | QQ 开放平台 ClientSecret（接 QQ 时必填） |
+| `MARIADB_ROOT_PASSWORD` | ✔ | ✔ | MariaDB root 密码（强密码，密钥） |
+| `MARIADB_DATABASE` | ✔ | ✔ | 插件默认数据库名（如 `papermc`） |
+| `MARIADB_USER` | ✔ | ✔ | 插件连接用户名（如 `mc`） |
+| `MARIADB_PASSWORD` | ✔ | ✔ | 插件连接密码（强密码，密钥） |
 
 可选适配器：EasyBot 支持 Telegram / Discord / 飞书，在 `.env` 按需启用对应变量即可
 （模板里已有注释示例）。微信为扫码登录、默认自动启用，不需要时禁用，见
 [docs/easybot.md](easybot.md)（`gateway.local.yaml`）。
+
+**应用数据库 MariaDB**：平台层常驻服务（默认启用，无开关）。插件挂 `orzmc_default`
+内网直连 `jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>`（仅 `expose` 3306，不发布
+宿主机、无公网/边缘入口）。数据落 `$DATA_ROOT/database/mariadb`，随整机备份。
+> ⚠️ **既有部署迁移**：`ensure_env_file` 不覆盖已有 `.env`，存量环境需手动把上面
+> `MARIADB_*` 四项补进 `$DATA_ROOT/.env`，再跑 `deploy.sh validate`（会强制校验）。
 
 ### 4.2 双 Profile
 
@@ -403,9 +413,14 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 ./backup.sh -d <DATA_ROOT> -o /mnt/backups   # 指定归档目录
 ```
 
-- 归档**整个 `$DATA_ROOT`**（含 `.env`、cloudflared 凭据、各服务数据、`instances/`），
-  默认输出到 `$(dirname $DATA_ROOT)/orzmc-backups`（在 DATA_ROOT 之外，避免自我包含）。
+- 归档**整个 `$DATA_ROOT`**（含 `.env`、cloudflared 凭据、各服务数据、`instances/`、
+  `database/`），默认输出到 `$(dirname $DATA_ROOT)/orzmc-backups`（在 DATA_ROOT 之外，
+  避免自我包含）。
 - 归档名：`orzmc-backup-YYYYmmdd-HHMMSS.tar.gz`。
+- **MariaDB 逻辑备份**：打包前自动 `mariadb-dump --all-databases --single-transaction`
+  产出一致快照到 `$DATA_ROOT/database/dumps/mariadb-all-*.sql`（随归档一起备份），
+  **无论是否 `--stop`** 归档都含一致逻辑快照；dump 失败不中断整机备份（归档仍含
+  冷数据目录）。`--keep` 会同步剪掉过期的逻辑备份。
 - ⚠️ **重要**：PaperMC 实例**不在 compose 内**（由 MCSManager 管理），`--stop` 只保证
   compose 一致性。要完全一致的快照，请先在面板**停止实例**再备份。
 - 迁移基线建议：先面板停实例 → `backup.sh --stop` → 校验归档（`tar tzf`）确认含
@@ -422,6 +437,11 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 - 归档顶层目录名与目标不一致时默认拒绝，`--force` 解压后改名。
 - 还原到**新路径**时自动改写 `.env` 内的 `DATA_ROOT`（迁移核心），并保留
   `.env.bak-restore`。
+- **应用数据库**：整树解包自动还原 `database/mariadb`（冷数据目录，**权威**）与
+  `database/dumps/*.sql`（逻辑快照，**兜底**）。`restore.sh` 会校验数据目录存在；
+  若归档只有逻辑备份（冷目录缺失/损坏），解压后手动导入再启动：
+  `docker exec -i orzmc-mariadb mariadb -uroot -p"<MARIADB_ROOT_PASSWORD>" < database/dumps/mariadb-all-*.sql`
+  （⚠️ 归档解压在 DATA_ROOT 内，命令须在该 DATA_ROOT 对应的栈上执行）。
 - 详细迁移流程见[第 10 章](#10-迁移到新主机)。
 
 ---
@@ -556,6 +576,8 @@ platforms:
 | Cloudflare 隧道凭据 | `$DATA_ROOT/cloudflared/cert.pem`、`<tunnel-id>.json` | 按密钥对待：仅 DATA_ROOT 内、随备份、权限收紧 |
 | daemon key | `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` | 等同最高权限（可管理宿主机 Docker），600、随备份、永不入库 |
 | EasyBot API key / 会话 key | 插件 `easybot.yml` | 密钥，不入库 |
+| MariaDB 密码 | `$DATA_ROOT/.env` 的 `MARIADB_ROOT_PASSWORD` / `MARIADB_PASSWORD` | 600、随备份、永不入库 |
+| MariaDB 逻辑备份 | `$DATA_ROOT/database/dumps/*.sql` | 含 `mysql` 系统库（用户/授权），600、随备份、永不入库 |
 
 - **公网暴露面只有 3 个入口**：`mcs` / `easybot` / `mcs-node`（均有鉴权）。
   **EasyBot 插件 API 仅内网**（`http://easybot:8080`），无公网域名。
@@ -679,6 +701,9 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 │       └── logs/
 ├── easybot/
 │   └── data/                      # gateway.db 等网关数据
+├── database/
+│   ├── mariadb/                   # InnoDB 数据目录（uid/gid=999）
+│   └── dumps/                     # backup.sh 逻辑备份（含系统库，密钥，600）
 └── instances/
     ├── papermc-main/{server,backups}
     └── papermc-test/{server,backups}
@@ -693,6 +718,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | `mcsmanager-web` | `orzmc-mcsmanager-web` | 两者 | `githubyumao/mcsmanager-web` |
 | `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 两者 | `githubyumao/mcsmanager-daemon` |
 | `easybot` | `orzmc-easybot` | 两者 | `ghcr.io/easyindie/easybot` |
+| `mariadb` | `orzmc-mariadb` | 两者 | `mariadb:11.4`（应用数据库，插件用） |
 
 镜像版本以 `compose.yaml` 中 `image:xxx@sha256:...` 为准；刷新用 `update-image-digests.sh`。
 
@@ -702,8 +728,9 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 
 ## 附录 F 硬件选型（按在线人数）
 
-> 本文档的**平台层**（mcsmanager / easybot / cloudflared，见附录 D）实测占用
-> **固定约 250 MB / 1 核**，不随玩家数变化——所有档位的资源大头都是 PaperMC 实例本身。
+> 本文档的**平台层**（mcsmanager / easybot / cloudflared / mariadb，见附录 D）实测占用
+> **固定约 0.5–0.6 GB / 1 核**（其中 mariadb 常驻约 0.3 GB），不随玩家数变化——
+> 所有档位的资源大头都是 PaperMC 实例本身。
 
 ### 前提：档位 = 同时在线
 
@@ -723,14 +750,21 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 \* 网络上行指"玩家从公网进服"（隧道/端口转发）时的持续上行；本方案默认玩家局域网直连
 25565，那个场景下千兆局域网即可。
 
+> MariaDB 常驻约 0.3 GB（默认 buffer pool 128M），上表各档整机内存**已含**该固定成本且仍
+> 富余（重算见下）。低内存（<8 GB）环境可调 `--innodb-buffer-pool-size=64M` 再压约 0.15 GB。
+> 磁盘方面 mariadb 初始约 1 GB（系统库 + redo 日志），对 20 GB 起步的磁盘档位可忽略。
+
 ### 为什么是这些数（底层逻辑）
 
-1. **平台层成本固定**：mcsmanager + easybot + cloudflared 实测约 250 MB / 1 核。
-   20→200 人档平台层开销一样，涨的全是 MC 实例。
+1. **平台层成本固定**：mcsmanager + easybot + cloudflared + mariadb 实测约
+   0.5–0.6 GB / 1 核（mariadb 默认 buffer pool 128M，约 0.3 GB；可调
+   `--innodb-buffer-pool-size` 压到约 0.15 GB）。20→200 人档平台层开销一样，
+   涨的全是 MC 实例。
 2. **MC 的硬瓶颈是单线程 tick**：20 TPS 主循环只跑在一个核上，**单核主频比核数更重要**——
    100 人档也要"顶级单核"而不是堆低主频核。核数的用处是 Paper 的**异步区块生成**、GC 线程，
    以及 150 人以上把世界拆给多个实例。内存随**已加载区块数**涨（约每玩家 100–200 MB），
-   粗略估算：`堆内存 ≈ 同时在线 × 0.15–0.2 GB`，整机内存 = 堆 + 平台 0.25G + 系统约 2G。
+   粗略估算：`堆内存 ≈ 同时在线 × 0.15–0.2 GB`，
+   整机内存 ≈ 堆 + 平台(含 mariadb) 约 0.6G + 系统约 2G。
 3. **三个杠杆能压配置，让"临界"档活下来**：
    - **视距**：10 → 6，实体/区块负载可降 40%+，最有效的旋钮
    - **预生成世界**（`/pregen` 类工具）：消掉"边玩边生成区块"这个最大的 CPU 尖峰，
@@ -750,6 +784,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 
 ### 一句话买机建议
 
-- **≤50 人**：8–16 GB 高主频 VPS，或家用 Mac/PC（本仓库当前生产即 20 人档：4G 堆，整机 8G 即可）
+- **≤50 人**：8–16 GB 高主频 VPS，或家用 Mac/PC（本仓库当前生产即 20 人档：4G 堆，
+  整机 8G 即可——含 mariadb 常驻约 0.3G 后仍有 1G+ 余量）
 - **50–100 人**：16–24 GB **独立服务器/裸金属**，优先单核主频，SSD 必须
 - **≥150 人**：别在单实例上堆钱，直接规划 hub + 分实例架构

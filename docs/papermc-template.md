@@ -101,7 +101,8 @@
 - **macOS 目录属主**：容器内 `runAs 1000:1000` 但磁盘写入由宿主用户进程执行，实例目录
   属主需改为宿主用户（`sudo chown -R joker:staff <instance-dir>`）；Linux 生产保持
   `1000:1000`（见 ADR-006）。
-- **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`。
+- **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`，
+  也与 mariadb 同网才能用 `jdbc:mysql://mariadb:3306/...`（见下文"插件接入 MariaDB"）。
 
 ## 选填字段
 
@@ -124,6 +125,24 @@
 | 维护窗口 | `04:00-05:00` / `03:00-05:00` | 用于约束计划维护时段 |
 | 地图模板 | `default-test` / `default-survival` | 仅在有初始化模板时使用 |
 | EasyBot 联动 | `false` | 后续再扩展；插件经 `easybot.yml` 连接 EasyBot 网关，配置见 `docs/easybot.md` |
+
+## 插件接入 MariaDB（可选）
+
+平台层**默认启用** MariaDB 应用数据库（`compose.yaml` 的 `mariadb` 服务），插件挂
+`orzmc_default` 网络内网直连 `mariadb:3306`。需要 MySQL/MariaDB 的插件（Dynmap /
+CoreProtect / LuckPerms / Towny / 经济插件等）把数据库指向它即可：
+
+- **通用 JDBC**：`jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>`（端口恒为 3306，
+  主机名 `mariadb` 由 compose 服务名解析；账号/密码用 `.env` 的 `MARIADB_USER` /
+  `MARIADB_PASSWORD`）。
+- **Dynmap**：storage 用 `mysql`，`server=mariadb`、端口 `3306`，库名/账号/密码同上。
+- **LuckPerms**：`storage-method=mysql`，`data/address=mariadb:3306`，
+  `data/database=<MARIADB_DATABASE>`。
+- **CoreProtect**：`database.type=MYSQL`，`database.host=mariadb`，端口 `3306`。
+
+前提：实例**网络挂 `orzmc_default`**（与 easybot / mariadb 同网）；数据库凭据与 `.env`
+保持一致，改密码需同步改插件配置。备份随整机 `backup.sh` 自动含逻辑 dump（见
+[docs/usage.md](usage.md) §5.5）。
 
 ## 建议的录入顺序
 

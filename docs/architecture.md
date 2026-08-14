@@ -29,6 +29,7 @@
 内网
   [玩家] ── Mac 局域网 IP:25565 ──> PaperMC Prod（MCSManager 管理）
   [插件]  PaperMC 实例(挂 orzmc_default) ──http──> http://easybot:8080   (REST+WS，内网直连，不走公网)
+  [插件]  PaperMC 实例(挂 orzmc_default) ──jdbc──> mariadb:3306         (应用数据库，默认启用，内网直连)
   [QQ bot] EasyBot 出站连 QQ 服务器（NAT 下正常）
 ```
 
@@ -36,6 +37,8 @@
   （EasyBot 管理后台）、`mcs-node.<domain>`（daemon/节点，浏览器直连入口，密钥鉴权）。
 - **EasyBot 插件 API 仅内网**：插件挂 `orzmc_default` 网络，直连 `http://easybot:8080`
   （REST + WebSocket 同端口，内网无 TLS）。
+- **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 网络，直连 `mariadb:3306`
+  （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件使用。
 - **daemon 经边缘入口可达**：MCSManager 连接模型要求面板浏览器直连 daemon
   （终端/控制台/文件管理器），生产 `mcs-node.<domain>`（Cloudflare）、本地
   `mcs-node.localhost`（Caddy）反代到 `mcsmanager-daemon:24444`；daemon 全部业务
@@ -72,8 +75,10 @@
 2. 管理浏览器 → `mcs-node.<domain>` → Cloudflare 边缘 → `mcsmanager-daemon:24444`
    （**浏览器直连** daemon，密钥鉴权；面板服务端不代理 daemon）。
 3. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
-4. MCSManager Daemon → 宿主机 Docker（挂载 `/var/run/docker.sock`），管理 PaperMC 实例。
-5. EasyBot → 出站连接 QQ / Telegram / Discord / 飞书 / 微信服务器（NAT 下正常）。
+4. PaperMC 插件 → `mariadb:3306`（MySQL/MariaDB 插件数据持久化，同 `orzmc_default` 网络，
+   默认启用；备份含逻辑 dump）。
+5. MCSManager Daemon → 宿主机 Docker（挂载 `/var/run/docker.sock`），管理 PaperMC 实例。
+6. EasyBot → 出站连接 QQ / Telegram / Discord / 飞书 / 微信服务器（NAT 下正常）。
 
 ## 4. 服务职责
 
@@ -84,6 +89,7 @@
 | `mcsmanager-web` | digest 锁定 | MCSManager 面板 | `$DATA_ROOT/mcsmanager/web/{data,logs}` |
 | `mcsmanager-daemon` | digest 锁定 | 实例生命周期 + Docker 管理 | `$DATA_ROOT/mcsmanager/daemon/{data,logs}` + `/var/run/docker.sock` |
 | `easybot` | digest 锁定 | 统一 IM 网关（HTTP 监听，uid/gid=10001） | `$DATA_ROOT/easybot/data` |
+| `mariadb` | digest 锁定 | 应用数据库（MariaDB 11.4，uid/gid=999），插件数据持久化 | `$DATA_ROOT/database/mariadb`（仅内网 expose 3306） |
 
 ## 5. `$DATA_ROOT` 目录树
 
@@ -99,6 +105,9 @@ $DATA_ROOT/
     daemon/
       {data,logs}         # Config/global.json 含 daemon key（权限 600，最高权限密钥）
   easybot/data/           # EasyBot 网关数据（uid/gid=10001）
+  database/               # 应用数据库 MariaDB
+    mariadb/              # InnoDB 数据目录（uid/gid=999）
+    dumps/                # backup.sh 自动逻辑备份（含 mysql 系统库，按密钥 chmod 600）
   instances/              # daemon 容器以同路径自挂载，文件管理器可见
     papermc-main/{server,backups}
     papermc-test/{server,backups}
@@ -179,6 +188,25 @@ $DATA_ROOT/
   docker bind Source 仍由宿主解析，两者不冲突。`MCSM_DOCKER_WORKSPACE_PATH` 置为
   `${DATA_ROOT}/instances` 兜底默认布局。
 - **影响**：compose daemon 卷增加一条自挂载；新增实例目录后无需改动。
+
+### ADR-008：平台层常驻 MariaDB 数据库服务（2026-08-14）
+
+- **状态**：已实施。
+- **背景**：PaperMC 常见插件（Dynmap / CoreProtect / LuckPerms / Towny / 经济插件等）
+  会把状态持久化到 MySQL/MariaDB；原栈中唯一数据库是 EasyBot 自带的 SQLite
+  （`gateway.db`），插件侧无任何 DB 连接配置。
+- **决策**：新增 `mariadb` 服务，**默认随平台层启用**（无 profile 门控、无开关，与
+  `mcsmanager-*`/`easybot` 一致双 profile 运行）。数据落 `$DATA_ROOT/database/mariadb`；
+  端口 3306 仅 `expose`，不发布宿主机、不设公网/边缘入口，插件挂 `orzmc_default` 内网
+  直连 `mariadb:3306`。`MARIADB_ROOT_PASSWORD / MARIADB_DATABASE / MARIADB_USER /
+  MARIADB_PASSWORD` 为必需变量（`REQUIRED_ENV_VARS_PROD/LOCAL` + `templates/env.*`）。
+  `backup.sh` 在 `--stop` 之前自动执行 `mariadb-dump --all-databases` 逻辑快照（落
+  `$DATA_ROOT/database/dumps/`，随整机 tar 归档，`chmod 600`），还原以冷数据目录为权威、
+  dump 为兜底。
+- **影响**：4 个新必需变量（存量 `.env` 需手动补，`ensure_env_file` 不覆盖）；`ensure_data_dirs`
+  新增 `database/mariadb` 并 chown `999:999`；`backup.sh` 新增逻辑 dump 与 `--keep` 剪枝；
+  `restore.sh` 校验数据目录存在；`update-image-digests.sh` 注册 `mariadb:11.4`（LTS）；
+  `docs/usage.md` 附录 F 硬件选型修订（平台层固定成本 ~250 MB → ~0.5–0.6 GB）。
 
 ## 7. 演进路径
 

@@ -16,6 +16,7 @@ source_image_for_service() {
         mcsmanager-web) echo "githubyumao/mcsmanager-web:latest" ;;
         mcsmanager-daemon) echo "githubyumao/mcsmanager-daemon:latest" ;;
         easybot) echo "ghcr.io/easyindie/easybot:latest" ;;
+        mariadb) echo "mariadb:11.4" ;;
         *)
             return 1
             ;;
@@ -23,7 +24,7 @@ source_image_for_service() {
 }
 
 if [ "$#" -eq 0 ]; then
-    SERVICES=("cloudflared" "mcsmanager-web" "mcsmanager-daemon" "easybot")
+    SERVICES=("cloudflared" "mcsmanager-web" "mcsmanager-daemon" "easybot" "mariadb")
 else
     SERVICES=("$@")
 fi
@@ -31,7 +32,7 @@ fi
 for service in "${SERVICES[@]}"; do
     if ! source_image_for_service "$service" >/dev/null; then
         echo "不支持的服务名: $service" >&2
-        echo "可选服务: cloudflared mcsmanager-web mcsmanager-daemon easybot" >&2
+        echo "可选服务: cloudflared mcsmanager-web mcsmanager-daemon easybot mariadb" >&2
         exit 1
     fi
 done
@@ -55,6 +56,7 @@ source_images = {
     "mcsmanager-web": "githubyumao/mcsmanager-web:latest",
     "mcsmanager-daemon": "githubyumao/mcsmanager-daemon:latest",
     "easybot": "ghcr.io/easyindie/easybot:latest",
+    "mariadb": "mariadb:11.4",
 }
 
 text = compose_file.read_text()
