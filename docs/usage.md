@@ -166,7 +166,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
   | `https://mcs.localhost:18443` | MCSManager 面板 |
   | `https://easybot.localhost:18443` | EasyBot 管理后台 |
   | `https://mcs-node.localhost:18443` | MCSManager daemon（浏览器直连） |
-  | `https://status.localhost:18443` | 统一状态页（Gatus：聚合产品入口 + 实时健康） |
+  | `https://orzmcs.localhost:18443` | 统一状态页（Gatus：聚合产品入口 + 实时健康） |
 
 浏览器打开 MCSManager 面板，按[第 6 章](#6-管理-papermc-实例)建管理员并创建一个测试
 PaperMC 实例。启动成功后，玩家可用 `Mac 局域网 IP:25566` 进服（测试服端口，见附录 B）。
@@ -200,12 +200,12 @@ docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
 docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
   cloudflare/cloudflared tunnel route dns orzmc mcs-node.<domain>
 docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
-  cloudflare/cloudflared tunnel route dns orzmc status.<domain>
+  cloudflare/cloudflared tunnel route dns orzmc orzmcs.<domain>
 ```
 
 - `login`：浏览器里给 Cloudflare 账号授权，`cert.pem` 落到 `<DATA_ROOT>/cloudflared/`。
 - `create orzmc`：生成隧道凭据 `<tunnel-id>.json` 与隧道 UUID。
-- `route dns`：在 Cloudflare 建四条 CNAME（`mcs` / `easybot` / `mcs-node` / `status`），
+- `route dns`：在 Cloudflare 建四条 CNAME（`mcs` / `easybot` / `mcs-node` / `orzmcs`），
 
 ```bash
 # 2. 初始化生产数据目录与 .env（生成 .env 与 cloudflared/config.yml）
@@ -236,7 +236,7 @@ deploy.sh -d <DATA_ROOT> up
   | `https://mcs.<domain>` | MCSManager 面板 |
   | `https://easybot.<domain>` | EasyBot 管理后台 |
   | `https://mcs-node.<domain>` | MCSManager daemon（无 key 会提示鉴权，属预期） |
-  | `https://status.<domain>` | 统一状态页（Gatus：聚合产品入口 + 实时健康，无鉴权仅状态） |
+  | `https://orzmcs.<domain>` | 统一状态页（Gatus：聚合产品入口 + 实时健康，无鉴权仅状态） |
 
 之后按[第 6 章](#6-管理-papermc-实例)建管理员、加节点、建实例；正式服端口 `25565`
 供玩家局域网直连。
@@ -263,7 +263,7 @@ deploy.sh -d <DATA_ROOT> up
 | `DOMAIN_MCS_WEB` | ✔ | ✔ | MCSManager 面板域名：`mcs.<domain>` / `mcs.localhost` |
 | `DOMAIN_EASY_ADMIN` | ✔ | ✔ | EasyBot 后台域名：`easybot.<domain>` / `easybot.localhost` |
 | `DOMAIN_MCS_NODE` | ✔ | ✔ | daemon 直连域名：`mcs-node.<domain>` / `mcs-node.localhost` |
-| `DOMAIN_STATUS` | ✔ | ✔ | 统一状态页域名：`status.<domain>` / `status.localhost` |
+| `DOMAIN_STATUS` | ✔ | ✔ | 统一状态页域名：`orzmcs.<domain>` / `orzmcs.localhost` |
 | `CADDY_EMAIL` | — | ✔ | Caddy 证书邮箱（本地模板用占位） |
 | `PROXY_HTTP_PORT` | — | ✔ | 本地 Caddy HTTP 端口（默认 `18080`） |
 | `PROXY_HTTPS_PORT` | — | ✔ | 本地 Caddy HTTPS 端口（默认 `18443`） |
@@ -294,8 +294,8 @@ deploy.sh -d <DATA_ROOT> up
 
 | Profile | 边缘层 | 用途 | 入口 | 触发方式 |
 |---|---|---|---|---|
-| `local` | Caddy（`.localhost` + 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `status.localhost` | `./local.sh ...`（固定 local） |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `status.<domain>` | `deploy.sh ...`（默认 prod） |
+| `local` | Caddy（`.localhost` + 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` | `./local.sh ...`（固定 local） |
+| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` | `deploy.sh ...`（默认 prod） |
 
 `compose.yaml` 中 `reverse-proxy`（Caddy）挂 `profiles: ["local"]`、`cloudflared`
 挂 `profiles: ["prod"]`；`mcsmanager-web` / `mcsmanager-daemon` / `easybot` / `mariadb` /
@@ -304,14 +304,14 @@ deploy.sh -d <DATA_ROOT> up
 
 ### 4.3 域名约定
 
-子域名 = 产品代号，无后缀即该产品管理控制台：
+子域名 = 产品代号，无后缀即该产品管理控制台；`orzmcs` 为平台自身入口（统一状态页）。
 
 | 子域名 | 用途 |
 |---|---|
 | `mcs.<domain>` | MCSManager 面板 |
 | `easybot.<domain>` | EasyBot 管理后台 |
 | `mcs-node.<domain>` | MCSManager daemon（浏览器直连，daemon key 鉴权） |
-| `status.<domain>` | 统一状态页（Gatus：聚合产品入口 + 实时健康，无鉴权仅状态） |
+| `orzmcs.<domain>` | 统一状态页（Gatus：聚合产品入口 + 实时健康，无鉴权仅状态） |
 
 **插件 API 不设域名**——PaperMC 插件跑在 `orzmc_default` 网络内直连 `http://easybot:8080`。
 

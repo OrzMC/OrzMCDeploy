@@ -33,8 +33,8 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 | Profile | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
-| `local` | Caddy（`.localhost` 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `status.localhost` |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `status.<domain>` |
+| `local` | Caddy（`.localhost` 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` |
+| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
 
 - `compose.yaml` 中 `reverse-proxy`(caddy) 挂 `profiles: ["local"]`，
   `cloudflared` 挂 `profiles: ["prod"]`；mcsmanager / easybot / mariadb / status 无 profile
@@ -48,7 +48,7 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   - `mcs.<domain>` → MCSManager 面板（Web 登录鉴权）
   - `easybot.<domain>` → EasyBot 管理后台（登录鉴权）
   - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**）
-  - `status.<domain>` → 统一状态页（Gatus，聚合产品入口 + 实时健康；页面无鉴权，
+  - `orzmcs.<domain>` → 统一状态页（Gatus，聚合产品入口 + 实时健康；页面无鉴权，
     仅服务名与状态、不含密钥）
 - **EasyBot 的插件 API 不外露**：PaperMC 插件跑在 `orzmc_default` 网络内，
   直连 `http://easybot:8080`（REST + WebSocket 同端口，内网无 TLS）。

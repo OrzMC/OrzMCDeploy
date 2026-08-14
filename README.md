@@ -8,7 +8,7 @@ OrzMC 的最小容器化落地方案。平台层包括：
 - `MCSManager Web` + `MCSManager Daemon` 管理实例
 - `EasyBot` 统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
 - `MariaDB` 应用数据库（默认启用，供 PaperMC 插件使用，仅内网可达）
-- `Gatus` 统一状态页（第 4 入口 `status.<domain>`，聚合产品入口 + 实时健康）
+- `Gatus` 统一状态页（第 4 入口 `orzmcs.<domain>`，聚合产品入口 + 实时健康）
 
 `PaperMC` 不直接写在 `compose.yaml` 中，而是由 `MCSManager` 创建和管理。
 
@@ -33,11 +33,11 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 | Profile | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
-| `local` | Caddy（`.localhost` + 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `status.localhost` |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `status.<domain>` |
+| `local` | Caddy（`.localhost` + 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` |
+| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
 
 公网/本地暴露 **4 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）、
-`mcs-node`（daemon 直连，daemon key 鉴权）、`status`（Gatus 统一状态页，聚合入口 +
+`mcs-node`（daemon 直连，daemon key 鉴权）、`orzmcs`（Gatus 统一状态页，聚合入口 +
 实时健康，页面无鉴权仅状态、不含密钥）。**EasyBot 插件 API 仅内网**——插件挂
 `orzmc_default` 网络直连 `http://easybot:8080`，无 `easybot-api` 子域名。
 
@@ -83,6 +83,6 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 - `$DATA_ROOT/.env`（含 `MARIADB_*`）、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、
   daemon key（`global.json`）、MariaDB 逻辑备份（`database/dumps/*.sql`）均属密钥：
   权限收紧、随数据备份、**永不入库**。
-- 公网仅暴露 4 个入口（`mcs` / `easybot` / `mcs-node` / `status`，状态页不含密钥）；
+- 公网仅暴露 4 个入口（`mcs` / `easybot` / `mcs-node` / `orzmcs`，状态页不含密钥）；
   `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为可信环境。
   详见 [`docs/usage.md`](docs/usage.md) 第 8 章。

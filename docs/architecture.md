@@ -23,7 +23,7 @@
   [管理浏览器] ─https─> mcs.example.com          ┐
   [管理浏览器] ─https─> easybot.example.com      ┼─ Cloudflare 边缘 <─出站隧道─ cloudflared(容器, orzmc_default)
   [管理浏览器] ─https─> mcs-node.example.com     ┤
-  [管理浏览器] ─https─> status.example.com       ┘
+  [管理浏览器] ─https─> orzmcs.example.com       ┘
                                                              │           ├─ http://mcsmanager-web:23333      (MCS 面板)
                                                              │           ├─ http://easybot:8080              (EasyBot 后台)
                                                              │           ├─ http://mcsmanager-daemon:24444   (daemon/节点，密钥鉴权)
@@ -37,7 +37,7 @@
 
 - 公网暴露 **4 个入口**：`mcs.<domain>`（MCSManager 面板）、`easybot.<domain>`
   （EasyBot 管理后台）、`mcs-node.<domain>`（daemon/节点，浏览器直连入口，密钥鉴权）、
-  `status.<domain>`（统一状态页，Gatus，聚合产品入口 + 实时健康；页面无鉴权，仅服务名与
+  `orzmcs.<domain>`（统一状态页，Gatus，聚合产品入口 + 实时健康；页面无鉴权，仅服务名与
   状态、不含密钥）。
 - **EasyBot 插件 API 仅内网**：插件挂 `orzmc_default` 网络，直连 `http://easybot:8080`
   （REST + WebSocket 同端口，内网无 TLS）。
@@ -68,11 +68,11 @@
 | `mcs.<domain>` | MCSManager 面板 | `DOMAIN_MCS_WEB` |
 | `easybot.<domain>` | EasyBot 管理后台 | `DOMAIN_EASY_ADMIN` |
 | `mcs-node.<domain>` | MCSManager daemon/节点（浏览器直连，密钥鉴权） | `DOMAIN_MCS_NODE` |
-| `status.<domain>` | 统一状态页（Gatus，聚合入口 + 实时健康，无鉴权仅状态） | `DOMAIN_STATUS` |
+| `orzmcs.<domain>` | 统一状态页（Gatus，聚合入口 + 实时健康，无鉴权仅状态） | `DOMAIN_STATUS` |
 
 约定：**子域名 = 产品代号，无后缀即该产品管理控制台**；daemon 组件在代号后加
-`-node` 后缀。本地同构镜像：`mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` /
-`status.localhost`。
+`-node` 后缀。`orzmcs` 为平台自身入口（统一状态页）。本地同构镜像：
+`mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost`。
 
 ## 3. 网络与数据流
 
@@ -80,7 +80,7 @@
    hostname 路由）→ `mcsmanager-web:23333`（面板）/ `easybot:8080`（后台）。
 2. 管理浏览器 → `mcs-node.<domain>` → Cloudflare 边缘 → `mcsmanager-daemon:24444`
    （**浏览器直连** daemon，密钥鉴权；面板服务端不代理 daemon）。
-3. 管理浏览器 → `status.<domain>` → Cloudflare 边缘 → `status:8080`（Gatus 统一状态页，
+3. 管理浏览器 → `orzmcs.<domain>` → Cloudflare 边缘 → `status:8080`（Gatus 统一状态页，
    聚合产品入口 + 实时健康；页面无鉴权，仅服务名与状态、不含密钥）。
 4. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
 5. PaperMC 插件 → `mariadb:3306`（MySQL/MariaDB 插件数据持久化，同 `orzmc_default` 网络，
@@ -226,7 +226,8 @@ $DATA_ROOT/
   专业、响应式多端。
 - **决策**：
   - 采用 **Gatus**（`twinproduction/gatus`，digest 锁定）作为统一状态页，新增无 profile
-    常驻 `status` 服务（双 profile 都运行），暴露第 4 入口 `status.<domain>`。
+    常驻 `status` 服务（双 profile 都运行），暴露第 4 入口 `orzmcs.<domain>`（最初定为
+    `status.<domain>`，后按 ADR-010 改名）。
   - 配置 `${DATA_ROOT}/status/config.yaml` 由 `init` 的 `ensure_status_config` 按 profile
     替换占位符生成，**绝不覆盖已有文件**（用户可自行扩展 endpoints/buttons）。
   - 页头 `ui.buttons` 以真实链接聚合三个产品入口；健康检查走各产品**真实公网/本地入口**
@@ -248,6 +249,26 @@ $DATA_ROOT/
     （"server block without any key"）；已补 `DOMAIN_MCS_NODE` 入环境块。
   - 文档同步：`AGENTS.md` / `README.md` / `docs/architecture.md` / `docs/usage.md` /
     `EXECUTION_PATH.md`。
+
+### ADR-010：统一状态页域名改为 orzmcs（2026-08-14）
+
+- **状态**：已实施。
+- **背景**：`status.<domain>` 是泛化功能名（`status`/`health`/`uptime`/`monitor`/
+  `dashboard` 属通用基建名），违反 §2.3「子域名 = 产品代号，避免泛化子域名占用」约定。
+  且 `jokerhub.cn` 为多产品共用域名：`www` → GitHub Pages 个人站、根域 TXT 挂飞书站点验证、
+  `*.jokerhub.cn` 通配符全量代理到 Cloudflare——未来任一产品要加状态/健康页，`status`
+  均易撞车。
+- **决策**：统一状态页公网域名从 `status.<domain>` 改为 **`orzmcs.<domain>`**（平台自身
+  入口，产品代号，无后缀=该产品入口，与 `mcs`/`easybot` 同构）。本地同构镜像改为
+  `orzmcs.localhost`。**仅改域名值**：变量名 `DOMAIN_STATUS`、`STATUS_PORT`，compose 服务名
+  `status`、容器 `orzmcs-status` 不变。
+- **影响**：
+  - 仓库：`templates/env.prod` / `env.local` 默认值与注释、`README.md` / `AGENTS.md` /
+    `docs/architecture.md` / `docs/usage.md` / `EXECUTION_PATH.md` 各域名表与入口描述。
+  - 运行时：生产 `.env` 与本地 `.env` 的 `DOMAIN_STATUS` 值；已生成 `cloudflared/config.yml`
+    ingress、`status/config.yaml`（删后 `init` 重新生成，遵循"绝不覆盖"）。
+  - DNS：新增 `orzmcs.<domain>` CNAME，清理旧 `status.<domain>` 记录（通配符下旧名虽可解析
+    但不再路由到隧道，必须显式删）。
 
 ## 7. 演进路径
 

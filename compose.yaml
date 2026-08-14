@@ -57,6 +57,12 @@ services:
     container_name: orzmc-cloudflared
     restart: unless-stopped
     command: tunnel --config /etc/cloudflared/config.yml run
+    dns:
+      # 宿主 DNS 可能被本地 fake-ip 代理（Clash/Surge 类）拦截成 198.18.0.0/15 假地址，
+      # 会导致边缘主机名解析到假 IP、QUIC 控制连接失败（隧道 530）。显式用公网 DNS 解析
+      # Cloudflare 边缘：223.5.5.5（阿里，国内可达）优先，1.1.1.1（Cloudflare）兜底。
+      - 223.5.5.5
+      - 1.1.1.1
     volumes:
       # 配置由 init 生成；cert.pem 与隧道凭据 <id>.json 同目录（含密钥，随数据备份）
       - "${DATA_ROOT}/cloudflared:/etc/cloudflared:ro"
