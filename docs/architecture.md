@@ -296,7 +296,9 @@ $DATA_ROOT/
   - 改节点配置属**运行时数据**（`$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/*.json`，
     不入库）；改后需 `docker restart orzmc-mcsmanager-web`（仅改 JSON 不重建容器）。
   - 移除 investiga 期在 compose.yaml `mcsmanager-web` 加的 `dns:` / `NODE_OPTIONS`
-    （连接已内网化，注释过时）；cloudflared 的 `dns:` 隧道加固仍保留。
+    （连接已内网化，注释过时）；cloudflared 的 `dns:` 隧道加固仍保留——解析器参数化为
+    可选变量 `DNS_PRIMARY` / `DNS_SECONDARY`（缺省 `223.5.5.5` + `1.1.1.1`，仅 prod；
+    仅因宿主 fake-ip 代理劫持 DNS 才需要，无代理宿主可删）。
 - **影响**：
   - 面板↔daemon 连接不再依赖公网域名，天然避开 fake-ip 与 IPv6 路径；节点上线稳定
     （验证：面板「远程节点 orzmc-daemon 已连接 / 密钥验证通过」，daemon「会话验证身份成功」）。

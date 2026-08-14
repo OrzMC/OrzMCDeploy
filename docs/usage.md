@@ -282,6 +282,11 @@ deploy.sh -d <DATA_ROOT> up
 | `MARIADB_USER` | ✔ | ✔ | 插件连接用户名（如 `mc`） |
 | `MARIADB_PASSWORD` | ✔ | ✔ | 插件连接密码（强密码，密钥） |
 
+**可选变量**：`DNS_PRIMARY` / `DNS_SECONDARY`（仅 prod 生效，cloudflared 解析 Cloudflare
+边缘用的公网 DNS）。仅在该宿主 DNS 被 fake-ip 代理（Clash/Surge 类）劫持成
+198.18.0.0/15 假地址时才需要——显式公网解析绕开劫持，否则隧道 530；缺省/留空回退
+`223.5.5.5`（阿里）+ `1.1.1.1`（Cloudflare），无 fake-ip 代理的干净宿主可删掉这两行。
+
 可选适配器：EasyBot 支持 Telegram / Discord / 飞书，在 `.env` 按需启用对应变量即可
 （模板里已有注释示例）。微信为扫码登录、默认自动启用，不需要时禁用，见
 [docs/easybot.md](easybot.md)（`gateway.local.yaml`）。
