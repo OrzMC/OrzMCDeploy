@@ -99,12 +99,3 @@ endpoints:
       - "[CONNECTED] == true"
     ui:
       hide-url: true
-
-  - name: "PaperMC 测试服"
-    group: "游戏实例"
-    url: "tcp://host.docker.internal:25566"
-    interval: 30s
-    conditions:
-      - "[CONNECTED] == true"
-    ui:
-      hide-url: true
