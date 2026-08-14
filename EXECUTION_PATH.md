@@ -761,3 +761,34 @@
   `init && validate` 均 exit 0（覆盖此前必崩的首次 init 路径）、模板 YAML 解析全过、
   禁入路径守卫为空；真实 push 后以 GitHub Actions 绿勾为准。
 - 下一步：CI 跑通后核 `git status` 无数据文件，提交并推送本阶段改动。
+
+### 2026-08-15 平台层镜像全量升级 + 生产档本地验收
+
+- 当前阶段：Phase 3 — 运维动作标准化；`update-image-digests.sh` + `deploy.sh up` 全流程实测。
+- 已完成（镜像升级）：
+  - `./update-image-digests.sh` 全量刷新 6 服务：**cloudflared** `2535e54…` → `0aa26e2…`、
+    **easybot** `afa77d6…` → `cd0b4e4…`（v0.0.35 → **0.0.38**，满足 ≥0.0.35 硬约束）；
+    mcsmanager-web / mcsmanager-daemon / mariadb / gatus 上游未发版，`未变化`。
+  - 提交 `c7e5ed5` 并推送 origin main；**CI 全绿**（lint + 三 profile validate）。
+  - `deploy.sh -d /Users/Shared/orzmc up`：仅 cloudflared / easybot / mcsmanager-web 三容器
+    重建（mariadb / status / daemon 镜像未变不重建），隧道凭据与 ingress 不变。
+- 已完成（生产档验收，全部 PASS）：
+  - 6 容器 Up，mariadb / easybot `(healthy)`；cloudflared `Registered tunnel connection`
+    ×4（sin13/19/21/02，QUIC）；4 公网入口 `mcs/easybot/mcs-node/orzmcs` 全部 HTTP 200。
+  - 面板↔daemon 内网直连 `ws://mcsmanager-daemon:24444`：`已连接` + `密钥验证通过`。
+  - EasyBot 0.0.38：`Started adapters: ["qq"]`、`QQ Gateway connected/ready`、微信仍显式禁用；
+    mariadb `mysqld is alive`；Gatus 状态页平台层 5/5 UP、`PaperMC 正式服` UP
+    （测试服 DOWN 属预期——无测试实例）；25565 TCP 可达；`git status` 干净无数据入库。
+- 新发现与处置：
+  - **既有问题**：OrzMC 插件 EasyBot WebSocket 已于 08-14 16:08「达到最大重试次数，停止
+    重连」（早于本次升级，非本次回归）。经 **daemon Socket.IO API** 重启实例
+    （`auth` + `instance/restart`）后：`Done (13.147s)!` + `[OrzMC] EasyBot WebSocket
+    认证成功`——插件已重连 easybot 0.0.38，链路恢复，25565 可达。
+  - **MCSM daemon socket.io 请求必须包 `{uuid, data}` 信封**（与面板 `request()` 同款）：
+    裸 payload 会让 daemon router 解构出 `data=undefined` → `timingSafeEqual` 长度不等抛错
+    → auth 回 `false`（响应 `uuid:null` 即为信号）。auth 的 `data` 字段 = 原始 key 字符串
+    （非 `{key}`）。一次性客户端脚本经 web 容器自带 `socket.io-client` + `NODE_PATH` 运行。
+- 回滚预案（未触发）：`git revert c7e5ed5` + `deploy.sh -d /Users/Shared/orzmc up`
+  （digest 锁定精确回退，不触碰 DATA_ROOT）。
+- 证据：本记录 + CI run `31822845873` 绿；`docker logs orzmc-cloudflared` 注册连接；
+  `docker logs orzmc-mcsmanager-web` 节点密钥验证通过；实例日志 `Done` + 插件 WS 认证成功。
