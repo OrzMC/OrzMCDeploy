@@ -463,6 +463,44 @@ $DATA_ROOT/
     ADR-011/012/013 状态修订）、`docs/usage.md`（§1.2/§5/§6.2/§6.3）、
     `docs/acceptance.md`（三档验收实录）、`EXECUTION_PATH.md`。
 
+### ADR-015：Windows(Docker Desktop/WSL2) 平台支持与适配（2026-08-16，Windows 实测）
+
+- **状态**：已实施（Windows 11 家庭版 + Docker Desktop 4.86 / WSL2 实测通过）。
+- **背景**：项目默认按 macOS/Linux 设计（ADR-006/007）。首次移植 Windows 时暴露多处
+  与 Docker Desktop/WSL2 的兼容问题，逐一修复后全栈可用。完整部署实录见
+  `docs/windows-deployment.md`；此处记录**架构层面的决策**，避免重复踩坑。
+- **决策**：
+  - **daemon 不受 compose 管理（Windows）**：daemon 的实例自挂载卷
+    `"${DATA_ROOT}/instances:${DATA_ROOT}/instances"`（ADR-007）在 Windows 下
+    `DATA_ROOT=E:/...` 含驱动器冒号，Docker Compose 序列化 bind mount 时剥离 `E:` 报
+    `too many colons`。**`docker compose up` 无法创建 daemon**，须用
+    `docker run --mount type=bind` 手动创建。实例自挂载 target 按容器内实际相对路径
+    `/opt/mcsmanager/daemon/E:/orzmc/instances`（daemon 工作目录固定 `/opt/mcsmanager/daemon`）。
+  - **手动创建容器须补服务名别名**：compose 创建的容器自动有服务名别名；`docker run`
+    手动创建的 daemon/status 没有，面板/状态页按 `mcsmanager-daemon`/`status` 解析失败。
+    须 `docker network connect --alias <service> orzmc_default <容器>` 补别名。
+  - **prod 面板节点地址严格 `wss://<domain>:443`**（ADR-013 基础上明确协议前缀）：填
+    `https://` 会拼出非法 `ws://https://...`，填纯域名默认 `ws://` 明文经隧道 400。
+    必须带 `wss://` 前缀（面板据此用 wss 并自动拼 `/socket.io` 路径）。三种 profile 对照
+    见 ADR-013/014 与 `docs/windows-deployment.md` §6。
+  - **cloudflared 管理命令统一 `-e HOME=/home/cloudflared` + 挂载**：默认 HOME=
+    `/home/nonroot` 使 cert.pem 写容器层、`--rm` 即丢；设 HOME 指向挂载目录才落盘
+    `$DATA_ROOT`。
+  - **隧道凭据丢失可从 cert.pem 重建**：凭据 JSON 仅创建时本地生成一次、控制台无下载；
+    但可解码 cert.pem（ARGO TUNNEL TOKEN，含 accountID/zoneID/apiToken）→ CF API
+    `/accounts/{account}/cfd_tunnel/{id}/token` 取回 TunnelSecret → 重建
+    `<id>.json`。详见 `docs/windows-deployment.md` §2.2。
+  - **WSL Docker 数据可迁数据盘**：Docker Desktop 的 WSL 数据默认在 C 盘，可迁移 vhdx 到
+    数据盘（改 Lxss 注册表 BasePath）避免占满系统盘；生产用 E 盘与 `$DATA_ROOT` 分离。
+- **影响**：
+  - Windows 下 daemon/status 生命周期不归 compose（`docker compose up/down` 不作用于
+    二者），靠 `--restart unless-stopped` 自动恢复，升级/回滚须手动 `docker rm -f` +
+    `docker run`。
+  - 新增 `docs/windows-deployment.md` 作为 Windows 平台部署与排障权威文档；`README.md`
+    文档导航、`AGENTS.md` §4 同步提及 Windows 支持与差异。
+  - 平台差异总览、7 个已解决问题（根因/解法）、Windows 维护速查与待上游改进建议均见
+    `docs/windows-deployment.md`。
+
 ## 7. 演进路径
 
 - **未来候选**（尚未排期）：

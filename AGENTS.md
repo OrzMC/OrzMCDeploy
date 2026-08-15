@@ -109,6 +109,7 @@ docs/usage.md           用户使用指南（全生命周期分步操作）
 docs/architecture.md    架构设计文档（含 ADR 决策记录，长期演进）
 docs/easybot.md         EasyBot 网关与插件 easybot.yml 配置指南
 docs/papermc-template.md PaperMC 实例录入参数参考
+docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，含 ADR-015）
 ```
 
 ## 命令速查

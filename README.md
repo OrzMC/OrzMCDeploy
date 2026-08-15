@@ -92,6 +92,7 @@ compose 解析；`shellcheck *.sh lib/*.sh` 覆盖静态检查。
 - [`docs/architecture.md`](docs/architecture.md) —— 架构设计文档（含 ADR 决策记录）
 - [`docs/easybot.md`](docs/easybot.md) —— EasyBot 网关与插件 `easybot.yml` 配置指南
 - [`docs/papermc-template.md`](docs/papermc-template.md) —— PaperMC 实例录入参数参考
+- [`docs/windows-deployment.md`](docs/windows-deployment.md) —— **Windows 平台部署指南**（问题/根因/解法，含 ADR-015）
 - [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) —— AI 智能体守则
 - [`EXECUTION_PATH.md`](EXECUTION_PATH.md) —— 执行路径、门禁、checklist、状态记录
 
