@@ -17,12 +17,20 @@
 
 | 维度 | macOS/Linux 假设 | Windows(Docker Desktop/WSL2) 实际 | 影响 |
 |---|---|---|---|
-| 卷挂载路径 | `${DATA_ROOT}/instances:${DATA_ROOT}/instances`（同路径自挂载，ADR-007） | `E:/...` 含驱动器冒号，Compose 序列化时剥离 `E:` 报 `too many colons` | daemon 无法用 `docker compose up` 创建，须 `docker run --mount` |
-| 容器服务名别名 | compose 自动注入 `服务名` 网络别名 | **手动创建**（`docker run`）的容器无服务名别名 | 面板/状态页解析 `mcsmanager-daemon`/`status` 失败，须手动补 alias |
+| 卷挂载路径 | `${DATA_ROOT}/instances:${DATA_ROOT}/instances`（同路径自挂载，ADR-007） | `E:/...` 含驱动器冒号，**target 含 `E:` 时** Compose 序列化剥离报 `too many colons` | daemon 无法用 `docker compose up` 创建，须 `docker run --mount`（**ADR-016 起由脚本自动生成**） |
+| 容器服务名别名 | compose 自动注入 `服务名` 网络别名 | **手动创建**（`docker run`）的容器无服务名别名 | 面板/状态页解析失败，须补 alias（**ADR-016 起 `win_daemon_alias` 自动补**） |
 | cert.pem 落盘 | 容器 HOME 可写 | 默认 HOME=`/home/nonroot` 写容器层，`--rm` 即丢 | cloudflared 须 `-e HOME=/home/cloudflared` 指向挂载目录 |
-| 脚本路径 | `/c/...` 直接可用 | MSYS 生成 `/c/...`，Windows 原生 docker 拼成 `C:\c\...` 出错 | docker compose 一律用 Windows 原生路径 |
+| 脚本路径 | `/c/...` 直接可用 | MSYS 生成 `/c/...`，Windows 原生 docker 拼成 `C:\c\...` 出错 | compose 一律用 Windows 原生路径（**ADR-016 起 `compose_cmd` 自动过 `win_path`**） |
 | 面板节点地址 | `wss://域名` 按文档填 | 协议前缀/端口写错即连不上 | 严格 `wss://<domain>:443`（prod） |
 | Docker 数据 | 默认路径够用 | WSL 数据占 C 盘 | 需迁移到 E 盘（见 §1.2） |
+
+> **ADR-016（三平台统一命令）**：从本版本起，macOS/Linux/Windows 使用**同一套命令**
+> （`./windows.sh init|start|stop|status|validate|backup`，或 `deploy.sh`）。Windows 下
+> 脚本自动完成：daemon 的 `docker run --mount` 创建（`win_daemon_run`）、服务名别名补丁
+> （`win_daemon_alias`）、MSYS→原生路径转换（`win_path`，`compose_cmd` 内置）。
+> **status/web/easybot/mariadb/cloudflared 已回归 compose 管理**（它们的卷 target 均无
+> 驱动器冒号，Windows 可直接 `docker compose up`）；**仅 daemon 一个容器**脱离 compose，
+> 由脚本全自动处理。用户无需任何手工 `docker run` / `docker network connect` / 路径转换。
 
 ---
 
@@ -146,6 +154,11 @@ service:mcsmanager-daemon:1 Error response from daemon: mount denied:
 the source path "/orzmc/instances:E:/orzmc/instances:rw" too many colons
 ```
 
+> **ADR-016 自动化**：以下根因与解法是**必须理解的历史/排障知识**，但从当前版本起，
+> 用户**无需手工执行** §3 的 `docker run` 命令——`windows.sh start`（即 `deploy.sh up`）
+> 的 `compose_cmd` Windows 分支会自动 `win_daemon_run` 生成并执行等价的 `docker run
+> --mount`，并自动补别名（§4）。本节保留完整命令作参考与手动排障用。
+
 ### 根因（深度分析）
 
 daemon 的实例自挂载卷（ADR-007）在 compose.yaml 里是：
@@ -219,6 +232,11 @@ docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"   # 应看到 paperm
 > ⚠️ **daemon 不受 compose 管理**：重启后靠 `--restart unless-stopped` 自动恢复；升级/回滚
 > 需手动 `docker rm -f` 后重新 `docker run`。`docker compose up/down` 不会影响它（compose
 > 不认识这个容器）。
+>
+> **ADR-016 后**：上述命令已封装进 `lib/common.sh` 的 `win_daemon_run`（从 compose.yaml
+> 自动读 digest、`win_path` 转路径、lan 下自动补 `-p`），升级/回滚/重建统一用
+> `windows.sh stop && windows.sh start`，无需再手敲 `docker run`。daemon 数据/logs 卷
+> 与实例自挂载由 `win_daemon_run` 按同样参数生成。
 
 ---
 
@@ -232,6 +250,14 @@ docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"   # 应看到 paperm
 Daemon exception detected ... reconnecting...
 ```
 Gatus 状态页 `MCSManager Daemon` 节点 `success=false`。
+
+> **ADR-016 自动化**：`win_daemon_run` 创建 daemon 后会自动调 `win_daemon_alias` 补
+> `mcsmanager-daemon` 别名。**注意**：`docker network connect --alias` 无法在容器
+> **已连接**时更新别名（报 `endpoint ... already exists in network`），因此
+> `win_daemon_alias` 须先 `disconnect` 再 `connect --alias`（本 ADR 在 2026-08-16 生产
+> 迁移实测修复此点）。本节为历史/排障知识；且 **status 容器自 ADR-016 起回归 compose
+> 管理**（其卷 target 无冒号），不再需要手动 docker-run，别名由 compose 自动注入，
+> 本节的 status 别名补丁不再适用。
 
 ### 根因
 
@@ -341,23 +367,25 @@ docker restart orzmc-mcsmanager-web
 
 | 操作 | 命令 |
 |---|---|
+| 统一入口（macOS/Linux/Windows 同） | `./windows.sh init\|start\|stop\|status\|validate\|backup`（或 `deploy.sh ...`） |
 | 查看全部容器 | `docker ps -a` |
 | daemon 日志（含 Access Key） | `docker logs orzmc-mcsmanager-daemon` |
 | 节点连接结果 | `docker logs orzmc-mcsmanager-web \| grep -iE "节点\|daemon"` |
 | daemon 实例挂载自检 | `docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"` |
 | 面板/状态页服务名解析 | `docker exec orzmc-mcsmanager-web getent hosts <service>` |
 | 公网入口自检 | `curl -s -o /dev/null -w "%{http_code}" https://<sub>.jokerhub.cn` |
-| daemon 重建（compose 无法管理） | `docker rm -f orzmc-mcsmanager-daemon` 后重跑 §3 命令 |
+| daemon 重建（compose 无法管理，脚本自动） | `./windows.sh stop && ./windows.sh start`（内部 `win_daemon_rm` + `win_daemon_run`） |
 | 隧道凭据备份 | 备份 `E:\orzmc\cloudflared\*.json` + `cert.pem` |
 
 ### 已知限制（Windows 特有）
 
-- **daemon/status 不由 compose 管理**：`docker compose up/down` 不作用于这两个容器；
-  停止/重建需手动 `docker rm -f` + `docker run`。
+- **仅 daemon 不由 compose 管理**：`docker compose up/down` 不作用于 daemon；`windows.sh
+  stop/start`（内部 `win_daemon_rm`/`win_daemon_run`）统一管理其生命周期，靠
+  `--restart unless-stopped` 自动恢复。status 自 ADR-016 起回归 compose 管理。
 - **无 RDP 服务端**：Windows 11 家庭版（SKU 101）无远程桌面服务端，远程控制须第三方
   （RustDesk/ToDesk）。
-- **脚本路径坑**：`deploy.sh`/`lib` 生成的 MSYS `/c/...` 路径对 Windows 原生 docker
-  compose 失效，须手传 Windows 原生路径（`C:\...`、`E:/...`）。
+- **脚本路径坑已根治**：`compose_cmd` 内置 `win_path`，MSYS `/c/...` 路径自动转
+  Windows 原生路径；仅当绕过脚本直接手敲 `docker compose` 时仍需原生路径。
 
 ---
 

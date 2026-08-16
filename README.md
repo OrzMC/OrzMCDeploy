@@ -29,8 +29,14 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 **仓库只承载"运行时"**——compose 编排、镜像 digest、部署脚本、配置模板；
 **全部配置与数据通过卷映射落在宿主机统一目录 `$DATA_ROOT`**（生产 macOS
-`/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，本地 `.local-data/`）。由此获得：
-运行时独立演进、数据独立备份/还原/迁移、密钥不进入仓库。
+`/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，Windows `windows.sh` 默认 `E:/orzmc`，
+本地 `.local-data/`）。由此获得：运行时独立演进、数据独立备份/还原/迁移、密钥不进入仓库。
+
+**三平台统一命令**（macOS / Linux / Windows）：同一套 `init|start|stop|status|validate|backup`
+在任意平台行为一致。Windows（Docker Desktop/WSL2）下脚本自动完成 daemon 的
+`docker run --mount` 创建、服务名别名补丁与 MSYS→原生路径转换（ADR-016）；仅 daemon
+一个容器脱离 compose 管理（其实例自挂载卷 target 含驱动器冒号，compose 无法创建，
+结构性必然）。详见 [`docs/windows-deployment.md`](docs/windows-deployment.md)。
 
 ## 三 Profile（local / prod / lan）
 
@@ -60,19 +66,21 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 ## 命令速查
 
-| 场景 | 本地 | 局域网（lan） | 生产 |
-|---|---|---|---|
-| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh -d <DATA_ROOT> init` |
-| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh -d <DATA_ROOT> up` |
-| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh -d <DATA_ROOT> stop` |
-| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh -d <DATA_ROOT> status` |
-| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh -d <DATA_ROOT> validate` |
-| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh -d <DATA_ROOT> --stop`（含 MariaDB 逻辑备份） |
-| 还原/迁移 | `./restore.sh -d <目标> <归档>` | `restore.sh -d <目标> -p lan <归档>` | `restore.sh -d <目标> <归档> --force` |
-| 刷新镜像 digest | `./update-image-digests.sh [服务]` | 同左 | 同左 |
+| 场景 | 本地 | 局域网（lan） | 生产（macOS/Linux） | Windows |
+|---|---|---|---|---|
+| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh -d <DATA_ROOT> init` | `./windows.sh init` |
+| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh -d <DATA_ROOT> up` | `./windows.sh start` |
+| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh -d <DATA_ROOT> stop` | `./windows.sh stop` |
+| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh -d <DATA_ROOT> status` | `./windows.sh status` |
+| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh -d <DATA_ROOT> validate` | `./windows.sh validate` |
+| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh -d <DATA_ROOT> --stop`（含 MariaDB 逻辑备份） | `./windows.sh backup` |
+| 还原/迁移 | `./restore.sh -d <目标> <归档>` | `restore.sh -d <目标> -p lan <归档>` | `restore.sh -d <目标> <归档> --force` | 同左 |
+| 刷新镜像 digest | `./update-image-digests.sh [服务]` | 同左 | 同左 | 同左 |
 
 `<DATA_ROOT>` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
-生产 macOS 用 `-d /Users/Shared/orzmc`；Linux 默认 `/srv/orzmc`。
+生产 macOS 用 `-d /Users/Shared/orzmc`；Linux 默认 `/srv/orzmc`；Windows 用
+`./windows.sh`（默认 `E:/orzmc`，可 `-d` 或 `ORZMC_DATA_ROOT` 覆盖）。Windows 下
+`windows.sh stop && windows.sh start` 即完成 daemon 重建（compose 无法管理它）。
 
 ## 质量门禁（CI）
 
@@ -92,7 +100,7 @@ compose 解析；`shellcheck *.sh lib/*.sh` 覆盖静态检查。
 - [`docs/architecture.md`](docs/architecture.md) —— 架构设计文档（含 ADR 决策记录）
 - [`docs/easybot.md`](docs/easybot.md) —— EasyBot 网关与插件 `easybot.yml` 配置指南
 - [`docs/papermc-template.md`](docs/papermc-template.md) —— PaperMC 实例录入参数参考
-- [`docs/windows-deployment.md`](docs/windows-deployment.md) —— **Windows 平台部署指南**（问题/根因/解法，含 ADR-015）
+- [`docs/windows-deployment.md`](docs/windows-deployment.md) —— **Windows 平台部署指南**（问题/根因/解法，含 ADR-015/016，三平台统一命令）
 - [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) —— AI 智能体守则
 - [`EXECUTION_PATH.md`](EXECUTION_PATH.md) —— 执行路径、门禁、checklist、状态记录
 

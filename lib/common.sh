@@ -41,6 +41,42 @@ die()  { printf '[error] %s\n' "$*" >&2; exit 1; }
 # 去掉末尾斜杠，便于路径比较
 norm_path() { printf '%s\n' "${1%/}"; }
 
+# ---- 平台检测 -------------------------------------------------------------
+# Windows 下 daemon 的实例自挂载卷 target 含驱动器冒号，Docker Compose 无法创建
+# （见 ADR-016 / docs/windows-deployment.md §3）：compose 只对「target 含冒号」的
+# bind 序列化失败，source 含冒号无碍。因此 Windows 下 daemon 须用 docker run --
+# mount 手动创建（结构性必然），其余服务（web/easybot/mariadb/status/边缘层）的
+# 卷 target 均无冒号，本可由 compose 管理。三平台统一：macOS/Linux 全 compose；
+# Windows 下脚本自动生成 daemon 的 docker run 命令 + 补网络别名 + 转原生路径，
+# 用户命令与 macOS/Linux 完全一致。
+detect_os() {
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) printf '%s\n' "windows" ;;
+        *) printf '%s\n' "posix" ;;
+    esac
+}
+is_windows() { [ "$(detect_os)" = "windows" ]; }
+
+# MSYS/原生路径 → Windows 原生正斜杠形式（docker 用）：C:/...、E:/...
+win_path() {
+    local p="$1"
+    case "$p" in
+        [A-Za-z]:*) printf '%s\n' "${p//\\//}" ;;   # 已是原生（E:\ 或 E:/），统一正斜杠
+        /*) printf '%s\n' "$(cygpath -m "$p" 2>/dev/null || printf '%s' "$p")" ;;
+        *) printf '%s\n' "${p//\\//}" ;;
+    esac
+}
+
+# 读 compose.yaml 中 mcsmanager-daemon 的 image（含 digest）。awk：进入 daemon 服务
+# 块后取首个 image: 行，遇到下一个 2 空格缩进的服务名即退出。不依赖 python/yq。
+daemon_image() {
+    awk '/^  mcsmanager-daemon:/{d=1; next}
+         d && /^  [a-zA-Z]/{d=0}
+         d && /image:/{sub(/^.*image:[[:space:]]*/,""); gsub(/[[:space:]]/,""); print; exit}' "$COMPOSE_FILE"
+}
+
+# ---- 状态页（Gatus）健康检查等平台无关路径 ---------------------------------
+
 # ---- DATA_ROOT 解析 ------------------------------------------------------
 # 优先级：-d/--data-root 参数（由各脚本解析后赋值）> ORZMC_DATA_ROOT 环境变量 > 默认 /srv/orzmc
 resolve_data_root() {
@@ -313,10 +349,95 @@ ensure_data_dirs() {
     fi
 }
 
+# ---- Windows daemon 生命周期（结构性 docker run）---------------------------
+# 仅 Windows 需要：daemon 的实例自挂载卷 target 含驱动器冒号，Docker Compose
+# 无法创建（ADR-016）。macOS/Linux 走 compose（compose.yaml 里 daemon 服务定义
+# 照旧），Windows 走本组函数手动 docker run。容器名/网络与 compose 定义一致。
+daemon_container() { printf '%s\n' "orzmc-mcsmanager-daemon"; }
+
+# 补服务名别名：compose 创建的容器自动有服务名别名，docker run 手动创建的无；
+# 面板/状态页按 mcsmanager-daemon 解析失败时需补。仅当别名缺失时才操作，且
+# docker network connect --alias 无法在容器已连接时更新别名（报 endpoint already
+# exists），须先 disconnect 再 connect --alias（ADR-015 §4 同款做法）。仅作用于
+# 别名缺失的容器（如新 docker-run 的 daemon），不影响已就绪的 daemon。
+win_daemon_alias() {
+    local network="orzmc_default"
+    local c
+    c="$(daemon_container)"
+    # 别名已就绪则无操作
+    if docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.Aliases}}{{end}}' "$c" 2>/dev/null | grep -q 'mcsmanager-daemon'; then
+        return 0
+    fi
+    if docker inspect "$c" >/dev/null 2>&1; then
+        docker network disconnect "$network" "$c" 2>/dev/null || true
+        docker network connect --alias mcsmanager-daemon "$network" "$c" 2>/dev/null || true
+    fi
+}
+
+# 创建 daemon（幂等：已存在则跳过并补别名）。实例自挂载 target 按容器内实际
+# 相对路径落点：daemon 工作目录固定 /opt/mcsmanager/daemon，Windows 实例 cwd
+# = ${DATA_ROOT}/instances/<uuid>（含 E: 非绝对路径）在容器内解析为
+# /opt/mcsmanager/daemon/${DATA_ROOT}/instances（见 docs/windows-deployment.md §3）。
+win_daemon_run() {
+    local root img tz network port=() extra_ports
+    root="$(win_path "$DATA_ROOT")"
+    img="$(daemon_image)"
+    tz="$(read_env_value TZ)"
+    network="orzmc_default"
+    [ -n "$img" ] || die "无法从 compose.yaml 解析 daemon 镜像"
+    if docker inspect "$(daemon_container)" >/dev/null 2>&1; then
+        info "daemon 已存在，跳过创建（补别名）"
+        win_daemon_alias
+        return 0
+    fi
+    # 确保网络存在（compose up 会创建；首次单独 run 前手动建）
+    if ! docker network inspect "$network" >/dev/null 2>&1; then
+        docker network create "$network" >/dev/null 2>&1 || true
+    fi
+    # 进程模式 PaperMC 实例（cwd 在 daemon 内部）的进服端口须由 daemon 容器 -p 暴露。
+    # .env 的 DAEMON_PORTS 追加额外映射（逗号分隔 host:container/proto），供玩家进服
+    # （Java 25565/tcp、基岩 19132/udp 等）。lan 模式下 daemon API 端口另发。
+    extra_ports="$(read_env_value DAEMON_PORTS)"
+    if [ -n "$extra_ports" ]; then
+        local oldifs="$IFS"
+        IFS=','
+        # shellcheck disable=SC2206  # 故意按逗号拆分配置项
+        for p in $extra_ports; do
+            [ -n "$p" ] && port+=(-p "$p")
+        done
+        IFS="$oldifs"
+    fi
+    if [ "${COMPOSE_PROFILE:-prod}" = "lan" ]; then
+        port+=(-p "${LAN_MCS_DAEMON_PORT:-24444}:${MCS_DAEMON_PORT:-24444}")
+    fi
+    docker run -d --name "$(daemon_container)" \
+        --restart unless-stopped \
+        --env "MCSM_DOCKER_WORKSPACE_PATH=${root}/instances" \
+        --env "TZ=${tz}" \
+        --mount "type=bind,source=${root}/mcsmanager/daemon/data,target=/opt/mcsmanager/daemon/data" \
+        --mount "type=bind,source=${root}/mcsmanager/daemon/logs,target=/opt/mcsmanager/daemon/logs" \
+        --mount "type=bind,source=${root}/instances,target=/opt/mcsmanager/daemon/${root}/instances" \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        "${port[@]}" \
+        --network "$network" \
+        "$img" >/dev/null
+    info "daemon 已通过 docker run 创建（Windows 专用路径）"
+    win_daemon_alias
+}
+
+win_daemon_rm() {
+    docker rm -f "$(daemon_container)" 2>/dev/null || true
+}
+
 # ---- compose 统一入口 ----------------------------------------------------
 # compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件；
 # --profile 按 COMPOSE_PROFILE 选择边缘层（local=caddy / prod=cloudflared /
 # lan=无边缘层，追加 compose.lan.yaml 发布源站宿主端口）。
+# Windows 适配（ADR-016）：daemon 实例自挂载 target 含驱动器冒号，compose 无法
+# 创建。up 时用 --no-deps + 显式列出非 daemon 服务让 compose 跳过 daemon，再走
+# win_daemon_run docker run；down 先 rm daemon 再 compose down；status 补一行
+# daemon 状态。macOS/Linux 走原生 compose 全流程。其余命令（config/exec/validate
+# 等）在 Windows 下同样透传 compose。
 compose_cmd() {
     local file profile="${COMPOSE_PROFILE:-prod}"
     local -a extra=()
@@ -336,7 +457,52 @@ compose_cmd() {
             ;;
         *) die "未知 profile: ${profile}（可选 prod|local|lan）" ;;
     esac
-    docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" --profile "$profile" "$@"
+    local -a base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" --profile "$profile")
+    # Windows：COMPOSE_FILE 是 MSYS 路径（/c/...），docker compose 无法解析（会转成
+    # C:\c\...）。须转 Windows 原生正斜杠路径（见 docs/windows-deployment.md §7）。
+    if is_windows; then
+        file="$(win_path "$file")"
+        # extra（lan override compose.lan.yaml）也是 MSYS 路径，一并转原生
+        if [ "${#extra[@]}" -gt 0 ]; then
+            extra=(-f "$(win_path "${COMPOSE_FILE%.yaml}.lan.yaml")")
+        fi
+        base=(docker compose --env-file "$file" -f "$(win_path "$COMPOSE_FILE")" \
+            "${extra[@]}" --profile "$profile")
+    fi
+
+    # ---- Windows：daemon 不走 compose（结构性 docker run）----
+    if is_windows; then
+        case "$1" in
+            up)
+                # 仅全量 up -d 时接管 daemon；指定服务 up（如 backup 的 up -d
+                # mariadb，$#=3）仍交 compose 原样处理。
+                if [ "${2:-}" = "-d" ] && [ "$#" -eq 2 ]; then
+                    local -a svcs=()
+                    # 列出该 profile 下全部 compose 服务，剔除 daemon
+                    mapfile -t svcs < <("${base[@]}" config --services 2>/dev/null | grep -v '^mcsmanager-daemon$')
+                    "${base[@]}" up -d --no-deps "${svcs[@]}"
+                    win_daemon_run
+                    return 0
+                fi
+                ;;
+            down)
+                win_daemon_rm
+                "${base[@]}" down --remove-orphans
+                return 0
+                ;;
+            status|ps)
+                # 仅裸 ps/status 时补 daemon 行；ps -q/ps <svc> 等带参数透传
+                if [ "$#" -eq 1 ]; then
+                    "${base[@]}" "$@"
+                    printf '  %-24s %s\n' "daemon(docker-run)" \
+                        "$(docker inspect -f '{{.State.Status}}' "$(daemon_container)" 2>/dev/null || echo "absent")"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
+    "${base[@]}" "$@"
 }
 
 # ---- 校验 ---------------------------------------------------------------

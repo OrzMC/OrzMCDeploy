@@ -95,10 +95,11 @@ templates/              首次 init 的配置模板
   gatus-config.yml      Gatus 统一状态页配置模板（init 生成到 DATA_ROOT/status/config.yaml）
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   env.papermc           PaperMC 参数参考（compose 不消费）
-lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导）
+lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导、平台层 detect_os/win_path/win_daemon_*）
 deploy.sh               生产部署统一入口（默认 prod profile）
 local.sh                本地验证统一入口（固定 local profile + .local-data）
 lan.sh                  局域网直连统一入口（固定 lan profile + .local-data-lan，无边缘层）
+windows.sh              Windows 部署统一入口（默认 DATA_ROOT=E:/orzmc；三平台命令统一，ADR-016）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
 .github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + 三 profile validate）
@@ -109,20 +110,20 @@ docs/usage.md           用户使用指南（全生命周期分步操作）
 docs/architecture.md    架构设计文档（含 ADR 决策记录，长期演进）
 docs/easybot.md         EasyBot 网关与插件 easybot.yml 配置指南
 docs/papermc-template.md PaperMC 实例录入参数参考
-docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，含 ADR-015）
+docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，含 ADR-015/016，三平台统一命令）
 ```
 
 ## 命令速查
 
-| 场景 | 本地 | 局域网（lan） | 生产 |
-|---|---|---|---|
-| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh init` |
-| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh up` |
-| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh stop` |
-| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh status` |
-| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh validate` |
-| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） |
-| 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh -d <root> -p lan <归档>` | `restore.sh <归档>` |
+| 场景 | 本地 | 局域网（lan） | 生产（macOS/Linux） | Windows |
+|---|---|---|---|---|
+| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh init` | `./windows.sh init` |
+| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh up` | `./windows.sh start` |
+| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh stop` | `./windows.sh stop` |
+| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh status` | `./windows.sh status` |
+| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh validate` | `./windows.sh validate` |
+| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） | `./windows.sh backup` |
+| 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh -d <root> -p lan <归档>` | `restore.sh <归档>` | 同左 |
 
 - 生产默认 `DATA_ROOT=/srv/orzmc`，实际生产使用 `deploy.sh -d /Users/Shared/orzmc ...`
   或 `ORZMC_DATA_ROOT=/Users/Shared/orzmc`。

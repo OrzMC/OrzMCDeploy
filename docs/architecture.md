@@ -501,6 +501,58 @@ $DATA_ROOT/
   - 平台差异总览、7 个已解决问题（根因/解法）、Windows 维护速查与待上游改进建议均见
     `docs/windows-deployment.md`。
 
+### ADR-016：Windows 平台支持脚本化（三平台统一命令，仅 daemon 走 docker run）（2026-08-16）
+
+- **状态**：已实施（Windows 11 家庭版 + Docker Desktop 4.86 / WSL2 实测通过）。
+- **背景**：ADR-015 让 Windows 跑通，但依赖多处**手工**操作：daemon/status 须手动
+  `docker run --mount`、手动 `docker network connect --alias` 补服务名别名、手传
+  Windows 原生路径（`E:/...`）规避 MSYS `/c/...`。用户命令与 macOS/Linux 不一致，
+  不符合"三平台统一、配置最简化"目标。
+- **根因精确化**：经实测（compose v5.3.1，Windows/WSL2），Docker Compose 对 bind 卷
+  的序列化**只在「target 含驱动器冒号」时报 `too many colons`**；source 含冒号无碍
+  （`- "E:/orzmc/instances:/data"` 可创建，`- "E:/orzmc/instances:E:/orzmc/instances"`
+  报错，错误为 `source path "/orzmc/instances:E:/orzmc/instances:rw" too many colons`）。
+  而 daemon 的实例自挂载（ADR-007）target 必须等于容器内 `absoluteCwdPath()` 解析结果
+  `/opt/mcsmanager/daemon/E:/orzmc/instances`——**含 `E:` 是结构性必然**（MCSManager
+  实例 `cwd` 同时充当宿主 bind source 与容器内文件路径，Windows 下 cwd=`E:/...` 在
+  Linux 容器内非绝对路径、拼到工作目录）。因此 daemon 在 Windows 走 `docker run --mount`
+  **不是可绕过的 bug，而是模型使然**。
+- **决策**（脚本层抽象平台差异，用户命令与 macOS/Linux 完全一致）：
+  - **lib/common.sh 新增平台层**：`detect_os`（MINGW/MSYS/CYGWIN→windows）、`win_path`
+    （MSYS/原生路径→Windows 原生正斜杠，docker 用）、`daemon_image`（awk 从 compose.yaml
+    读 daemon digest，不依赖 python/yq）。
+  - **`compose_cmd` Windows 分支**：`up -d` 时用 `--no-deps` + 显式列出该 profile 下
+    **除 daemon 外全部服务**，让 compose 完全跳过 daemon（不破坏 depends_on——daemon 仍
+    是有效服务，仅不被拉起）；`down` 先 `win_daemon_rm` 再 compose down；裸 `status/ps`
+    补一行 daemon 状态。macOS/Linux 走原生 compose 全流程，零行为变化。同时 Windows 下
+    `COMPOSE_FILE`/lan override/env-file 均过 `win_path`，根治 MSYS `/c/...` 路径坑。
+  - **`win_daemon_run`**：脚本自动生成 ADR-015 §3 的完整 `docker run --mount` 命令（data
+    /logs / instances 自挂载 target `/opt/mcsmanager/daemon/${DATA_ROOT}/instances`、
+    docker.sock、`--network orzmc_default`、lan 下补 `-p LAN_MCS_DAEMON_PORT`）；幂等
+    （已存在则跳过）；创建后 `win_daemon_alias` 补 `mcsmanager-daemon` 别名。
+    **`DAEMON_PORTS`（.env，逗号分隔）**：进程模式 PaperMC 实例（cwd 在 daemon 内部）
+    的进服端口须由 daemon 容器 `-p` 暴露——生产 `DAEMON_PORTS=25565:25565/tcp,19132:19132/udp`
+    （2026-08-16 生产迁移实测发现：旧手动 daemon 带 `-p 25565/19132`，脚本重建前会丢端口，
+    已加此配置修复）。
+  - **status/web/easybot/mariadb/cloudflared/边缘层回归 compose**：ADR-015 当时把它们
+    一并手动 docker-run 是不必要的——它们的卷 target 均无冒号（`/opt/...`、`/data/...`、
+    `/var/lib/...`、`/config/config.yaml:ro`），Windows 下 compose 可直接创建。现在仅
+    daemon 一个容器脱离 compose 管理，且由脚本全自动处理。
+  - **新增 `windows.sh`** 薄封装入口：与 `local.sh`/`lan.sh` 同构，默认 `DATA_ROOT` 取
+    `ORZMC_DATA_ROOT` 或 `E:/orzmc`，命令 `init|start|stop|status|validate|backup` 与
+    macOS/Linux 完全一致。
+- **影响**：
+  - **用户操作三平台统一**：同一套命令在 macOS/Linux/Windows 上行为一致，Windows 无需
+    手工 docker run / 补别名 / 转路径。
+  - **仅 daemon 脱离 compose（Windows）**：`docker compose up/down` 不作用于 daemon，
+    靠 `--restart unless-stopped` 自动恢复；升级/回滚需 `win_daemon_rm` 后重跑
+    `compose_cmd up`（由脚本封装，用户执行 `windows.sh stop && windows.sh start` 即可）。
+  - **幂等安全**：`win_daemon_alias` 仅在别名缺失时操作，且须 `disconnect`+`connect --alias`
+    补别名（`connect --alias` 无法给已连接容器更新别名，2026-08-16 生产迁移实测修复）；
+    已就绪 daemon 无操作、不干扰（生产实测通过）。
+  - 文档同步：`docs/windows-deployment.md`（§0 总览修订、§3 daemon 改为脚本自动、
+    §4 别名自动、§7 维护速查更新、新增 `windows.sh`）、`AGENTS.md`、`README.md`。
+
 ## 7. 演进路径
 
 - **未来候选**（尚未排期）：
