@@ -19,6 +19,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']      # 打 tag(v*) 触发（package job 据此打 Release tarball，ADR-018）
   pull_request:
   workflow_dispatch:
 
