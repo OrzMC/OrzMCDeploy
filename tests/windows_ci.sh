@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1090,SC1091,SC2329,SC2124,SC2295
+# shellcheck disable=SC1090,SC1091,SC2317,SC2329,SC2124,SC2295
 # 本文件为单元测试：SC2329(mock 函数"未直接调用"，经 source 间接调)、
+# SC2317(新版 shellcheck 对重复定义/间接调用的 mock 判"不可达")、
 # SC1090/1091(动态 source $LIB)、SC2124/2295(mock cygpath 取末参)——均测试特有。
 # ===========================================================================
 # Windows 分支单元测试（在 CI linux runner 上跑，无需 Docker daemon）
