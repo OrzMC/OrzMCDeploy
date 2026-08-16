@@ -81,16 +81,18 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   - 三档浏览器**终端/控制台/文件管理器均可用**；节点配置在
     `$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/*.json`，改后
     `docker restart orzmc-mcsmanager-web`。daemon 全部业务路由要求密钥鉴权，无 key 无权限。
-- 服务端口**默认只 `expose`，不发布宿主机端口**（prod/local；PaperMC 实例端口 `25565`
+- 服务端口**默认只 `expose`，不发布宿主机端口**（cloudflare/local；PaperMC 实例端口 `25565`
   由 MCSManager 按实例配置映射，供玩家局域网直连）。**lan 直连模式例外**：经
-  `compose.lan.yaml` 把 4 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网
+  `compose.edge.lan.yaml` 把 4 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网
   （ADR-012）。
 
 ## 目录地图
 
 ```
-compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，三 profile，含常驻 mariadb）
-compose.lan.yaml        lan profile override（无边缘层：给 4 个源站发布宿主端口，纯 HTTP）
+compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，核心 web/daemon 常驻 + 可选服务带 profiles 标签）
+compose.edge.cloudflare.yaml  EDGE=cloudflare 边缘层 override（cloudflared 出站隧道）
+compose.edge.local.yaml       EDGE=local 边缘层 override（Caddy，.localhost）
+compose.edge.lan.yaml         EDGE=lan 边缘层 override（无边缘层：给 4 个源站发布宿主端口，纯 HTTP）
 templates/              首次 init 的配置模板
   env.prod              生产 .env 模板（含 CLOUDFLARE_TUNNEL_ID）
   env.local             本地 .env 模板（.localhost）
@@ -101,13 +103,14 @@ templates/              首次 init 的配置模板
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   env.papermc           PaperMC 参数参考（compose 不消费）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导、平台层 detect_os/win_path/win_daemon_*）
-deploy.sh               生产部署统一入口（默认 prod profile）
-local.sh                本地验证统一入口（固定 local profile + .local-data）
-lan.sh                  局域网直连统一入口（固定 lan profile + .local-data-lan，无边缘层）
-windows.sh              Windows 部署统一入口（默认 DATA_ROOT=E:/orzmc；三平台命令统一，ADR-016）
+orzmc.sh               统一部署入口（ADR-017 起唯一入口；EDGE/ENABLE_* 从 .env 读，三平台一致）
+deploy.sh               生产部署统一入口（默认 EDGE=cloudflare，兼容保留）
+local.sh                本地验证入口（固定 EDGE=local + .local-data，兼容保留）
+lan.sh                  局域网直连入口（固定 EDGE=lan + .local-data-lan，兼容保留）
+windows.sh              Windows 部署入口（默认 DATA_ROOT=E:/orzmc；兼容保留，ADR-016）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
-.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + 三 profile validate + windows-branch 单测）
+.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + EDGE×ENABLE validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
@@ -119,23 +122,27 @@ docs/papermc-template.md PaperMC 实例录入参数参考
 docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，含 ADR-015/016，三平台统一命令）
 ```
 
-## 命令速查
+## 命令速查（统一 orzmc.sh）
 
-| 场景 | 本地 | 局域网（lan） | 生产（macOS/Linux） | Windows |
-|---|---|---|---|---|
-| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh init` | `./windows.sh init` |
-| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh up` | `./windows.sh start` |
-| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh stop` | `./windows.sh stop` |
-| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh status` | `./windows.sh status` |
-| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh validate` | `./windows.sh validate` |
-| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh --stop`（含 MariaDB 逻辑备份） | `./windows.sh backup` |
-| 还原/迁移 | `./restore.sh -d <root> <归档>` | `restore.sh -d <root> -p lan <归档>` | `restore.sh <归档>` | 同左 |
+| 场景 | 命令 |
+|---|---|
+| 初始化目录/env/边缘配置 | `./orzmc.sh [-e <edge>] init` |
+| 启动平台层 | `./orzmc.sh [-e <edge>] up` |
+| 停止 | `./orzmc.sh stop` |
+| 状态与访问地址 | `./orzmc.sh status` |
+| 校验配置 | `./orzmc.sh validate` |
+| 备份数据 | `./orzmc.sh backup [--stop]`（含 MariaDB 逻辑备份） |
+| 还原/迁移 | `./restore.sh -d <root> <归档> [--force]` |
 
-- 生产默认 `DATA_ROOT=/srv/orzmc`，实际生产使用 `deploy.sh -d /Users/Shared/orzmc ...`
-  或 `ORZMC_DATA_ROOT=/Users/Shared/orzmc`。
+- `EDGE`（`cloudflare`/`local`/`lan`/`none`）在 `$DATA_ROOT/.env` 里配（`EDGE=`），
+  `-e` 参数临时覆盖；可选服务 `ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS`
+  也在 `.env` 里（缺省 `true`）。
+- 生产默认 `DATA_ROOT=/srv/orzmc`（macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。
 - `DATA_ROOT` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
 - 所有 compose 调用统一走 `lib/common.sh` 的 `compose_cmd`（显式
-  `--env-file $DATA_ROOT/.env` + `--profile $COMPOSE_PROFILE`）。
+  `--env-file $DATA_ROOT/.env` + 按 EDGE/ENABLE_* 追加 `-f` override 与 `--profile`）。
+- 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 兼容保留（deprecated），
+  `-p prod` 自动映射 `EDGE=cloudflare`。
 
 ## 代码约定
 
@@ -182,11 +189,11 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
    API 暴露到公网。
 3. 涉及架构（服务增减、入口变更、卷/网络调整）：**同步更新** `docs/architecture.md`
    （新增 ADR 记录）、`AGENTS.md`（如规则变化）、`README.md`、相关 `docs/*.md`。
-4. 改动共享库 `lib/common.sh` 后，跑一遍本地回归：`./local.sh init && ./local.sh start`
-   与 `./local.sh validate`（push/PR 后 CI 会自动跑 shellcheck + 三 profile validate，
+4. 改动共享库 `lib/common.sh` 后，跑一遍本地回归：`./orzmc.sh -e local init && ./orzmc.sh up`
+   与 `./orzmc.sh validate`（push/PR 后 CI 会自动跑 shellcheck + EDGE×ENABLE validate，
    见 `.github/workflows/ci.yml`）。
-5. 新增 `.env` 必需变量：同步更新 `lib/common.sh` 的 `REQUIRED_ENV_VARS_PROD/LOCAL`
-   与 `templates/env.*`。
+5. 新增 `.env` 必需变量：同步更新 `lib/common.sh` 的 `required_env_list`
+   与 `templates/env.*`（ENABLE_* 开关也在此）。
 6. 需要用户输入密钥/凭据时，引导用户编辑 `$DATA_ROOT/.env`，不要把真实值写进仓库或
    回显到日志/提交信息。
 7. 提交前核对 `git status`：不得出现 `.env`、`.local-data/`、`.local-backups/`、
