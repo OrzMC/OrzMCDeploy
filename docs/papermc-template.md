@@ -20,8 +20,8 @@
 | 镜像名 | `eclipse-temurin:21-jre` | `eclipse-temurin:21-jre` | 已验证可运行的 Java 21 基础镜像 |
 | 服务端口 | `25566` | `25565` | 测试服避开正式服默认端口 |
 | 端口映射 | `25566:25566` | `25565:25565` | 宿主机到容器映射 |
-| 服务目录 | `/srv/orzmc/instances/papermc-test/server` | `/srv/orzmc/instances/papermc-main/server` | 持久化世界、插件、配置 |
-| 挂载定义 | `/srv/orzmc/instances/papermc-test/server:/server` | `/srv/orzmc/instances/papermc-main/server:/server` | 核心数据挂载 |
+| 服务目录 | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置） |
+| 挂载定义 | `.../InstanceData/<uuid>:/server` | `.../InstanceData/<uuid>:/server` | 核心数据挂载（`<uuid>` 由面板生成） |
 | Java 版本 | `21` | `21` | 根据目标 Paper 版本选择 |
 | 最小内存 | `2G` | `4G` | 测试服保守，正式服更稳妥 |
 | 最大内存 | `2G` | `4G` | 建议与最小值一致，降低抖动 |
@@ -95,9 +95,9 @@
 - **修改实例配置的姿势**：实例**运行中**直接改 `InstanceConfig/<uuid>.json` 会被 daemon
   用内存副本覆盖（stop/start 会写回磁盘，`pty` 变回 `false`）。正确顺序：先停实例 →
   改 JSON → **重启 daemon 容器**（从磁盘重载）→ 再启动实例。
-- **实例 `cwd` 直接用宿主路径**（如 `${DATA_ROOT}/instances/papermc-main/server`）；
-  compose 的 daemon 已自挂载 `${DATA_ROOT}/instances`（同路径），文件管理器才能读到
-  真实文件（见 `docs/architecture.md` ADR-007）。
+- **实例 `cwd` 由面板默认写入 daemon 的 `data/InstanceData/<uuid>/`**；该目录经
+  `daemon/data` bind 落到宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，文件管理器
+  能读到真实文件（ADR-019 取代了 ADR-007 的 instances 自挂载方案）。
 - **macOS 目录属主**：容器内 `runAs 1000:1000` 但磁盘写入由宿主用户进程执行，实例目录
   属主需改为宿主用户（`sudo chown -R joker:staff <instance-dir>`）；Linux 生产保持
   `1000:1000`（见 ADR-006）。

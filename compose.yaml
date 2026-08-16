@@ -50,10 +50,6 @@ services:
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-      # MCSM_DOCKER_WORKSPACE_PATH 须为宿主路径（docker bind Source 由宿主解析）。
-      # 本仓库实例 cwd 直接用宿主路径（见下方 instances 自挂载），此变量仅兜底
-      # MCSManager 默认 data/InstanceData/<uuid> 布局时用。
-      MCSM_DOCKER_WORKSPACE_PATH: "${DATA_ROOT}/instances"
     expose:
       - "${MCS_DAEMON_PORT}"
     volumes:
@@ -61,10 +57,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/daemon/data:/opt/mcsmanager/daemon/data"
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
-      # 实例数据以同路径挂进 daemon 容器：MCSManager 文件管理器读 daemon 容器内
-      # 的 instance.absoluteCwdPath()（本仓库实例 cwd = ${DATA_ROOT}/instances/...），
-      # 自挂载后 daemon 能看到真实文件；docker bind Source 仍由宿主解析，互不冲突。
-      - "${DATA_ROOT}/instances:${DATA_ROOT}/instances"
       - /var/run/docker.sock:/var/run/docker.sock
 
   # ---- 可选服务（ENABLE_* 控制，见 .env）--------------------------------

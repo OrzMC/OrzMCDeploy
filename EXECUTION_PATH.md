@@ -6,6 +6,11 @@
 
 ## 1. 当前基线
 
+> ⚠️ **ADR-019（2026-08-16）**：已移除 `instances/` 目录及其自挂载/`MCSM_DOCKER_WORKSPACE_PATH`。
+> 实例数据由 MCSManager 面板默认写入 `daemon/data/InstanceData/<uuid>/`（宿主
+> `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`）。下文历史记录中的
+> `instances/papermc-*` 与 `E:\orzmc\instances` 为改动前的执行实录，仅供追溯。
+
 当前已确认的状态如下：
 
 - 本仓库已具备平台层编排能力，核心文件包括：
