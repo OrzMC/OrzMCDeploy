@@ -24,8 +24,8 @@
 | 面板节点地址 | `wss://域名` 按文档填 | 协议前缀/端口写错即连不上 | 严格 `wss://<domain>:443`（prod） |
 | Docker 数据 | 默认路径够用 | WSL 数据占 C 盘 | 需迁移到 E 盘（见 §1.2） |
 
-> **ADR-016（三平台统一命令）**：从本版本起，macOS/Linux/Windows 使用**同一套命令**
-> （`./windows.sh init|start|stop|status|validate|backup`，或 `deploy.sh`）。Windows 下
+> **ADR-016（三平台统一命令）+ ADR-017（单入口）**：从本版本起，macOS/Linux/Windows 使用
+> **同一套命令**（`./orzmc.sh init|up|stop|status|validate|backup`，或 `deploy.sh`）。Windows 下
 > 脚本自动完成：daemon 的 `docker run --mount` 创建（`win_daemon_run`）、服务名别名补丁
 > （`win_daemon_alias`）、MSYS→原生路径转换（`win_path`，`compose_cmd` 内置）。
 > **status/web/easybot/mariadb/cloudflared 已回归 compose 管理**（它们的卷 target 均无
@@ -367,14 +367,14 @@ docker restart orzmc-mcsmanager-web
 
 | 操作 | 命令 |
 |---|---|
-| 统一入口（macOS/Linux/Windows 同） | `./windows.sh init\|start\|stop\|status\|validate\|backup`（或 `deploy.sh ...`） |
+| 统一入口（macOS/Linux/Windows 同） | `./orzmc.sh init\|up\|stop\|status\|validate\|backup`（或 `deploy.sh ...`） |
 | 查看全部容器 | `docker ps -a` |
 | daemon 日志（含 Access Key） | `docker logs orzmc-mcsmanager-daemon` |
 | 节点连接结果 | `docker logs orzmc-mcsmanager-web \| grep -iE "节点\|daemon"` |
 | daemon 实例挂载自检 | `docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"` |
 | 面板/状态页服务名解析 | `docker exec orzmc-mcsmanager-web getent hosts <service>` |
 | 公网入口自检 | `curl -s -o /dev/null -w "%{http_code}" https://<sub>.jokerhub.cn` |
-| daemon 重建（compose 无法管理，脚本自动） | `./windows.sh stop && ./windows.sh start`（内部 `win_daemon_rm` + `win_daemon_run`） |
+| daemon 重建（compose 无法管理，脚本自动） | `./orzmc.sh stop && ./orzmc.sh up`（内部 `win_daemon_rm` + `win_daemon_run`） |
 | 隧道凭据备份 | 备份 `E:\orzmc\cloudflared\*.json` + `cert.pem` |
 
 ### 已知限制（Windows 特有）

@@ -1,0 +1,37 @@
+# ===========================================================================
+# EDGE=local 边缘层 override：Caddy 反向代理（.localhost + 本地 CA）
+#
+# 由 lib/common.sh 的 compose_cmd 在 EDGE=local 时追加合并：
+#   docker compose -f compose.yaml -f compose.edge.local.yaml --profile <ENABLE_*>
+# 仅本地验证使用：Caddy 用 *.localhost 域名 + 本地 CA + 非特权端口 18080/18443，
+# 不触发 ACME、不占用 80/443。与 EDGE=cloudflare / lan 互斥（一次只选一个 EDGE）。
+# 变量在 .env（EDGE=local 模板）显式设置；${VAR:-默认} 兜底避免未设变量时空替换警告。
+# ===========================================================================
+
+services:
+  # ---- Caddy 反代（.localhost + 本地 CA）----------------------------------
+  reverse-proxy:
+    image: caddy@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
+    container_name: orzmc-caddy
+    restart: unless-stopped
+    ports:
+      - "${PROXY_HTTP_PORT:-18080}:80"
+      - "${PROXY_HTTPS_PORT:-18443}:443"
+    environment:
+      TZ: "${TZ}"
+      CADDY_EMAIL: "${CADDY_EMAIL:-}"
+      DOMAIN_EASY_ADMIN: "${DOMAIN_EASY_ADMIN:-}"
+      DOMAIN_MCS_WEB: "${DOMAIN_MCS_WEB:-}"
+      DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE:-}"
+      DOMAIN_STATUS: "${DOMAIN_STATUS:-}"
+      EASYBOT_PORT: "${EASYBOT_PORT}"
+      MCS_WEB_PORT: "${MCS_WEB_PORT}"
+      MCS_DAEMON_PORT: "${MCS_DAEMON_PORT}"
+      STATUS_PORT: "${STATUS_PORT}"
+    volumes:
+      - "${DATA_ROOT}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "${DATA_ROOT}/caddy/data:/data"
+      - "${DATA_ROOT}/caddy/config:/config"
+    depends_on:
+      - mcsmanager-web
+      - mcsmanager-daemon

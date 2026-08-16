@@ -36,6 +36,7 @@ while [ "$#" -gt 0 ]; do
         -d|--data-root) [ "$#" -ge 2 ] || usage; DATA_ROOT="$(norm_path "$2")"; shift 2 ;;
         -o|--output-dir) [ "$#" -ge 2 ] || usage; BACKUP_DIR="$(norm_path "$2")"; shift 2 ;;
         -p|--profile) [ "$#" -ge 2 ] || usage; COMPOSE_PROFILE="$2"; shift 2 ;;
+        -e|--edge) [ "$#" -ge 2 ] || usage; EDGE="$2"; shift 2 ;;
         --stop) STOP=1; shift ;;
         --keep) [ "$#" -ge 2 ] || usage; KEEP="$2"; shift 2 ;;
         *) usage ;;
@@ -43,9 +44,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 export DATA_ROOT
-case "$COMPOSE_PROFILE" in
-    prod|local|lan) ;;
-    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
+if [ -n "${COMPOSE_PROFILE:-}" ] && [ -z "${EDGE:-}" ]; then
+    EDGE="$COMPOSE_PROFILE"
+fi
+case "$(normalize_edge)" in
+    cloudflare|local|lan|none) ;;
+    *) die "未知 EDGE: $(normalize_edge)（可选 cloudflare|local|lan|none）" ;;
 esac
 [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$(norm_path "${DATA_ROOT%/*}/orzmc-backups")"
 

@@ -4,15 +4,19 @@
 # 架构原则：本文件与仓库只描述运行时；全部配置与数据通过卷映射落在宿主机
 # 统一目录 $DATA_ROOT（生产默认 /srv/orzmc）。详见 README"运行时/数据分离"。
 #
-# 统一通过 deploy.sh / local.sh 启动，保证 --env-file $DATA_ROOT/.env 与
+# 统一通过 orzmc.sh / deploy.sh 启动，保证 --env-file $DATA_ROOT/.env 与
 # 边缘层配置前置就绪（见 lib/common.sh）。
 #
-# 三 Profile：
-#   - local：reverse-proxy(Caddy) 反代 + 本地 CA（.localhost），仅本地验证使用
-#   - prod ：cloudflared 出站隧道，Cloudflare 边缘终止真实 HTTPS，生产使用
-#   - lan  ：无边缘层直连（compose.lan.yaml 发布源站宿主端口，纯 HTTP，局域网，
-#            不做 TLS 终止；见 compose.lan.yaml 头注释）
-#   mcsmanager-*、easybot、mariadb 与 status 无 profile，三种模式都运行。
+# Profile 模型（ADR-017 起）：单 profile + 可插拔服务 + 可插拔边缘层。
+#   - 本文件含核心服务（mcsmanager-web / mcsmanager-daemon，无 profile 常驻）
+#     与可选服务（easybot / mariadb / status，带 profiles: ["<name>"] 标签，
+#     由 .env 的 ENABLE_* 决定是否启用，compose_cmd 按需追加 --profile）。
+#   - 边缘层独立成 override 文件，由 .env 的 EDGE 选择：
+#       EDGE=local      → compose.edge.local.yaml      （Caddy，.localhost）
+#       EDGE=cloudflare → compose.edge.cloudflare.yaml  （cloudflared 隧道）
+#       EDGE=lan        → compose.edge.lan.yaml         （4 源站发宿主端口，纯 HTTP）
+#       EDGE=none       → 不追加（仅内网 orzmc_default，不对外）
+#   compose_cmd 负责按 EDGE + ENABLE_* 拼出完整的 -f / --profile 集合。
 # 公网/本地暴露 4 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
 # 密钥鉴权）与 status（统一状态页，Gatus，实时健康，无鉴权仅状态，不含密钥）；
 # EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）；
@@ -22,58 +26,6 @@
 name: orzmc
 
 services:
-  # ---- local profile：Caddy 反代（.localhost + 本地 CA）--------------------
-  # 仅 local 运行；lan 下本服务不启动。变量用 ${VAR:-默认} 兜底，避免 lan profile
-  # 下（不设 Caddy/DOMAIN 变量）compose 对未运行服务报空替换警告；prod/local 均
-  # 显式设置这些变量，默认值永不生效。
-  reverse-proxy:
-    profiles: ["local"]
-    image: caddy@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
-    container_name: orzmc-caddy
-    restart: unless-stopped
-    ports:
-      - "${PROXY_HTTP_PORT:-18080}:80"
-      - "${PROXY_HTTPS_PORT:-18443}:443"
-    environment:
-      TZ: "${TZ}"
-      CADDY_EMAIL: "${CADDY_EMAIL:-}"
-      DOMAIN_EASY_ADMIN: "${DOMAIN_EASY_ADMIN:-}"
-      DOMAIN_MCS_WEB: "${DOMAIN_MCS_WEB:-}"
-      DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE:-}"
-      DOMAIN_STATUS: "${DOMAIN_STATUS:-}"
-      EASYBOT_PORT: "${EASYBOT_PORT}"
-      MCS_WEB_PORT: "${MCS_WEB_PORT}"
-      MCS_DAEMON_PORT: "${MCS_DAEMON_PORT}"
-      STATUS_PORT: "${STATUS_PORT}"
-    volumes:
-      - "${DATA_ROOT}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
-      - "${DATA_ROOT}/caddy/data:/data"
-      - "${DATA_ROOT}/caddy/config:/config"
-    depends_on:
-      - mcsmanager-web
-      - mcsmanager-daemon
-      - easybot
-      - status
-
-  # ---- prod profile：cloudflared 出站隧道（Cloudflare Tunnel）---------------
-  cloudflared:
-    profiles: ["prod"]
-    image: cloudflare/cloudflared@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
-    container_name: orzmc-cloudflared
-    restart: unless-stopped
-    command: tunnel --config /etc/cloudflared/config.yml run
-    dns:
-      # 宿主 DNS 可能被本地 fake-ip 代理（Clash/Surge 类）拦截成 198.18.0.0/15 假地址，
-      # 会导致边缘主机名解析到假 IP、QUIC 控制连接失败（隧道 530）。显式用公网 DNS 解析
-      # Cloudflare 边缘，绕开被劫持的宿主解析路径。解析器在 .env 用 DNS_PRIMARY /
-      # DNS_SECONDARY 覆盖（默认 223.5.5.5 阿里优先、1.1.1.1 Cloudflare 兜底）；
-      # 无 fake-ip 代理的干净宿主可删掉本块，走默认 Docker DNS。
-      - ${DNS_PRIMARY:-223.5.5.5}
-      - ${DNS_SECONDARY:-1.1.1.1}
-    volumes:
-      # 配置由 init 生成；cert.pem 与隧道凭据 <id>.json 同目录（含密钥，随数据备份）
-      - "${DATA_ROOT}/cloudflared:/etc/cloudflared:ro"
-
   mcsmanager-web:
     image: githubyumao/mcsmanager-web@sha256:4df0d86b59f7da423b838516e20c024b56352a0b5e54fb6c77f6f0a31f618555
     container_name: orzmc-mcsmanager-web
@@ -115,18 +67,24 @@ services:
       - "${DATA_ROOT}/instances:${DATA_ROOT}/instances"
       - /var/run/docker.sock:/var/run/docker.sock
 
+  # ---- 可选服务（ENABLE_* 控制，见 .env）--------------------------------
+  # 以下三个服务带 profiles 标签：默认由 compose_cmd 按 ENABLE_* 追加 --profile 启用。
+  # 核心 web/daemon 无 profile 常驻，不随 ENABLE_* 变化。
+
   easybot:
     # 依赖 EasyBot ≥0.0.35（镜像 digest 锁定，勿回退到更低版本；升级见 update-image-digests.sh）
+    # ENABLE_EASYBOT=true 时启用（compose_cmd 追加 --profile easybot）
+    profiles: ["easybot"]
     image: ghcr.io/easyindie/easybot@sha256:cd0b4e445742ec6fb93a4d2ec351fa21fc892caf228dc4c56bd4d41c4c87405a
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
       # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP，TLS 由
-      # 边缘层承担（local=Caddy / prod=Cloudflare 边缘；lan 无边缘层，纯 HTTP，
-      # 仅限可信局域网）。端口只 expose 不发布到宿主机（prod/local；lan 经
-      # compose.lan.yaml 发布宿主端口）；插件（挂 orzmc_default）内网直连
-      # http://easybot:8080。
+      # 边缘层承担（EDGE=local=Caddy / cloudflare=Cloudflare 边缘；EDGE=lan 无边缘层，
+      # 纯 HTTP，仅限可信局域网）。端口只 expose 不发布到宿主机（EDGE=local/cloudflare；
+      # EDGE=lan 经 compose.edge.lan.yaml 发布宿主端口）；插件（挂 orzmc_default）
+      # 内网直连 http://easybot:8080。
       EASYBOT_ALLOW_PLAINTEXT: "true"
       EASYBOT_HOME: "/var/lib/easybot"
       EASYBOT_ADMIN_PASSWORD: "${EASYBOT_ADMIN_PASSWORD}"
@@ -138,12 +96,13 @@ services:
     volumes:
       - "${DATA_ROOT}/easybot/data:/var/lib/easybot"
 
-  # ---- 应用数据库：MariaDB（默认启用，随平台层常驻）------------------------
+  # ---- 应用数据库：MariaDB（ENABLE_MARIADB=true 时启用）------------------
   # 仅内网 orzmc_default 可达 mariadb:3306；不发布宿主机端口、不设公网/边缘入口。
   # PaperMC 插件（Dynmap/CoreProtect/LuckPerms/Towny/economy 等）需要 MySQL/MariaDB
   # 时，实例挂 orzmc_default，JDBC 用 jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>。
   # 数据在 $DATA_ROOT/database/mariadb（随整机备份）；逻辑备份由 backup.sh 自动产出。
   mariadb:
+    profiles: ["mariadb"]
     image: mariadb@sha256:67873d30a17f6a9c331f06363b2fa15f38abca415529966d67c84f87f82439fe
     container_name: orzmc-mariadb
     restart: unless-stopped
@@ -164,11 +123,13 @@ services:
       retries: 10
       start_period: 30s
 
-  # ---- 统一首页/状态页：Gatus（无 profile，双 profile 都运行）---------------
+  # ---- 统一首页/状态页：Gatus（ENABLE_STATUS=true 时启用）-----------------
   # 页头按钮聚合产品入口 + 实时健康卡片；配置 $DATA_ROOT/status/config.yaml 由
-  # init 生成（按 profile 替换公网/本地链接与 TLS 校验），绝不覆盖已有文件。
+  # init 生成（按 EDGE 替换公网/本地链接与 TLS 校验），绝不覆盖已有文件。
   # scratch 镜像无 shell/curl，不设 compose healthcheck（页面本身即存活信号）。
+  # 仅 depends_on 核心 web/daemon（不依赖可选服务，避免 ENABLE_* 禁用时依赖报错）。
   status:
+    profiles: ["status"]
     image: twinproduction/gatus@sha256:0009b90a11c042809f7f988c05c3f398dbf24b7498a0b7083efe3b9e8e126550
     container_name: orzmc-status
     restart: unless-stopped
@@ -181,8 +142,6 @@ services:
     depends_on:
       - mcsmanager-web
       - mcsmanager-daemon
-      - easybot
-      - mariadb
     extra_hosts:
       # local：容器内把 *.localhost 解析到宿主（Caddy 非特权端口），健康检查走真实入口；
       # prod 下这些主机名未使用，无副作用。host-gateway 需 Docker ≥20.10（Desktop ≥4.x）。

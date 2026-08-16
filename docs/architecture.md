@@ -571,9 +571,43 @@ $DATA_ROOT/
 
 | 架构改动类型 | 必同步文件 |
 |---|---|
-| 服务增减 / 入口变更 | `compose.yaml`、`compose.lan.yaml`（lan 发布端口）、`templates/*`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
-| `.env` 必需变量增减 | `templates/env.*`、`lib/common.sh`(REQUIRED_ENV_VARS_PROD/LOCAL/LAN) |
+| 服务增减 / 入口变更 | `compose.yaml`、`compose.edge.*.yaml`（边缘层 override）、`templates/*`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
+| `.env` 必需变量增减 | `templates/env.*`、`lib/common.sh`(required_env_list / ENABLE_*) |
 | 卷 / 网络调整 | `compose.yaml`、`lib/common.sh`(ensure_data_dirs) |
 | 镜像升级/回滚 | `compose.yaml`(digest)、`update-image-digests.sh`(映射) |
 | 安全边界变化 | `docs/architecture.md`(ADR)、`AGENTS.md`(安全约束) |
 | 文档索引 / 命令变化 | `README.md`、`AGENTS.md` |
+
+---
+
+## 9. ADR 决策记录
+
+### ADR-017：单 profile + 可插拔边缘层 + 可插拔服务（2026-08-16，Windows 迁移演练后）
+
+**背景**：ADR-015/016 演进后，部署仍有三种 profile（`prod`/`local`/`lan`），理解成本高：
+- 三套入口脚本（`deploy.sh`/`local.sh`/`lan.sh`/`windows.sh`）+ 三套 env 模板 + 三套
+  `REQUIRED_ENV_VARS_*` + `compose.yaml` 的 `profiles:` 机制 + `compose.lan.yaml` override
+  + `common.sh` 里成堆 `case "$COMPOSE_PROFILE"` 分支。
+- **关键洞察**：三 profile 的唯一本质差异是「边缘层」（怎么让 4 个源站对外可达）——
+  local=Caddy(.localhost)、prod=cloudflared(Cloudflare Tunnel)、lan=无边缘层(源站发宿主端口)。
+  其余服务（web/daemon/easybot/mariadb/status）完全一致。
+
+**决策**：把「边缘层」从 profile 剥离成独立可插拔组件，profile 从三态降为单运行集：
+
+1. **`EDGE` 变量**（`.env` 里 `EDGE=`，或 `orzmc.sh -e`）选择边缘层：
+   `cloudflare` / `local` / `lan` / `none`。`compose_cmd` 按 EDGE 追加对应 override：
+   - `compose.edge.cloudflare.yaml`（cloudflared）
+   - `compose.edge.local.yaml`（Caddy）
+   - `compose.edge.lan.yaml`（4 源站发宿主端口）
+   - `none` → 不追加（仅内网 `orzmc_default`）
+2. **`ENABLE_*` 变量**（`.env`，缺省 `true`）控制可选服务：
+   `ENABLE_EASYBOT` / `ENABLE_MARIADB` / `ENABLE_STATUS`。对应 compose `profiles: ["easybot"/"mariadb"/"status"]` 标签，`compose_cmd` 按启用项追加 `--profile <name>`。核心 web/daemon 无 profile 常驻。
+3. **唯一入口 `orzmc.sh`**：`./orzmc.sh [-d DATA_ROOT] [-e EDGE] init|up|stop|status|validate|backup|templates`。三平台命令一致。
+4. **旧入口兼容**：`deploy.sh`/`local.sh`/`lan.sh`/`windows.sh` 保留，`-p` 旧值 `prod`→`cloudflare` 自动映射（`normalize_edge`）；`COMPOSE_PROFILE` 未设 `EDGE` 时作为回退。
+
+**影响**：
+- `compose.yaml`：移除 reverse-proxy/cloudflared 两个边缘层服务 → 移入 `compose.edge.*.yaml`；easybot/mariadb/status 加 `profiles:` 标签成为可选；status 的 `depends_on` 精简为只依赖核心 web/daemon（避免 ENABLE_* 禁用时依赖报错）。
+- `lib/common.sh`：`normalize_edge` / `edge_override_file` / `enabled_profiles` / `required_env_list`（按 EDGE+ENABLE 动态必需变量）；`compose_cmd`/`ensure_status_config`/`print_access_info`/`win_daemon_run`(lan 端口) 全部改按 EDGE。
+- env 模板仍按 EDGE 分（`env.prod`/`env.local`/`env.lan`），`orzmc.sh` 自动选择——保留变量精简，不合并成全量模板。
+- 三平台行为一致（macOS/Linux/Windows）；Windows 下 daemon 仍走 `win_daemon_run`（ADR-016 不变）。
+- 新增边缘层只需：新建 `compose.edge.<name>.yaml` + `normalize_edge` 加一行 + `edge_override_file` 加一行 + 必要 env 变量进 `required_env_list`。相比旧的动七八处，理解与扩展成本大幅降低。

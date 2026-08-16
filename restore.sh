@@ -43,9 +43,12 @@ while [ "$#" -gt 0 ]; do
 done
 
 export DATA_ROOT
-case "$COMPOSE_PROFILE" in
-    prod|local|lan) ;;
-    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
+if [ -n "${COMPOSE_PROFILE:-}" ] && [ -z "${EDGE:-}" ]; then
+    EDGE="$COMPOSE_PROFILE"
+fi
+case "$(normalize_edge)" in
+    cloudflare|local|lan|none) ;;
+    *) die "未知 EDGE: $(normalize_edge)（可选 cloudflare|local|lan|none）" ;;
 esac
 [ -f "$ARCHIVE" ] || die "备份文件不存在: $ARCHIVE"
 
@@ -90,16 +93,16 @@ if [ -f "$(env_file)" ]; then
     fi
 fi
 
-# 完整性检查按 profile 选择边缘层配置：local 需 Caddyfile，prod 需 cloudflared config
-case "$COMPOSE_PROFILE" in
+# 完整性检查按 EDGE 选择边缘层配置：local 需 Caddyfile，cloudflare 需 cloudflared config
+case "$(normalize_edge)" in
     local)
         [ -f "$DATA_ROOT/caddy/Caddyfile" ] || die "还原内容缺少 caddy/Caddyfile，备份可能不完整"
         ;;
-    prod)
+    cloudflare)
         [ -f "$DATA_ROOT/cloudflared/config.yml" ] || die "还原内容缺少 cloudflared/config.yml，备份可能不完整"
         ;;
-    lan)
-        :  # lan 无边缘层，无 Caddyfile / cloudflared config 可校验；.env 已在上方校验
+    lan|none)
+        :  # lan/none 无边缘层，无 Caddyfile / cloudflared config 可校验；.env 已在上方校验
         ;;
 esac
 
@@ -109,9 +112,9 @@ if [ ! -d "$DATA_ROOT/database/mariadb" ]; then
     warn "还原内容缺少 database/mariadb 数据目录；若归档含 database/dumps/*.sql，请解压后手动导入再启动"
 fi
 
-info "还原完成。验证: deploy.sh -d ${DATA_ROOT} -p ${COMPOSE_PROFILE} validate"
+info "还原完成。验证: deploy.sh -d ${DATA_ROOT} -p $(normalize_edge) validate"
 if [ "$START" = 1 ]; then
     # 注意：不能用 ${SCRIPT_DIR} —— source lib/common.sh 会把 SCRIPT_DIR 覆写为
     # lib/ 目录；REPO_ROOT 是 common.sh 按仓库根算出的正确路径。
-    "${REPO_ROOT}/deploy.sh" -d "$DATA_ROOT" -p "$COMPOSE_PROFILE" up
+    "${REPO_ROOT}/deploy.sh" -d "$DATA_ROOT" -p "$(normalize_edge)" up
 fi

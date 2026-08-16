@@ -4,10 +4,10 @@
 
 OrzMC 的最小容器化落地方案。平台层包括：
 
-- `cloudflared`（生产，prod profile）作为公网入口——Cloudflare Tunnel 出站隧道，
+- `cloudflared`（`EDGE=cloudflare`，生产）作为公网入口——Cloudflare Tunnel 出站隧道，
   Cloudflare 边缘终止真实 HTTPS
-- `Caddy`（本地验证，local profile）作为 `.localhost` 反代 + 本地 CA
-- **lan profile**（无边缘层）：4 个源站直接发布宿主端口，纯 HTTP，局域网设备直连
+- `Caddy`（`EDGE=local`，本地验证）作为 `.localhost` 反代 + 本地 CA
+- `EDGE=lan`（无边缘层）：4 个源站直接发布宿主端口，纯 HTTP，局域网设备直连
 - `MCSManager Web` + `MCSManager Daemon` 管理实例
 - `EasyBot` 统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
 - `MariaDB` 应用数据库（默认启用，供 PaperMC 插件使用，仅内网可达）
@@ -38,13 +38,23 @@ OrzMC 的最小容器化落地方案。平台层包括：
 一个容器脱离 compose 管理（其实例自挂载卷 target 含驱动器冒号，compose 无法创建，
 结构性必然）。详见 [`docs/windows-deployment.md`](docs/windows-deployment.md)。
 
-## 三 Profile（local / prod / lan）
+## 单 Profile：EDGE 边缘层 + ENABLE_* 可选服务（ADR-017）
 
-| Profile | 边缘层 | 用途 | 入口 |
+去掉了原 prod/local/lan 三 profile，改为**一个运行集 + 可插拔边缘层 + 可插拔服务**，全部在 `$DATA_ROOT/.env` 里配置，唯一入口 `./orzmc.sh`：
+
+| 维度 | 配置（`.env`） | 说明 |
+|---|---|---|
+| 边缘层 | `EDGE=cloudflare\|local\|lan\|none` | 决定 4 个源站对外如何可达，见下 |
+| 可选服务 | `ENABLE_EASYBOT` / `ENABLE_MARIADB` / `ENABLE_STATUS`（缺省 `true`） | 置 `false` 即停用对应服务；核心 web/daemon 常驻 |
+
+**EDGE 边缘层**（`compose_cmd` 按值追加 `compose.edge.<edge>.yaml` override）：
+
+| EDGE | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
-| `local` | Caddy（`.localhost` + 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
-| `lan` | 无边缘层（`compose.lan.yaml` 发布宿主端口，纯 HTTP，无域名/TLS） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>`（web / easybot / status / daemon 四入口） |
+| `cloudflare` | cloudflared（Cloudflare Tunnel，出站隧道免开端口） | 生产 | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
+| `local` | Caddy（`.localhost` 本地 CA + 非特权端口 18080/18443） | 本地验证 / 回归 | `mcs.localhost:18443` 等 |
+| `lan` | 无边缘层（`compose.edge.lan.yaml` 发布 4 源站宿主端口，纯 HTTP） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>` |
+| `none` | 不追加 override | 仅内网 `orzmc_default` | 内网服务名 |
 
 公网/本地暴露 **4 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）、
 `mcs-node`（daemon 直连，daemon key 鉴权）、`orzmcs`（Gatus 统一状态页，聚合入口 +
@@ -56,31 +66,36 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 ```bash
 git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
-./local.sh init      # 生成 .local-data/.env
-./local.sh start     # 启动平台层（local profile）
-./local.sh status    # 查看状态与访问地址（mcs.localhost:18443 等）
+./orzmc.sh -e local init      # 生成 .local-data/.env（EDGE=local，Caddy）
+./orzmc.sh -e local up        # 启动平台层（可选服务默认全开）
+./orzmc.sh status             # 查看状态与访问地址（mcs.localhost:18443 等）
 ```
 
-生产上线（Cloudflare Tunnel）、局域网直连（lan profile）、完整命令与每步预期输出，见
-[`docs/usage.md`](docs/usage.md) 第 3 章。
+生产上线（`-e cloudflare`，Cloudflare Tunnel）、局域网直连（`-e lan`）、完整命令与
+每步预期输出，见 [`docs/usage.md`](docs/usage.md) 第 3 章。
 
-## 命令速查
+## 命令速查（唯一入口 orzmc.sh）
 
-| 场景 | 本地 | 局域网（lan） | 生产（macOS/Linux） | Windows |
-|---|---|---|---|---|
-| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh -d <DATA_ROOT> init` | `./windows.sh init` |
-| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh -d <DATA_ROOT> up` | `./windows.sh start` |
-| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh -d <DATA_ROOT> stop` | `./windows.sh stop` |
-| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh -d <DATA_ROOT> status` | `./windows.sh status` |
-| 校验配置 | `./local.sh validate` | `./lan.sh validate` | `deploy.sh -d <DATA_ROOT> validate` | `./windows.sh validate` |
-| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh -d <DATA_ROOT> --stop`（含 MariaDB 逻辑备份） | `./windows.sh backup` |
-| 还原/迁移 | `./restore.sh -d <目标> <归档>` | `restore.sh -d <目标> -p lan <归档>` | `restore.sh -d <目标> <归档> --force` | 同左 |
-| 刷新镜像 digest | `./update-image-digests.sh [服务]` | 同左 | 同左 | 同左 |
+| 场景 | 命令 |
+|---|---|
+| 初始化目录/env/边缘配置 | `./orzmc.sh [-e <edge>] init` |
+| 启动平台层 | `./orzmc.sh [-e <edge>] up` |
+| 停止 | `./orzmc.sh stop` |
+| 状态与访问地址 | `./orzmc.sh status` |
+| 校验配置 | `./orzmc.sh validate` |
+| 备份数据 | `./orzmc.sh backup [--stop]`（含 MariaDB 逻辑备份） |
+| 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
+| 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 
-`<DATA_ROOT>` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
-生产 macOS 用 `-d /Users/Shared/orzmc`；Linux 默认 `/srv/orzmc`；Windows 用
-`./windows.sh`（默认 `E:/orzmc`，可 `-d` 或 `ORZMC_DATA_ROOT` 覆盖）。Windows 下
-`windows.sh stop && windows.sh start` 即完成 daemon 重建（compose 无法管理它）。
+`<DATA_ROOT>` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 平台默认
+（macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`）。EDGE 在
+`.env` 里配（`EDGE=cloudflare` 等），`-e` 参数可临时覆盖。三平台命令完全一致；
+Windows 下 daemon 自动走脚本生成的 docker run（`lib/common.sh` detect_os / ADR-016），
+`orzmc.sh stop && orzmc.sh up` 即完成 daemon 重建。可选服务开关
+`ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS` 也在 `.env` 里配。
+
+> 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 仍可用（兼容，
+> `-p prod`→`cloudflare` 自动映射），但新部署统一用 `orzmc.sh`。
 
 ## 质量门禁（CI）
 
@@ -88,13 +103,14 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 
 - **lint**：shell 语法（`bash -n`）+ `shellcheck`（含 `tests/`）+ 模板 YAML 解析 + 禁入路径守卫
   （`.env` / `.local-data*` / `.local-backups*` 永不入库）
-- **validate**：`local` / `lan` / `prod` 三 profile 各自 `init && validate`
-  （必需环境变量检查 + `docker compose config -q`，纯解析不拉镜像、不触碰 `$DATA_ROOT`）
+- **validate**：`EDGE × ENABLE_*` 组合 `init && validate`（`orzmc.sh -e <edge>`），
+  覆盖 cloudflare/local/lan/none 四档 + ENABLE 全关最小集（必需环境变量检查 +
+  `docker compose config -q`，纯解析不拉镜像、不触碰 `$DATA_ROOT`）
 - **windows-branch**：Windows 分支逻辑（ADR-016）单元测试——mock `uname` 强制 MINGW，
   校验 `win_path` / `win_daemon_*` / `compose_cmd` Windows 分支的命令构造（`tests/windows_ci.sh`）。
   覆盖主 job 在 Linux 上走不到的 Windows 特有代码路径。
 
-本地想先自查同一套检查，跑 `./local.sh init && ./local.sh validate` 覆盖 env 与
+本地想先自查同一套检查，跑 `./orzmc.sh -e local init && ./orzmc.sh validate` 覆盖 env 与
 compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck *.sh lib/*.sh tests/*.sh`
 覆盖静态检查。
 

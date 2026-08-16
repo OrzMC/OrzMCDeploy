@@ -62,6 +62,11 @@ while [ "$#" -gt 0 ]; do
             COMPOSE_PROFILE="$2"
             shift 2
             ;;
+        -e|--edge)
+            [ "$#" -ge 2 ] || die "$1 需要一个参数"
+            EDGE="$2"
+            shift 2
+            ;;
         --)
             shift
             break
@@ -76,9 +81,14 @@ while [ "$#" -gt 0 ]; do
 done
 
 export DATA_ROOT   # 确保 compose 替换使用与脚本一致的值（shell env 优先于 --env-file）
-case "$COMPOSE_PROFILE" in
-    prod|local|lan) ;;
-    *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
+# -p/--profile 接受新 EDGE（cloudflare/local/lan/none）或旧兼容值（prod→cloudflare）。
+# 旧值 prod/local/lan 归一为 EDGE；显式 EDGE 原样。设置 EDGE 供 common.sh 使用。
+if [ -n "${COMPOSE_PROFILE:-}" ] && [ -z "${EDGE:-}" ]; then
+    EDGE="$COMPOSE_PROFILE"
+fi
+case "$(normalize_edge)" in
+    cloudflare|local|lan|none) ;;
+    *) die "未知 EDGE: $(normalize_edge)（可选 cloudflare|local|lan|none）" ;;
 esac
 [ "$#" -ge 1 ] || { usage; exit 1; }
 CMD="$1"; shift
@@ -90,10 +100,10 @@ cmd_init() {
     ensure_data_dirs
     ensure_easybot_local_config
     ensure_status_config
-    case "$COMPOSE_PROFILE" in
-        local) ensure_caddyfile ;;
-        prod)  ensure_cloudflared_config ;;
-        lan)   : ;;  # lan 无边缘层，无 Caddyfile / cloudflared config 可生成
+    case "$(normalize_edge)" in
+        local)      ensure_caddyfile ;;
+        cloudflare) ensure_cloudflared_config ;;
+        lan|none)   : ;;  # lan/none 无边缘层配置可生成
     esac
     info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
@@ -127,20 +137,20 @@ cmd_validate() {
 
 cmd_templates() {
     local src target mode="diff" hint
-    case "$COMPOSE_PROFILE" in
+    case "$(normalize_edge)" in
         local)
             src="$TEMPLATES_DIR/Caddyfile"
             target="$DATA_ROOT/caddy/Caddyfile"
             hint="Caddy 不会自动热加载 bind 挂载的 Caddyfile，请执行: deploy.sh stop && deploy.sh up"
             ;;
-        prod)
+        cloudflare)
             src="$TEMPLATES_DIR/cloudflared-config.yml"
             target="$DATA_ROOT/cloudflared/config.yml"
             hint="cloudflared 启动时读取 config.yml，请执行: deploy.sh stop && deploy.sh up"
             ;;
-        lan)
-            # lan 无边缘层，没有可同步的边缘层模板（gatus/easybot 配置由 init 生成）
-            info "lan profile 无边缘层模板可同步（无 Caddy / cloudflared）"
+        lan|none)
+            # lan/none 无边缘层，没有可同步的边缘层模板（gatus/easybot 配置由 init 生成）
+            info "EDGE=${EDGE:-$(normalize_edge)} 无边缘层模板可同步（无 Caddy / cloudflared）"
             return 0
             ;;
     esac

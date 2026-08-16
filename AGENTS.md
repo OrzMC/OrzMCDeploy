@@ -29,21 +29,26 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   `git add -f` 强制加入。
 - 智能体改代码时，只改仓库内的运行时文件；不要为"跑通"而把测试数据写进仓库。
 
-### 3. 三 Profile（prod / local / lan），同一份 compose
+### 3. 单 Profile（EDGE 边缘层 + ENABLE_* 可选服务），同一份 compose
 
-| Profile | 边缘层 | 用途 | 入口 |
-|---|---|---|---|
-| `local` | Caddy（`.localhost` 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 内网免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
-| `lan` | 无边缘层（`compose.lan.yaml` 发布 4 个源站宿主端口，纯 HTTP，无域名/TLS） | 局域网直连（可信内网，不做 TLS 终止） | `http://<LAN_HOST_IP>:<LAN_MCS_WEB_PORT>`（web）/ `:<LAN_EASYBOT_PORT>`（easybot）/ `:<LAN_STATUS_PORT>`（status）/ `:<LAN_MCS_DAEMON_PORT>`（daemon） |
+**Profile 模型（ADR-017）**：去掉 prod/local/lan 三 profile，改为**一个运行集 + 可插拔边缘层 + 可插拔服务**：
 
-- `compose.yaml` 中 `reverse-proxy`(caddy) 挂 `profiles: ["local"]`，
-  `cloudflared` 挂 `profiles: ["prod"]`；mcsmanager / easybot / mariadb / status 无 profile
-  （三种模式都跑）。lan 无边缘层：`--profile lan` 下 reverse-proxy / cloudflared 均不匹配
-  不运行，`compose_cmd` 追加 `-f compose.lan.yaml` 给 4 个源站发布宿主端口（ADR-012）。
-- 脚本通过 `COMPOSE_PROFILE`（默认 `prod`）选择边缘层：`deploy.sh -p local ...`
-  或 `./local.sh ...` 走 local，`./lan.sh ...` 或 `deploy.sh -p lan ...` 走 lan，
-  `deploy.sh ...` 走 prod。
+| 维度 | 配置 | 说明 |
+|---|---|---|
+| 边缘层 | `.env` 里 `EDGE=`（`cloudflare`/`local`/`lan`/`none`） | `compose_cmd` 按 EDGE 追加 `compose.edge.<edge>.yaml` override |
+| 可选服务 | `.env` 里 `ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS`（缺省 `true`） | 按启用项追加 `--profile <name>`；核心 web/daemon 常驻 |
+| 入口 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
+
+- **EDGE 边缘层**（决定 4 个源站对外如何可达）：
+  - `cloudflare` → `compose.edge.cloudflare.yaml`（cloudflared 出站隧道，生产，真实 HTTPS，免开端口）
+  - `local` → `compose.edge.local.yaml`（Caddy `.localhost` 本地 CA + 非特权端口 18080/18443）
+  - `lan` → `compose.edge.lan.yaml`（无边缘层，4 源站发宿主端口，纯 HTTP，局域网）
+  - `none` → 不追加 override（仅内网 `orzmc_default`，不对外）
+- **ENABLE_* 可选服务**：easybot / mariadb / status 带 `profiles: ["<name>"]` 标签，
+  默认全启用；置 `false` 即从 `--profile` 移除。status 仅依赖核心 web/daemon。
+- 脚本通过 `EDGE`（或兼容的旧 `COMPOSE_PROFILE`，`prod`→`cloudflare` 自动映射）选择：
+  `./orzmc.sh -e cloudflare`、`./orzmc.sh -e local`、`./orzmc.sh -e lan`。
+  旧入口 `deploy.sh -p ...`/`local.sh`/`lan.sh`/`windows.sh` 保留兼容（deprecated）。
 
 ### 4. 网络拓扑：4 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
 

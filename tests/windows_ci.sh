@@ -83,6 +83,7 @@ echo "来源: $LIB"
 # 需在 source 后确保这些导出有值（common.sh 可能定义默认）
 DATA_ROOT="${DATA_ROOT:-E:/orzmc}"
 COMPOSE_PROFILE="${COMPOSE_PROFILE:-prod}"
+EDGE="${EDGE:-cloudflare}"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/compose.yaml}"
 
 # ===========================================================================
@@ -127,7 +128,7 @@ EOF
 env_file() { printf '%s/.env' "$TMP"; }
 # 强制走创建分支：mock docker 让 inspect(容器) 失败（不存在）
 MODE=windows
-COMPOSE_PROFILE=prod
+EDGE=cloudflare
 # 需要让 docker inspect $(daemon_container) 返回"不存在"——用包装：
 # win_daemon_run 里 docker inspect 容器 -> 我们 mock 返回 0（存在）会走"跳过创建"。
 # 这里直接调用 win_daemon_run 并断言走的是跳过分支（幂等），再单独测 run 构造。
@@ -171,7 +172,7 @@ check "镜像 digest" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c 'github
 
 # ===========================================================================
 section "win_daemon_run —— lan 模式补 daemon API 端口"
-COMPOSE_PROFILE=lan
+EDGE=lan
 DOCKER_RUN_LOGLINE=""
 win_daemon_run >/dev/null 2>&1
 echo "  docker run 捕获: $DOCKER_RUN_LOGLINE"
@@ -236,7 +237,7 @@ docker() {
 }
 DOCKER_CALLS=()
 MODE=windows
-COMPOSE_PROFILE=prod
+EDGE=cloudflare
 # compose_cmd 需要 env_file 存在 + cloudflared/config.yml 存在
 DATA_ROOT="$TMP/orzmc"
 mkdir -p "$DATA_ROOT/cloudflared"

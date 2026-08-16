@@ -27,10 +27,14 @@ DEFAULT_DATA_ROOT="/srv/orzmc"
 # shellcheck disable=SC2034  # 供 deploy.sh 读取（TEMPLATE 默认值），跨文件可见
 DEFAULT_TEMPLATE="${TEMPLATES_DIR}/env.prod"
 
-# compose 三 Profile：local=Caddy(.localhost) / prod=cloudflared(Cloudflare Tunnel) /
-# lan=无边缘层直连（compose.lan.yaml 发布宿主端口，纯 HTTP，局域网）
-# 可由 deploy.sh / backup.sh / restore.sh 的 -p/--profile 覆盖
-COMPOSE_PROFILE="${COMPOSE_PROFILE:-prod}"
+# compose Profile 模型（ADR-017）：单 profile + 可插拔服务 + 可插拔边缘层。
+#   - EDGE：边缘层选择（cloudflare|local|lan|none），由 .env 的 EDGE 决定；
+#     compose_cmd 按 EDGE 追加对应 override 文件（compose.edge.<edge>.yaml）。
+#   - ENABLE_EASYBOT / ENABLE_MARIADB / ENABLE_STATUS：可选服务开关（true|false），
+#     compose_cmd 按启用项追加 --profile <name>。核心 web/daemon 常驻。
+#   - 兼容：旧的 COMPOSE_PROFILE=prod|local|lan 由 orzmc.sh / deploy.sh 映射到 EDGE
+#     （prod→cloudflare，local→local，lan→lan），旧入口脚本不破坏。
+EDGE="${EDGE:-cloudflare}"
 
 # ---- 日志 ---------------------------------------------------------------
 
@@ -65,6 +69,44 @@ win_path() {
         /*) printf '%s\n' "$(cygpath -m "$p" 2>/dev/null || printf '%s' "$p")" ;;
         *) printf '%s\n' "${p//\\//}" ;;
     esac
+}
+
+# ---- 边缘层与可选服务（ADR-017）-------------------------------------------
+# EDGE 归一：把兼容的旧 COMPOSE_PROFILE(prod/local/lan) 映射到新 EDGE；EDGE 本身
+# 已是 cloudflare|local|lan|none 时原样。优先显式 EDGE（.env 新配置），否则读
+# COMPOSE_PROFILE（旧入口脚本仍设置它）。
+normalize_edge() {
+    local e="${EDGE:-${COMPOSE_PROFILE:-cloudflare}}"
+    case "$e" in
+        prod) printf '%s\n' "cloudflare" ;;
+        local|lan|cloudflare|none) printf '%s\n' "$e" ;;
+        *) die "未知 EDGE: ${e}（可选 cloudflare|local|lan|none）" ;;
+    esac
+}
+
+# 当前 EDGE 对应的边缘层 override 文件（无则空——EDGE=none）
+edge_override_file() {
+    local e
+    e="$(normalize_edge)"
+    case "$e" in
+        cloudflare) printf '%s\n' "${COMPOSE_FILE%.yaml}.edge.cloudflare.yaml" ;;
+        local)      printf '%s\n' "${COMPOSE_FILE%.yaml}.edge.local.yaml" ;;
+        lan)        printf '%s\n' "${COMPOSE_FILE%.yaml}.edge.lan.yaml" ;;
+        none)       return 0 ;;
+    esac
+}
+
+# 按 ENABLE_* 输出应启用的可选服务 profile 列表（换行分隔；读 .env）
+# easybot/mariadb/status 的 ENABLE_* 缺省为 true（保持历史默认全部启用）。
+# 注意：各判断独立 if（避免 set -e 下最后的 [ false ] 返回非零导致函数退出）。
+enabled_profiles() {
+    local eb md st
+    eb="$(read_env_value ENABLE_EASYBOT)";  [ -n "$eb" ] || eb="true"
+    md="$(read_env_value ENABLE_MARIADB)";  [ -n "$md" ] || md="true"
+    st="$(read_env_value ENABLE_STATUS)";   [ -n "$st" ] || st="true"
+    if [ "$eb" = "true" ]; then printf '%s\n' "easybot"; fi
+    if [ "$md" = "true" ]; then printf '%s\n' "mariadb"; fi
+    if [ "$st" = "true" ]; then printf '%s\n' "status"; fi
 }
 
 # 读 compose.yaml 中 mcsmanager-daemon 的 image（含 digest）。awk：进入 daemon 服务
@@ -184,10 +226,10 @@ ensure_status_config() {
     easy_base="https://$(read_env_value DOMAIN_EASY_ADMIN)"
     node_link="https://$(read_env_value DOMAIN_MCS_NODE)"
     tls_insecure="false"
-    case "${COMPOSE_PROFILE:-prod}" in
+    case "$(normalize_edge)" in
         local)
             https_port="$(read_env_value PROXY_HTTPS_PORT)"
-            [ -n "$https_port" ] || die "local profile 缺少 PROXY_HTTPS_PORT（status 链接生成需要）"
+            [ -n "$https_port" ] || die "EDGE=local 缺少 PROXY_HTTPS_PORT（status 链接生成需要）"
             mcs_base="${mcs_base}:${https_port}"
             easy_base="${easy_base}:${https_port}"
             node_link="${node_link}:${https_port}"
@@ -199,7 +241,7 @@ ensure_status_config() {
             # 会超时——macOS Docker Desktop 实测容器不可达宿主真实 LAN IP，ADR-012）。
             # daemon 直连入口仅作 daemon API（key 鉴权），浏览器「网页直连」终端不可用（ADR-011）。
             lan_ip="$(read_env_value LAN_HOST_IP)"
-            [ -n "$lan_ip" ] || die "lan profile 缺少 LAN_HOST_IP（status 链接生成需要）"
+            [ -n "$lan_ip" ] || die "EDGE=lan 缺少 LAN_HOST_IP（status 链接生成需要）"
             lan_web="$(read_env_value LAN_MCS_WEB_PORT)";  [ -n "$lan_web" ]  || lan_web="18090"
             lan_eb="$(read_env_value LAN_EASYBOT_PORT)";   [ -n "$lan_eb" ]   || lan_eb="18091"
             lan_daemon="$(read_env_value LAN_MCS_DAEMON_PORT)"; [ -n "$lan_daemon" ] || lan_daemon="24444"
@@ -407,7 +449,7 @@ win_daemon_run() {
         done
         IFS="$oldifs"
     fi
-    if [ "${COMPOSE_PROFILE:-prod}" = "lan" ]; then
+    if [ "$(normalize_edge)" = "lan" ]; then
         port+=(-p "${LAN_MCS_DAEMON_PORT:-24444}:${MCS_DAEMON_PORT:-24444}")
     fi
     docker run -d --name "$(daemon_container)" \
@@ -430,44 +472,55 @@ win_daemon_rm() {
 }
 
 # ---- compose 统一入口 ----------------------------------------------------
-# compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件；
-# --profile 按 COMPOSE_PROFILE 选择边缘层（local=caddy / prod=cloudflared /
-# lan=无边缘层，追加 compose.lan.yaml 发布源站宿主端口）。
+# compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件。
+# Profile 模型（ADR-017）：单 profile + 可插拔服务 + 可插拔边缘层。
+#   - -f 集合：compose.yaml（核心+可选服务定义）+ 按 EDGE 追加 compose.edge.<edge>.yaml。
+#   - --profile：按 ENABLE_* 追加可启用的可选服务（easybot/mariadb/status）；核心
+#     web/daemon 无 profile 常驻。EDGE 决定边缘层 override，与 --profile 无关。
 # Windows 适配（ADR-016）：daemon 实例自挂载 target 含驱动器冒号，compose 无法
 # 创建。up 时用 --no-deps + 显式列出非 daemon 服务让 compose 跳过 daemon，再走
 # win_daemon_run docker run；down 先 rm daemon 再 compose down；status 补一行
 # daemon 状态。macOS/Linux 走原生 compose 全流程。其余命令（config/exec/validate
 # 等）在 Windows 下同样透传 compose。
 compose_cmd() {
-    local file profile="${COMPOSE_PROFILE:-prod}"
-    local -a extra=()
+    local file edge
+    local -a extra=() profiles_flags=() base=()
     file="$(env_file)"
     [ -f "$file" ] || die "缺少 ${file}，请先执行 init"
-    case "$profile" in
+    edge="$(normalize_edge)"
+    case "$edge" in
         local)
             [ -f "$DATA_ROOT/caddy/Caddyfile" ] || die "缺少 Caddyfile，请先执行 init"
+            extra=(-f "$(edge_override_file)")
             ;;
-        prod)
+        cloudflare)
             [ -f "$DATA_ROOT/cloudflared/config.yml" ] || die "缺少 cloudflared/config.yml，请先执行 init 并配置 CLOUDFLARE_TUNNEL_ID"
+            extra=(-f "$(edge_override_file)")
             ;;
         lan)
-            # 无边缘层：--profile lan 下 reverse-proxy/cloudflared 均不匹配不运行；
-            # 追加 compose.lan.yaml 给 4 个源站发布宿主端口（纯 HTTP，局域网）
-            extra=(-f "${COMPOSE_FILE%.yaml}.lan.yaml")
+            # 无边缘层：追加 compose.edge.lan.yaml 给 4 个源站发布宿主端口（纯 HTTP，局域网）
+            extra=(-f "$(edge_override_file)")
             ;;
-        *) die "未知 profile: ${profile}（可选 prod|local|lan）" ;;
+        none)
+            # EDGE=none：仅内网 orzmc_default，不追加边缘层 override
+            extra=()
+            ;;
     esac
-    local -a base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" --profile "$profile")
-    # Windows：COMPOSE_FILE 是 MSYS 路径（/c/...），docker compose 无法解析（会转成
-    # C:\c\...）。须转 Windows 原生正斜杠路径（见 docs/windows-deployment.md §7）。
+    while IFS= read -r p; do
+        [ -n "$p" ] && profiles_flags+=("--profile" "$p")
+    done < <(enabled_profiles)
+    # posix（macOS/Linux）：base 用原生路径 + 边缘层 override + ENABLE_* profile
+    base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" "${profiles_flags[@]}")
+    # Windows：COMPOSE_FILE / override / env-file 是 MSYS 路径（/c/...），docker compose
+    # 无法解析（会转成 C:\c\...）。须转 Windows 原生正斜杠路径（docs/windows-deployment.md §7）。
     if is_windows; then
         file="$(win_path "$file")"
-        # extra（lan override compose.lan.yaml）也是 MSYS 路径，一并转原生
-        if [ "${#extra[@]}" -gt 0 ]; then
-            extra=(-f "$(win_path "${COMPOSE_FILE%.yaml}.lan.yaml")")
-        fi
-        base=(docker compose --env-file "$file" -f "$(win_path "$COMPOSE_FILE")" \
-            "${extra[@]}" --profile "$profile")
+        local -a extra_win=()
+        for f in "${extra[@]}"; do
+            [ "$f" = "-f" ] && continue
+            extra_win+=(-f "$(win_path "$f")")
+        done
+        base=(docker compose --env-file "$file" -f "$(win_path "$COMPOSE_FILE")" "${extra_win[@]}" "${profiles_flags[@]}")
     fi
 
     # ---- Windows：daemon 不走 compose（结构性 docker run）----
@@ -478,7 +531,7 @@ compose_cmd() {
                 # mariadb，$#=3）仍交 compose 原样处理。
                 if [ "${2:-}" = "-d" ] && [ "$#" -eq 2 ]; then
                     local -a svcs=()
-                    # 列出该 profile 下全部 compose 服务，剔除 daemon
+                    # 列出当前 EDGE+ENABLE 下全部 compose 服务，剔除 daemon
                     mapfile -t svcs < <("${base[@]}" config --services 2>/dev/null | grep -v '^mcsmanager-daemon$')
                     "${base[@]}" up -d --no-deps "${svcs[@]}"
                     win_daemon_run
@@ -507,54 +560,43 @@ compose_cmd() {
 
 # ---- 校验 ---------------------------------------------------------------
 
-# 按 profile 区分的必需变量（QQBOT_APP_ID/CLIENT_SECRET 被 easybot 服务消费）
-# prod：cloudflared 入口，无 Caddy；插件 API 仅内网，无 DOMAIN_EASY_API。
-# DOMAIN_MCS_NODE：daemon 浏览器直连入口（MCSManager 连接模型，密钥鉴权）。
-# MARIADB_*：应用数据库常驻服务（默认启用），四项均为必需变量。
-REQUIRED_ENV_VARS_PROD=(
-    TZ
-    CLOUDFLARE_TUNNEL_ID
-    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE DOMAIN_STATUS
-    EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
-    MCS_WEB_PORT MCS_DAEMON_PORT
-    STATUS_PORT
-    QQBOT_APP_ID QQBOT_CLIENT_SECRET
-    MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
-)
-
-# local：Caddy 入口
-REQUIRED_ENV_VARS_LOCAL=(
-    TZ CADDY_EMAIL
-    PROXY_HTTP_PORT PROXY_HTTPS_PORT
-    DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE DOMAIN_STATUS
-    EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
-    MCS_WEB_PORT MCS_DAEMON_PORT
-    STATUS_PORT
-    QQBOT_APP_ID QQBOT_CLIENT_SECRET
-    MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
-)
-
-# lan：无边缘层直连（compose.lan.yaml 发布宿主端口）。无 DOMAIN_*/CLOUDFLARE_TUNNEL_ID/
-# CADDY_EMAIL；LAN_HOST_IP 为局域网访问入口（Gatus 按钮与 init 打印用），LAN_*_PORT
-# 为宿主发布端口（避开 local Caddy 的 18080/18443 与实例端口 25565/25566）。
-REQUIRED_ENV_VARS_LAN=(
-    TZ LAN_HOST_IP
-    LAN_MCS_WEB_PORT LAN_EASYBOT_PORT LAN_STATUS_PORT LAN_MCS_DAEMON_PORT
-    EASYBOT_PORT EASYBOT_ADMIN_PASSWORD
-    MCS_WEB_PORT MCS_DAEMON_PORT
-    STATUS_PORT
-    QQBOT_APP_ID QQBOT_CLIENT_SECRET
-    MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
-)
+# 必需变量按 EDGE + ENABLE_* 动态组装：
+#   - 基础（所有 EDGE 都要求）：web/daemon 端口 + 可选服务各自的必备项。
+#   - 可选服务（easybot/mariadb/status）仅当 ENABLE_*=true 时要求其变量。
+#   - 边缘层变量按 EDGE 追加（cloudflare→CLOUDFLARE_TUNNEL_ID+DOMAIN；local→CADDY+
+#     PROXY；lan→LAN_HOST_IP+LAN_*_PORT；none→无）。
+# QQ 凭据由 easybot 服务消费，仅 easybot 启用时必填。
+required_env_list() {
+    local eb md st edge
+    eb="$(read_env_value ENABLE_EASYBOT)"; [ -n "$eb" ] || eb="true"
+    md="$(read_env_value ENABLE_MARIADB)"; [ -n "$md" ] || md="true"
+    st="$(read_env_value ENABLE_STATUS)";  [ -n "$st" ] || st="true"
+    edge="$(normalize_edge)"
+    printf '%s\n' TZ MCS_WEB_PORT MCS_DAEMON_PORT
+    [ "$st" = "true" ] && printf '%s\n' STATUS_PORT
+    if [ "$eb" = "true" ]; then
+        printf '%s\n' EASYBOT_PORT EASYBOT_ADMIN_PASSWORD QQBOT_APP_ID QQBOT_CLIENT_SECRET
+    fi
+    if [ "$md" = "true" ]; then
+        printf '%s\n' MARIADB_ROOT_PASSWORD MARIADB_DATABASE MARIADB_USER MARIADB_PASSWORD
+    fi
+    case "$edge" in
+        cloudflare)
+            printf '%s\n' CLOUDFLARE_TUNNEL_ID DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE DOMAIN_STATUS
+            ;;
+        local)
+            printf '%s\n' CADDY_EMAIL PROXY_HTTP_PORT PROXY_HTTPS_PORT \
+                DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE DOMAIN_STATUS
+            ;;
+        lan)
+            printf '%s\n' LAN_HOST_IP LAN_MCS_WEB_PORT LAN_EASYBOT_PORT LAN_STATUS_PORT LAN_MCS_DAEMON_PORT
+            ;;
+    esac
+}
 
 validate_required_env() {
     local k v list
-    case "${COMPOSE_PROFILE:-prod}" in
-        local) list=("${REQUIRED_ENV_VARS_LOCAL[@]}") ;;
-        prod)  list=("${REQUIRED_ENV_VARS_PROD[@]}") ;;
-        lan)   list=("${REQUIRED_ENV_VARS_LAN[@]}") ;;
-        *) die "未知 profile: ${COMPOSE_PROFILE}（可选 prod|local|lan）" ;;
-    esac
+    mapfile -t list < <(required_env_list)
     for k in "${list[@]}"; do
         v="$(read_env_value "$k")"
         [ -n "$v" ] || die "env 缺少必需变量: ${k}（请编辑 $(env_file)）"
@@ -564,15 +606,15 @@ validate_required_env() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local mcs_web easy_admin status_domain profile
+    local mcs_web easy_admin status_domain edge
     mcs_web="$(read_env_value DOMAIN_MCS_WEB)"
     easy_admin="$(read_env_value DOMAIN_EASY_ADMIN)"
     status_domain="$(read_env_value DOMAIN_STATUS)"
-    profile="${COMPOSE_PROFILE:-prod}"
-    echo "访问地址（profile: ${profile}）:"
-    case "$profile" in
-        prod)
-            # prod：Cloudflare 边缘终止 TLS，标准 443，无端口后缀
+    edge="$(normalize_edge)"
+    echo "访问地址（EDGE: ${edge}）:"
+    case "$edge" in
+        cloudflare)
+            # cloudflare：Cloudflare 边缘终止 TLS，标准 443，无端口后缀
             echo "  MCSManager Web: https://${mcs_web}"
             echo "  EasyBot 管理后台: https://${easy_admin}"
             echo "  统一状态页: https://${status_domain}"
@@ -584,11 +626,18 @@ print_access_info() {
             echo "  统一状态页: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_STATUS_PORT)"
             echo "  MCSManager Daemon: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_MCS_DAEMON_PORT)"
             ;;
-        *)
+        local)
             # local：Caddy 本地 CA，.localhost + 非特权端口
             echo "  MCSManager Web: https://${mcs_web}:$(read_env_value PROXY_HTTPS_PORT)"
             echo "  EasyBot 管理后台: https://${easy_admin}:$(read_env_value PROXY_HTTPS_PORT)"
             echo "  统一状态页: https://${status_domain}:$(read_env_value PROXY_HTTPS_PORT)"
+            ;;
+        none)
+            # none：仅内网 orzmc_default，无对外入口；打印内网地址提示
+            echo "  内网访问（orzmc_default，无边缘层）:"
+            echo "  MCSManager Web: http://mcsmanager-web:$(read_env_value MCS_WEB_PORT)"
+            echo "  EasyBot 管理后台: http://easybot:$(read_env_value EASYBOT_PORT)"
+            echo "  统一状态页: http://status:$(read_env_value STATUS_PORT)"
             ;;
     esac
 }

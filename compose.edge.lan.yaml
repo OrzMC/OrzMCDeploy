@@ -1,18 +1,20 @@
 # ===========================================================================
-# lan profile override：无 TLS 终止直连模式（局域网部署）
+# EDGE=lan 边缘层 override：无 TLS 终止直连模式（局域网部署）
 #
-# 仅当 COMPOSE_PROFILE=lan 时由 lib/common.sh 的 compose_cmd 追加本文件合并
-# （docker compose -f compose.yaml -f compose.lan.yaml --profile lan ...）。
+# 由 lib/common.sh 的 compose_cmd 在 EDGE=lan 时追加合并：
+#   docker compose -f compose.yaml -f compose.edge.lan.yaml --profile <ENABLE_*>
 # 本文件不做任何新服务，只给 4 个源站补 `ports:` 发布宿主端口：
-#   - 无边缘层：--profile lan 下 reverse-proxy(["local"]) 与 cloudflared(["prod"])
-#     都不匹配，自动不运行，故无 Caddy / cloudflared、无域名、无 TLS。
+#   - 无边缘层：EDGE=lan 不追加 Caddy/cloudflared override，故无 Caddy / cloudflared、
+#     无域名、无 TLS。
 #   - 纯 HTTP：局域网设备用 http://<宿主LAN IP>:<端口> 访问（可信内网假设，
 #     面板/EasyBot 登录口令走局域网明文）。
 #   - 宿主发布端口在 .env 用 LAN_*_PORT 覆盖（默认 18090/18091/18092/24444，
 #     避开 local Caddy 的 18080/18443 与实例端口 25565/25566）。
-#   - daemon 节点配置仍为内网直连 ws://mcsmanager-daemon:24444（ADR-011，与 prod
+#   - daemon 节点配置仍为内网直连 ws://mcsmanager-daemon:24444（ADR-011，与 cloudflare
 #     相同，零运行时改动）；本文件发布的 daemon 端口供局域网直连 daemon API
 #     （daemon key 鉴权），浏览器「网页直连」终端在 lan 下依旧不可用（ADR-011）。
+#   - 仅当对应服务被 ENABLE_* 启用时才生效：本文件对未启用服务（如 ENABLE_EASYBOT=
+#     false）的 ports 合并无实际效果（该服务不运行）。
 # ===========================================================================
 
 services:

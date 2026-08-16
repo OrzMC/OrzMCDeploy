@@ -77,27 +77,54 @@ jobs:
           echo "forbidden paths guard OK"
 
   validate:
-    name: Compose config (local / lan / prod)
+    name: Compose config (EDGE×ENABLE 组合)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: local profile init + validate
-        run: |
-          ./local.sh init
-          ./local.sh validate
-
-      - name: lan profile init + validate
-        run: |
-          ./lan.sh init
-          ./lan.sh validate
-
-      - name: prod profile init + validate
+      - name: EDGE=cloudflare 全服务 init + validate
         run: |
           # 全部为 env.prod 模板占位值（CLOUDFLARE_TUNNEL_ID=<tunnel-uuid> 等），
           # 非真实密钥；跑在 $RUNNER_TEMP 避免污染 checkout。
-          ./deploy.sh -d "$RUNNER_TEMP/orzmc-ci-prod" -p prod init
-          ./deploy.sh -d "$RUNNER_TEMP/orzmc-ci-prod" -p prod validate
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-cf" -e cloudflare init
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-cf" -e cloudflare validate
+
+      - name: EDGE=local 全服务 init + validate
+        run: |
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-local" -e local init
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-local" -e local validate
+
+      - name: EDGE=lan 全服务 init + validate
+        run: |
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-lan" -e lan init
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-lan" -e lan validate
+
+      - name: EDGE=none init + validate
+        run: |
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-none" -e none init
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-none" -e none validate
+
+      - name: EDGE=cloudflare + ENABLE 全关（仅核心服务）
+        run: |
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare init
+          # 关闭全部可选服务：仅核心 web/daemon + 边缘层，验证最小集配置
+          printf '\nENABLE_EASYBOT=false\nENABLE_MARIADB=false\nENABLE_STATUS=false\n' >> "$RUNNER_TEMP/orzmc-core/.env"
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare validate
+          # 断言最小集：compose config 不应含 easybot/mariadb/status
+          if ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare validate >/dev/null 2>&1; then
+            svcs="$(docker compose --env-file "$RUNNER_TEMP/orzmc-core/.env" \
+              -f compose.yaml -f compose.edge.cloudflare.yaml config --services 2>/dev/null)"
+            echo "services: $svcs"
+            echo "$svcs" | grep -q 'easybot' && { echo "easybot 应被禁用"; exit 1; } || true
+            echo "$svcs" | grep -q 'mariadb' && { echo "mariadb 应被禁用"; exit 1; } || true
+            echo "$svcs" | grep -q 'status'  && { echo "status 应被禁用"; exit 1; } || true
+            echo "可选服务按 ENABLE_* 正确禁用"
+          fi
+
+      - name: 旧入口兼容（deploy.sh -p prod→cloudflare；local.sh/lan.sh 仍可用）
+        run: |
+          ./deploy.sh -d "$RUNNER_TEMP/orzmc-oldprod" -p prod init
+          ./deploy.sh -d "$RUNNER_TEMP/orzmc-oldprod" -p prod validate
 
   windows-branch:
     name: Windows branch logic (ADR-016)
