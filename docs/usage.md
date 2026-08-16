@@ -143,6 +143,18 @@ flowchart TB
 三条路径共用同一份 `compose.yaml` 和同一套命令入口，区别只是边缘层（Caddy vs cloudflared
 vs 无边缘层）与 `$DATA_ROOT` 位置。
 
+> **获取"运行时"两种方式（等价，二选一）**：
+> 1. **git clone**（开发/需看 git 历史）：
+>    `git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy`
+> 2. **免克隆安装**（生产机/内网/无 git 环境，ADR-018）：
+>    ```bash
+>    curl -fsSL <一键脚本URL> | bash   # 装到 ~/.local/share/orzmc-deploy
+>    cd ~/.local/share/orzmc-deploy
+>    ```
+>    脚本会校验 Release tarball 的 sha256 并解压，之后命令与 git clone 完全一致。
+>    指定版本/目录：`curl -fsSL <URL> | bash -s -- -v v1.2.3 -d /opt/orzmc-deploy`。
+>    （一键脚本 URL = `https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh`。）
+
 ### 3.2 路径 A：本地体验（15 分钟）
 
 在终端执行（以下均在**仓库根目录**）：
@@ -353,20 +365,28 @@ deploy.sh -d <DATA_ROOT> up
 > `MARIADB_*` 四项与 `DOMAIN_STATUS` / `STATUS_PORT` 两行补进 `$DATA_ROOT/.env`，再跑
 > `deploy.sh validate`（会强制校验）。
 
-### 4.2 三 Profile
+### 4.2 单 Profile：EDGE 边缘层 + ENABLE_* 可选服务（ADR-017）
 
-| Profile | 边缘层 | 用途 | 入口 | 触发方式 |
-|---|---|---|---|---|
-| `local` | Caddy（`.localhost` + 本地 CA + 非特权端口） | 本地验证 / 回归 | `mcs.localhost` / `easybot.localhost` / `mcs-node.localhost` / `orzmcs.localhost` | `./local.sh ...`（固定 local） |
-| `prod` | cloudflared（Cloudflare Tunnel） | 生产（NAT 免开端口） | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` | `deploy.sh ...`（默认 prod） |
-| `lan` | 无边缘层（`compose.lan.yaml` 发布源站宿主端口，纯 HTTP） | 局域网直连（可信内网，无 TLS 终止） | `http://<LAN_HOST_IP>:<LAN_*_PORT>`（web/easybot/status/daemon 四入口） | `./lan.sh ...` 或 `deploy.sh -p lan ...` |
+不再区分 local/prod/lan 三 profile，改为**一个运行集 + 可插拔边缘层 + 可插拔服务**，
+全部在 `$DATA_ROOT/.env` 配置，唯一入口 `orzmc.sh`：
 
-`compose.yaml` 中 `reverse-proxy`（Caddy）挂 `profiles: ["local"]`、`cloudflared`
-挂 `profiles: ["prod"]`；`mcsmanager-web` / `mcsmanager-daemon` / `easybot` / `mariadb` /
-`status` 无 profile，三种模式都运行。脚本通过 `COMPOSE_PROFILE`（默认 `prod`）选择边缘层；
-`deploy.sh -p local ...` / `-p lan ...` 也可显式切换。**lan 无边缘层**：`--profile lan`
-下 Caddy/cloudflared 都不启动，`compose_cmd` 追加 `-f compose.lan.yaml` 给 4 个源站发布
-宿主端口（ADR-012）。
+| 维度 | 配置（`.env`） | 说明 |
+|---|---|---|
+| 边缘层 | `EDGE=`（`cloudflare`/`local`/`lan`/`none`） | `compose_cmd` 按 EDGE 追加 `compose.edge.<edge>.yaml` override |
+| 可选服务 | `ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS`（缺省 `true`） | 按启用项追加 `--profile <name>`；核心 web/daemon 常驻 |
+| 入口 | `./orzmc.sh`（唯一，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
+
+- **EDGE 边缘层**决定 4 个源站（`mcs`/`easybot`/`mcs-node`/`orzmcs`）对外如何可达：
+  - `cloudflare` → cloudflared 隧道（生产，真实 HTTPS，免开端口）
+  - `local` → Caddy（`.localhost` + 本地 CA + 非特权端口 18080/18443）
+  - `lan` → 无边缘层，4 源站发宿主端口，纯 HTTP（`http://<LAN_HOST_IP>:<LAN_*_PORT>`）
+  - `none` → 仅内网 `orzmc_default`（不对外）
+- **ENABLE_\*** 可选服务：easybot/mariadb/status 带 `profiles: ["<name>"]` 标签，默认全启用，
+  置 `false` 即从 `--profile` 移除（`docker compose config --services` 不再包含它）。
+- 脚本通过 `EDGE`（或兼容旧值 `COMPOSE_PROFILE`，`prod`→`cloudflare` 自动映射）选择边缘层：
+  `./orzmc.sh -e cloudflare`、`-e local`、`-e lan`。旧入口 `deploy.sh -p ...`/`local.sh`/
+  `lan.sh`/`windows.sh` 兼容保留（deprecated）。`lan` 无边缘层：不追加任何 edge override，
+  4 源站端口由 `compose.edge.lan.yaml` 发布（ADR-012）。
 
 ### 4.3 域名约定
 
