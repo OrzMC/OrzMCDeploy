@@ -851,3 +851,61 @@
   - **状态页残留「测试服」端点**：模板已删但落盘 `config.yaml` 未变（`ensure_*` 绝不覆盖）
     → 删文件重新 init + `docker restart orzmc-status`。
 - 证据：本记录 + `docs/acceptance.md`（含三档清单/命令速查）+ 三档节点配置与日志。
+
+### 2026-08-16 Windows 宿主机端口暴露 + 状态检查内部化（问题统一梳理）
+
+- 背景：Windows 11 家庭版宿主机（192.168.0.33）+ Docker Desktop WSL2 后端全量部署已上线
+  （6 容器 Up、4 公网入口 200、节点在线、PaperMC 正式服实例已启动）。本阶段围绕
+  「公网玩家进服 + 状态页健康」推进，最终**停止局域网可达工作**，问题统一落档待后续处理。
+
+- 已完成（验证有效，保留）：
+  - **状态检查内部化**：Gatus `E:\orzmc\status\config.yaml` 的 PaperMC 探测由
+    `tcp://host.docker.internal:25565`（宿主视角）改为 `tcp://mcsmanager-daemon:25565`
+    （daemon 容器内网地址）。改后 `docker restart orzmc-status`，日志确认
+    `PaperMC 正式服 success=true`，状态页恢复健康（此前 `host.docker.internal` 探测因
+    端口未发布到宿主而长期 `success=false`）。
+  - **daemon 容器重建并暴露端口**：手动 `docker run` 重建 `orzmc-mcsmanager-daemon`，
+    新增 `-p 25565:25565`（TCP，Java 版）与 `-p 19132:19132/udp`（UDP，基岩版预留）。
+    保留全部既有参数（`MCSM_DOCKER_WORKSPACE_PATH`、`TZ`、4 个 bind 挂载、docker.sock、
+    orzmc_default 网络）。重建后补网络别名 `mcsmanager-daemon`（先 `disconnect` 再
+    `connect --alias`）。容器侧 `docker port` 显示 25565/19132 均发布到 0.0.0.0。
+    实例数据无损（`E:\orzmc\instances` 挂载未丢），`autoStart:false` 故实例需面板手动
+    启动，已启动（日志 `Done`）。面板经 `wss://mcs-node.jokerhub.cn:443` 自动重连正常。
+  - **25565 TCP 防火墙规则**：新增入站放行规则 `OrzMC Java 25565 TCP`（TCP/25565/允许）。
+    （19132 UDP 已有既有规则 `Bedrock Geyser 19132 UDP`。）
+
+- 已清理：本阶段曾尝试用 `netsh interface portproxy` 实现局域网可达（0.0.0.0:25565 →
+  127.0.0.1:25565），但**验证无效**（`iphlpsvc` 运行中仍无 LISTENING；portproxy 对 UDP 不
+  支持），且用户随后叫停局域网可达工作。**portproxy 规则已全部删除**（`show all` 为空）。
+
+- **已叫停（用户明确）**：**不做局域网端口可达**。不实施本机端口局域网访问（192.168.0.33
+  的 25565/19132 局域网可达、进一步暴露、路由器映射筹备等）。此叫停覆盖此前「25565/19132
+  暴露宿主机」的决策——注意 daemon 容器的 `-p` 端口映射与 25565 防火墙规则**已保留**，
+  但局域网可达链路（portproxy/额外防火墙/路由映射）不再推进。
+
+- 待处理问题清单（后续统一处理，本阶段不推进）：
+  1. **公网玩家进服方案未定**：用户诉求「公网玩家经域名进服（Java 版为主，基岩版
+     19132 预留）」。已查证 **Cloudflare 隧道（免费版）无法让标准 Minecraft 客户端直连**
+     ——非 HTTP 仅 `cloudflared access tcp` 路径（每玩家装 cloudflared + SSO，不现实）。
+    候选：①**中转 VPS**（frp/tailscale 把 VPS 公网 25565/19132 转发到本机 daemon 容器，
+     域名指向 VPS，玩家零门槛，推荐）；②运营商申请公网 IP + 路由器端口转发（暴露 IP 有
+     DDoS 风险）。**待用户定方案后实施**，涉及 VPS 采购与网络配置。
+  2. **基岩版 19132 进服依赖 Geyser 插件**：当前 PaperMC 为纯 Java 服务端，未装
+     Geyser（基岩版互联插件）。19132 端口映射与防火墙已就位，但**基岩玩家实际进服还需
+     在实例装 Geyser 插件并监听 19132**（或统一由中转层处理）。待 1 定案后一并规划。
+  3. **Docker Desktop WSL2 端口转发平台限制（记录为已知限制，不深究）**：
+     实测容器端口发布 0.0.0.0 后，Windows 宿主侧**仅 127.0.0.1 可达**（`wsl-bootstrap`
+     在 WSL 内 `::` 监听，Windows 侧仅 localhost 转发）；**局域网 IP 192.168.0.33 不可达**，
+     **UDP 19132 连 localhost 也不通**。`netsh portproxy` 无效且不支持 UDP。此为 Docker
+     Desktop WSL2 后端局限，公网进服须走中转 VPS/公网 IP（不依赖局域网可达）。
+  4. **25565 防火墙规则去留待定**：`OrzMC Java 25565 TCP` 已添加但局域网不可达叫停后
+     暂无实际用途。可保留（未来中转/局域网可用）或删除（更干净）。**待用户指示**。
+  5. **PaperMC 实例手动启动依赖**：`autoStart:false` + daemon 容器重建会停实例，
+     重启后须面板手动启动（已知，EXECUTION_PATH §2026-08-13 已记录同类）。可选优化：
+     改 `autoStart:true` 或后续做启动守卫脚本。**低优先级，待定**。
+
+- 证据：`E:\orzmc\status\config.yaml` 探测 URL 已改内部地址；`docker port
+  orzmc-mcsmanager-daemon` 显示 25565/19132 发布；Gatus 日志 `PaperMC 正式服 success=true`；
+  防火墙规则 `OrzMC Java 25565 TCP` 已启用；`netsh interface portproxy show all` 为空
+  （已清理）；daemon 重建后实例日志 `Done`。
+
