@@ -104,6 +104,7 @@ templates/              首次 init 的配置模板
   env.papermc           PaperMC 参数参考（compose 不消费）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导、平台层 detect_os/win_path/win_daemon_*）
 orzmc.sh               统一部署入口（ADR-017 起唯一入口；EDGE/ENABLE_* 从 .env 读，三平台一致）
+install.sh             免克隆一键安装（ADR-018：下载 Release tarball + 校验 sha256 + 解压）
 deploy.sh               生产部署统一入口（默认 EDGE=cloudflare，兼容保留）
 local.sh                本地验证入口（固定 EDGE=local + .local-data，兼容保留）
 lan.sh                  局域网直连入口（固定 EDGE=lan + .local-data-lan，兼容保留）

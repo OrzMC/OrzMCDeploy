@@ -611,3 +611,26 @@ $DATA_ROOT/
 - env 模板仍按 EDGE 分（`env.prod`/`env.local`/`env.lan`），`orzmc.sh` 自动选择——保留变量精简，不合并成全量模板。
 - 三平台行为一致（macOS/Linux/Windows）；Windows 下 daemon 仍走 `win_daemon_run`（ADR-016 不变）。
 - 新增边缘层只需：新建 `compose.edge.<name>.yaml` + `normalize_edge` 加一行 + `edge_override_file` 加一行 + 必要 env 变量进 `required_env_list`。相比旧的动七八处，理解与扩展成本大幅降低。
+
+### ADR-018：免克隆部署（GitHub Release tarball + install.sh）（2026-08-16）
+
+**背景**：当前部署必须先 `git clone` 仓库。对生产机/内网/无 git 环境，希望**不克隆仓库**
+也能跑起来——因为仓库只承载"运行时"（无数据/密钥，铁律 1/2），天然可打包分发。
+
+**决策**：
+1. **CI 打包 job**（`ci.yml` 新增 `package` job）：打 tag（`v*`）时用 `tar` 把运行时
+   打成 `orzmc-<version>.tar.gz` + `.sha256`，上传为 GitHub Release 资产。
+   - 打包内容：入口脚本 + `lib/` + `templates/` + `compose*.yaml` + `docs/` + 文档。
+   - 显式排除 `.git` / `.github` / `tests` / `EXECUTION_PATH.md` / `.env` / `.local-data*`
+     （铁律：密钥与数据不入包）；包内做禁止路径守卫（发现即失败）。
+   - `softprops/action-gh-release@v2` 创建/更新 Release 并上传资产（contents: write）。
+2. **`install.sh` 一键安装脚本**（仓库根，也打包进 tarball）：
+   - `./install.sh [-d DIR] [-v VER] [-r REPO]`：解析最新 release（GitHub API）或指定版本
+     → 下载 tarball 及其 sha256 → 校验（`sha256sum`/`openssl`）→ 解压到安装目录 → 之后
+     照常 `./orzmc.sh`。
+   - 幂等（可重复跑）；运行时/数据分离保证不触碰 `$DATA_ROOT`；三平台一致。
+
+**影响**：
+- 新增 `install.sh`、`ci.yml` 的 `package` job、README「免克隆安装」章节。
+- 部署等价性：`git clone` 与 tarball 得到同一套 `orzmc.sh` 与模板，行为一致。
+- 安全：sha256 校验防篡改/下载损坏；包内无密钥（CLOUDFLARE 凭据/密码仍只落 `$DATA_ROOT`）。

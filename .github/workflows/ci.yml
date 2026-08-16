@@ -135,3 +135,52 @@ jobs:
       - name: Windows 分支单元测试
         run: |
           bash tests/windows_ci.sh
+
+  # ---------------------------------------------------------------------------
+  # 打包发布（ADR-018）：打 tag（v*）时把"运行时"打成 tarball + sha256，
+  # 上传为 GitHub Release 资产，供免克隆部署（install.sh 下载校验解压）。
+  # ---------------------------------------------------------------------------
+  package:
+    name: Build release tarball
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 创建/更新 Release 与资产
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build tarball (runtime only, no .git/secrets)
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG:-0.0.0}"
+          # 打包"运行时"：入口脚本 + lib + templates + compose + 文档。
+          # 显式排除 .git/.github/tests/EXECUTION_PATH.md/数据（铁律：密钥与数据不入包）。
+          tar --exclude='./.git' --exclude='./.github' --exclude='./tests' \
+              --exclude='./EXECUTION_PATH.md' \
+              --exclude='./.env' --exclude='./.local-data' --exclude='./.local-data-lan' \
+              --exclude='./.local-backups' \
+              -czf "orzmc-${VERSION}.tar.gz" \
+              AGENTS.md CLAUDE.md README.md .gitignore \
+              orzmc.sh deploy.sh local.sh lan.sh windows.sh \
+              backup.sh restore.sh update-image-digests.sh install.sh \
+              lib templates compose.yaml compose.edge.cloudflare.yaml \
+              compose.edge.local.yaml compose.edge.lan.yaml docs
+          sha256sum "orzmc-${VERSION}.tar.gz" > "orzmc-${VERSION}.tar.gz.sha256"
+          echo "=== 打包内容 ==="
+          tar -tzf "orzmc-${VERSION}.tar.gz" | head -20
+          echo "..."
+          echo "=== 校验：包内不得有 .git / 数据 / 密钥 ==="
+          if tar -tzf "orzmc-${VERSION}.tar.gz" | grep -E '(^|/)(\.git|\.env|\.local-data|\.local-backups|EXECUTION_PATH\.md)(/|$)' ; then
+            echo "!! 包内发现禁止路径" >&2; exit 1
+          fi
+          echo "禁止路径守卫 OK"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Publish to GitHub Release (create or update)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            orzmc-${{ env.VERSION }}.tar.gz
+            orzmc-${{ env.VERSION }}.tar.gz.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -62,6 +62,33 @@ OrzMC 的最小容器化落地方案。平台层包括：
 `LAN_*_PORT` 端口、纯 HTTP（ADR-012）。**EasyBot 插件 API 仅内网**——插件挂
 `orzmc_default` 网络直连 `http://easybot:8080`，无 `easybot-api` 子域名。
 
+## 免克隆安装（无需 git clone）
+
+从 GitHub Release 下载"运行时" tarball 即可，无需克隆仓库（无 `.git`、无数据/密钥，铁律：
+运行时与数据分离，见 ADR-018）：
+
+```bash
+# 一键安装最新 release 到默认目录（~/.local/share/orzmc-deploy）
+curl -fsSL <一键脚本URL> | bash
+
+# 或指定版本 / 安装目录 / 仓库
+curl -fsSL <一键脚本URL> | bash -s -- -v v1.2.3 -d /opt/orzmc-deploy
+
+# 装好后与 git clone 部署完全一致：
+cd <安装目录>
+./orzmc.sh -e cloudflare init   # 建目录树 + 生成 .env + 边缘层配置
+./orzmc.sh validate             # 校验配置
+./orzmc.sh up                   # 启动
+```
+
+- 脚本会**校验 tarball 的 sha256**（防篡改/损坏），失败即中止。
+- **幂等**：可重复运行；运行时/数据分离保证不会触碰 `$DATA_ROOT`。
+- 更新到新版本：重跑脚本（默认取最新 release）。
+- 一键脚本 URL = `https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh`。
+
+> 也可以直接 `git clone` 部署（等价，只是多了 `.git` 目录）。两种方式最终都得到
+> 同一套 `orzmc.sh` 与配置文件，行为一致。
+
 ## 快速上手（本地体验）
 
 ```bash
