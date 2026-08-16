@@ -4,10 +4,13 @@
 # 仓库只承载"运行时"，无构建产物；本 CI 是纯校验，不构建/不发布镜像、
 # 不拉取容器镜像（docker compose config 为纯解析，无需 daemon/镜像）。
 #
-# 两个并行 job：
-#   lint     —— shell 语法（bash -n）+ shellcheck + 模板 YAML 解析 + 禁入路径守卫
-#   validate —— 三 profile（local / lan / prod）init && validate：
-#                必需变量检查（validate_required_env）+ docker compose config -q
+# 三个并行 job：
+#   lint           —— shell 语法（bash -n）+ shellcheck + 模板 YAML 解析 + 禁入路径守卫
+#   validate       —— 三 profile（local / lan / prod）init && validate：
+#                      必需变量检查（validate_required_env）+ docker compose config -q
+#   windows-branch —— Windows 分支逻辑（ADR-016）单元测试（mock uname 强制 MINGW，
+#                      校验 win_path / win_daemon_* / compose_cmd Windows 分支的命令
+#                      构造，不真连 Docker；详见 tests/windows_ci.sh）
 #   详见 AGENTS.md 命令速查与 docs/architecture.md。
 # ===========================================================================
 
@@ -40,13 +43,13 @@ jobs:
 
       - name: Bash syntax check
         run: |
-          for f in *.sh lib/*.sh; do
+          for f in *.sh lib/*.sh tests/*.sh; do
             bash -n "$f"
           done
           echo "bash -n OK"
 
       - name: Shellcheck
-        run: shellcheck -x --shell=bash *.sh lib/*.sh
+        run: shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
 
       - name: YAML template parse check
         run: |
@@ -95,3 +98,13 @@ jobs:
           # 非真实密钥；跑在 $RUNNER_TEMP 避免污染 checkout。
           ./deploy.sh -d "$RUNNER_TEMP/orzmc-ci-prod" -p prod init
           ./deploy.sh -d "$RUNNER_TEMP/orzmc-ci-prod" -p prod validate
+
+  windows-branch:
+    name: Windows branch logic (ADR-016)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Windows 分支单元测试
+        run: |
+          bash tests/windows_ci.sh

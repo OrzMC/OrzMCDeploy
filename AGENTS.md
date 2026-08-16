@@ -102,7 +102,8 @@ lan.sh                  局域网直连统一入口（固定 lan profile + .loca
 windows.sh              Windows 部署统一入口（默认 DATA_ROOT=E:/orzmc；三平台命令统一，ADR-016）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
-.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + 三 profile validate）
+.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + 三 profile validate + windows-branch 单测）
+tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
 EXECUTION_PATH.md       执行路径、门禁、checklist、状态记录

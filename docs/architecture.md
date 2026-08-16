@@ -552,6 +552,11 @@ $DATA_ROOT/
     已就绪 daemon 无操作、不干扰（生产实测通过）。
   - 文档同步：`docs/windows-deployment.md`（§0 总览修订、§3 daemon 改为脚本自动、
     §4 别名自动、§7 维护速查更新、新增 `windows.sh`）、`AGENTS.md`、`README.md`。
+  - **CI 覆盖**：主 job（lint/validate）在 ubuntu 上走不到 Windows 分支（detect_os
+    返回 posix）。新增 `tests/windows_ci.sh` 单元测试 + `windows-branch` CI job——
+    mock `uname` 强制 MINGW，真实执行 `win_path`/`win_daemon_run`/`win_daemon_alias`/
+    `compose_cmd` 的 Windows 分支并断言命令构造（mock docker/cygpath，不真连 Docker、
+    路径位置无关）。lint job 的 bash -n/shellcheck 纳入 `tests/*.sh`。
 
 ## 7. 演进路径
 

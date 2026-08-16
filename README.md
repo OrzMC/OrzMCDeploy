@@ -84,15 +84,19 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 ## 质量门禁（CI）
 
-push 到 `main` 或开 PR 时，GitHub Actions 自动跑两道校验（见 `.github/workflows/ci.yml`）：
+push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.github/workflows/ci.yml`）：
 
-- **lint**：shell 语法（`bash -n`）+ `shellcheck` + 模板 YAML 解析 + 禁入路径守卫
+- **lint**：shell 语法（`bash -n`）+ `shellcheck`（含 `tests/`）+ 模板 YAML 解析 + 禁入路径守卫
   （`.env` / `.local-data*` / `.local-backups*` 永不入库）
 - **validate**：`local` / `lan` / `prod` 三 profile 各自 `init && validate`
   （必需环境变量检查 + `docker compose config -q`，纯解析不拉镜像、不触碰 `$DATA_ROOT`）
+- **windows-branch**：Windows 分支逻辑（ADR-016）单元测试——mock `uname` 强制 MINGW，
+  校验 `win_path` / `win_daemon_*` / `compose_cmd` Windows 分支的命令构造（`tests/windows_ci.sh`）。
+  覆盖主 job 在 Linux 上走不到的 Windows 特有代码路径。
 
-本地想先自查同一套检查，跑 `./local.sh init && ./local.sh validate` 即可覆盖 env 与
-compose 解析；`shellcheck *.sh lib/*.sh` 覆盖静态检查。
+本地想先自查同一套检查，跑 `./local.sh init && ./local.sh validate` 覆盖 env 与
+compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck *.sh lib/*.sh tests/*.sh`
+覆盖静态检查。
 
 ## 文档导航
 
