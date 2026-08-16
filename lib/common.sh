@@ -371,11 +371,7 @@ ensure_data_dirs() {
         "$DATA_ROOT/mcsmanager/daemon/data" \
         "$DATA_ROOT/mcsmanager/daemon/logs" \
         "$DATA_ROOT/easybot/data" \
-        "$DATA_ROOT/status" \
-        "$DATA_ROOT/instances/papermc-main/server" \
-        "$DATA_ROOT/instances/papermc-main/backups" \
-        "$DATA_ROOT/instances/papermc-test/server" \
-        "$DATA_ROOT/instances/papermc-test/backups"
+        "$DATA_ROOT/status"
     # easybot 镜像默认以 uid/gid=10001 运行，宿主机数据目录需对其可写。
     # 以 root 执行时 chown（Linux 生产常态）；非 root（如 macOS 本地）降级为告警，
     # 此时依赖 Docker Desktop 文件共享即可正常读写。
@@ -416,10 +412,9 @@ win_daemon_alias() {
     fi
 }
 
-# 创建 daemon（幂等：已存在则跳过并补别名）。实例自挂载 target 按容器内实际
-# 相对路径落点：daemon 工作目录固定 /opt/mcsmanager/daemon，Windows 实例 cwd
-# = ${DATA_ROOT}/instances/<uuid>（含 E: 非绝对路径）在容器内解析为
-# /opt/mcsmanager/daemon/${DATA_ROOT}/instances（见 docs/windows-deployment.md §3）。
+# 创建 daemon（幂等：已存在则跳过并补别名）。实例数据由 MCSManager 面板默认
+# 写入 daemon 容器内 /opt/mcsmanager/daemon/data/InstanceData/<uuid>，经下方
+# daemon/data 的 bind 挂载落到宿主机 $DATA_ROOT/mcsmanager/daemon/data/InstanceData。
 win_daemon_run() {
     local root img tz network port=() extra_ports
     root="$(win_path "$DATA_ROOT")"
@@ -454,11 +449,9 @@ win_daemon_run() {
     fi
     docker run -d --name "$(daemon_container)" \
         --restart unless-stopped \
-        --env "MCSM_DOCKER_WORKSPACE_PATH=${root}/instances" \
         --env "TZ=${tz}" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/data,target=/opt/mcsmanager/daemon/data" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/logs,target=/opt/mcsmanager/daemon/logs" \
-        --mount "type=bind,source=${root}/instances,target=/opt/mcsmanager/daemon/${root}/instances" \
         -v /var/run/docker.sock:/var/run/docker.sock \
         "${port[@]}" \
         --network "$network" \

@@ -149,14 +149,12 @@ $DATA_ROOT/
     web/{data,logs}
     daemon/
       {data,logs}         # Config/global.json 含 daemon key（权限 600，最高权限密钥）
+    daemon/data/InstanceData/<uuid>/   # MCSManager 面板创建的实例数据（cwd，含 world/plugins/...）
   easybot/data/           # EasyBot 网关数据（uid/gid=10001）
   status/config.yaml      # Gatus 统一状态页配置（init 生成、绝不覆盖；ro 挂载）
   database/               # 应用数据库 MariaDB
     mariadb/              # InnoDB 数据目录（uid/gid=999）
     dumps/                # backup.sh 自动逻辑备份（含 mysql 系统库，按密钥 chmod 600）
-  instances/              # daemon 容器以同路径自挂载，文件管理器可见
-    papermc-main/{server,backups}
-    papermc-test/{server,backups}
 ```
 
 ## 6. ADR 决策记录
@@ -228,7 +226,7 @@ $DATA_ROOT/
 
 ### ADR-007：daemon 容器自挂载实例目录（文件管理器可见）（2026-08-13，Phase 2）
 
-- **状态**：已实施。
+- **状态**：已实施，**已被 ADR-019 取代**（2026-08-16 移除 `instances/` 自挂载，见下）。
 - **背景**：MCSManager 文件管理器读 `instance.absoluteCwdPath()`（实例 `cwd` 直接是宿主
   路径）时，daemon 容器内解析不到宿主文件，`fs.existsSync` 为假会 `mkdirpSync` 自动建
   **空**目录，表现为"文件管理为空"。
@@ -237,6 +235,10 @@ $DATA_ROOT/
   docker bind Source 仍由宿主解析，两者不冲突。`MCSM_DOCKER_WORKSPACE_PATH` 置为
   `${DATA_ROOT}/instances` 兜底默认布局。
 - **影响**：compose daemon 卷增加一条自挂载；新增实例目录后无需改动。
+- **ADR-019 取代（2026-08-16）**：改为不设 `instances/` 目录，实例数据统一由 MCSManager
+  面板写入默认的 `data/InstanceData/<uuid>/`（已通过 `daemon/data` bind 落到宿主
+  `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，随整包备份），不再需要独立的
+  `instances/` 自挂载与 `MCSM_DOCKER_WORKSPACE_PATH`。见 `docs/architecture.md` §7 ADR-019。
 
 ### ADR-008：平台层常驻 MariaDB 数据库服务（2026-08-14）
 
@@ -470,12 +472,12 @@ $DATA_ROOT/
   与 Docker Desktop/WSL2 的兼容问题，逐一修复后全栈可用。完整部署实录见
   `docs/windows-deployment.md`；此处记录**架构层面的决策**，避免重复踩坑。
 - **决策**：
-  - **daemon 不受 compose 管理（Windows）**：daemon 的实例自挂载卷
-    `"${DATA_ROOT}/instances:${DATA_ROOT}/instances"`（ADR-007）在 Windows 下
-    `DATA_ROOT=E:/...` 含驱动器冒号，Docker Compose 序列化 bind mount 时剥离 `E:` 报
-    `too many colons`。**`docker compose up` 无法创建 daemon**，须用
-    `docker run --mount type=bind` 手动创建。实例自挂载 target 按容器内实际相对路径
-    `/opt/mcsmanager/daemon/E:/orzmc/instances`（daemon 工作目录固定 `/opt/mcsmanager/daemon`）。
+  - **daemon 不受 compose 管理（Windows）**：ADR-007 曾用实例自挂载卷
+    `"${DATA_ROOT}/instances:${DATA_ROOT}/instances"`，在 Windows 下 `DATA_ROOT=E:/...`
+    含驱动器冒号，Docker Compose 序列化 bind mount 时剥离 `E:` 报 `too many colons`。
+    **`docker compose up` 无法创建 daemon**，须用 `docker run --mount type=bind` 手动创建。
+    （ADR-019 已移除 instances 自挂载；daemon/data 与 daemon/logs 的 bind 无驱动器冒号问题，
+    但 daemon 仍走 docker run，见 ADR-016。）
   - **手动创建容器须补服务名别名**：compose 创建的容器自动有服务名别名；`docker run`
     手动创建的 daemon/status 没有，面板/状态页按 `mcsmanager-daemon`/`status` 解析失败。
     须 `docker network connect --alias <service> orzmc_default <容器>` 补别名。
@@ -517,6 +519,8 @@ $DATA_ROOT/
   实例 `cwd` 同时充当宿主 bind source 与容器内文件路径，Windows 下 cwd=`E:/...` 在
   Linux 容器内非绝对路径、拼到工作目录）。因此 daemon 在 Windows 走 `docker run --mount`
   **不是可绕过的 bug，而是模型使然**。
+  > **ADR-019（2026-08-16）修正**：实例自挂载已移除，`too many colons` 诱因消失；daemon
+  > 走 `docker run` 改为**仅为保持三平台一致**（不再因驱动器冒号强制），见 ADR-019。
 - **决策**（脚本层抽象平台差异，用户命令与 macOS/Linux 完全一致）：
   - **lib/common.sh 新增平台层**：`detect_os`（MINGW/MSYS/CYGWIN→windows）、`win_path`
     （MSYS/原生路径→Windows 原生正斜杠，docker 用）、`daemon_image`（awk 从 compose.yaml
@@ -527,9 +531,9 @@ $DATA_ROOT/
     补一行 daemon 状态。macOS/Linux 走原生 compose 全流程，零行为变化。同时 Windows 下
     `COMPOSE_FILE`/lan override/env-file 均过 `win_path`，根治 MSYS `/c/...` 路径坑。
   - **`win_daemon_run`**：脚本自动生成 ADR-015 §3 的完整 `docker run --mount` 命令（data
-    /logs / instances 自挂载 target `/opt/mcsmanager/daemon/${DATA_ROOT}/instances`、
-    docker.sock、`--network orzmc_default`、lan 下补 `-p LAN_MCS_DAEMON_PORT`）；幂等
-    （已存在则跳过）；创建后 `win_daemon_alias` 补 `mcsmanager-daemon` 别名。
+    /logs 挂载、docker.sock、`--network orzmc_default`、lan 下补 `-p LAN_MCS_DAEMON_PORT`）；
+    幂等（已存在则跳过）；创建后 `win_daemon_alias` 补 `mcsmanager-daemon` 别名。ADR-019
+    起不再挂载 `instances/`，实例数据由面板写 `daemon/data/InstanceData/<uuid>`。
     **`DAEMON_PORTS`（.env，逗号分隔）**：进程模式 PaperMC 实例（cwd 在 daemon 内部）
     的进服端口须由 daemon 容器 `-p` 暴露——生产 `DAEMON_PORTS=25565:25565/tcp,19132:19132/udp`
     （2026-08-16 生产迁移实测发现：旧手动 daemon 带 `-p 25565/19132`，脚本重建前会丢端口，
@@ -634,3 +638,27 @@ $DATA_ROOT/
 - 新增 `install.sh`、`ci.yml` 的 `package` job、README「免克隆安装」章节。
 - 部署等价性：`git clone` 与 tarball 得到同一套 `orzmc.sh` 与模板，行为一致。
 - 安全：sha256 校验防篡改/下载损坏；包内无密钥（CLOUDFLARE 凭据/密码仍只落 `$DATA_ROOT`）。
+
+### ADR-019：移除 instances/ 目录，实例数据统一由面板管理（2026-08-16）
+
+**背景**：MCSManager 面板创建的实例默认把数据（`cwd`）写入 daemon 的
+`data/InstanceData/<uuid>/`（容器内 `/opt/mcsmanager/daemon/data/InstanceData/<uuid>`）。
+原 ADR-007 的 `instances/` 自挂载（`${DATA_ROOT}/instances:${DATA_ROOT}/instances` +
+`MCSM_DOCKER_WORKSPACE_PATH`）是为「实例 `cwd` 直接指向宿主 `instances/` 路径」设计的
+另一条路径。实际部署中实例走面板默认布局，`instances/` 只是 init 建出的空壳，既不承载
+数据、也造成「实例数据在哪」的困惑（见 §5 数据树）。
+
+**决策**：
+1. 移除 daemon 的 `instances/` 自挂载卷（compose.yaml 与 Windows `win_daemon_run` 的
+   `--mount`/`--env MCSM_DOCKER_WORKSPACE_PATH` 一并删除）。
+2. 实例数据统一由 MCSManager 面板管理，落 `data/InstanceData/<uuid>/`；该目录经
+   `daemon/data` 的 bind 挂载天然落宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，
+   随 `backup.sh` 整包打包自动覆盖，无需额外备份逻辑。
+3. `ensure_data_dirs` 不再创建 `instances/papermc-{main,test}`；删除 `$DATA_ROOT/instances`。
+4. `templates/env.papermc` 参考路径改为 `.../data/InstanceData/<uuid>/`。
+
+**影响**：
+- compose.yaml / lib/common.sh / tests/windows_ci.sh 同步移除相关挂载与断言。
+- 备份/恢复**无变化**（本就整包打包 `$DATA_ROOT`，InstanceData 已含）。
+- 升级路径：`orzmc.sh stop` 后 `docker rm` daemon → `orzmc.sh up` 重建（去掉 instances 挂载），
+  删除 `$DATA_ROOT/instances`；已有实例数据在 `InstanceData/`，不受影响。

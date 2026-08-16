@@ -17,7 +17,7 @@
 
 | 维度 | macOS/Linux 假设 | Windows(Docker Desktop/WSL2) 实际 | 影响 |
 |---|---|---|---|
-| 卷挂载路径 | `${DATA_ROOT}/instances:${DATA_ROOT}/instances`（同路径自挂载，ADR-007） | `E:/...` 含驱动器冒号，**target 含 `E:` 时** Compose 序列化剥离报 `too many colons` | daemon 无法用 `docker compose up` 创建，须 `docker run --mount`（**ADR-016 起由脚本自动生成**） |
+| 卷挂载路径 | `${DATA_ROOT}/mcsmanager/daemon/{data,logs}`（target 无驱动器冒号） | 无驱动器冒号问题（ADR-019 已移除 instances 自挂载）；daemon 仍按 ADR-016 走 `docker run` | daemon 生命周期不归 compose，`win_daemon_run` 自动生成（**ADR-016 起由脚本生成**） |
 | 容器服务名别名 | compose 自动注入 `服务名` 网络别名 | **手动创建**（`docker run`）的容器无服务名别名 | 面板/状态页解析失败，须补 alias（**ADR-016 起 `win_daemon_alias` 自动补**） |
 | cert.pem 落盘 | 容器 HOME 可写 | 默认 HOME=`/home/nonroot` 写容器层，`--rm` 即丢 | cloudflared 须 `-e HOME=/home/cloudflared` 指向挂载目录 |
 | 脚本路径 | `/c/...` 直接可用 | MSYS 生成 `/c/...`，Windows 原生 docker 拼成 `C:\c\...` 出错 | compose 一律用 Windows 原生路径（**ADR-016 起 `compose_cmd` 自动过 `win_path`**） |
@@ -174,6 +174,11 @@ Docker Compose（v5.x，Linux/WSL2 后端）在**把 bind mount 序列化为 `so
 **这本质是 Compose 在 Windows 下解析含驱动器冒号 bind source 的缺陷**，`docker run`
 命令行（`--mount`）与 `docker compose config` 输出都正常，唯独 compose 创建容器时出错。
 
+> **ADR-019（2026-08-16）**：已移除 `instances/` 自挂载（该卷 target 含 `E:` 冒号正是
+> 本错误的根源）。当前 daemon 只挂 `daemon/data` 与 `daemon/logs`（target 均无驱动器冒号），
+> 但 daemon 仍按 ADR-016 走 `docker run`（见上注），保持三平台一致，且 Windows 下
+> `win_daemon_run` 自动生成等价命令。下表保留历史排障记录。
+
 ### 排查结论（已验证）
 
 | 方式 | source=`E:/orzmc/instances` | target 含 `E:` 冒号 | 结果 |
@@ -182,42 +187,40 @@ Docker Compose（v5.x，Linux/WSL2 后端）在**把 bind mount 序列化为 `so
 | `docker run --mount type=bind` | ✅ | ✅ **可挂载到 `/E:/...`** | **可行** |
 | `docker compose up` | ❌ 序列化剥离 `E:` | — | 失败（`too many colons`） |
 
-**结论**：Compose 在 Windows 无法创建 daemon；必须用 `docker run --mount` 手动创建。
-且 daemon 容器内路径模型需特殊处理（见下）。
+**结论**：ADR-019 移除 instances 自挂载后，此 `too many colons` 诱因已不存在；daemon 的
+`daemon/data`、`daemon/logs` target 无驱动器冒号，Compose 本可创建。但为保持三平台一致
+（macOS/Linux 走 compose、Windows 走 docker run），Windows 仍按 ADR-016 用 `docker run`
+手动创建，由 `win_daemon_run` 自动生成命令。
 
 ### daemon 容器内路径模型的适配
 
+> **ADR-019（2026-08-16）起**：不再设独立的 `instances/` 自挂载与
+> `MCSM_DOCKER_WORKSPACE_PATH`。MCSManager 面板创建的实例默认把 `cwd` 写入 daemon 的
+> `data/InstanceData/<uuid>/`（容器内 `/opt/mcsmanager/daemon/data/InstanceData/<uuid>`），
+> 经 `daemon/data` 的 bind 挂载天然落到宿主 `E:/orzmc/mcsmanager/daemon/data/InstanceData/`，
+> 文件管理器与备份均直接可见。以下为历史遗留说明（曾为把实例 cwd 指到 `instances/` 而设，
+> 已无用，保留供追溯）。
+
 MCSManager daemon 源码逻辑（`app.js`）：
 ```js
-const hostRealPath = process.env.MCSM_DOCKER_WORKSPACE_PATH;   // = E:/orzmc/instances
+const hostRealPath = process.env.MCSM_DOCKER_WORKSPACE_PATH;   // （历史）曾 = E:/orzmc/instances
 if (hostRealPath && cwd.includes(defaultInstanceDir)) {
-    cwd = normalize(join(hostRealPath, instance.instanceUuid)); // = E:/orzmc/instances/<uuid>
+    cwd = normalize(join(hostRealPath, instance.instanceUuid)); // （历史）曾 = E:/orzmc/instances/<uuid>
 }
 // 宿主 bind Source = cwd；daemon 容器内文件管理器也读 absoluteCwdPath() = cwd
 ```
 
-因此：
-- **宿主 bind Source** 需 `E:/orzmc/instances/<uuid>`（宿主 daemon 能解析 `E:/`）→ 用
-  `MCSM_DOCKER_WORKSPACE_PATH=E:/orzmc/instances` 保持。
-- **daemon 容器内** `absoluteCwdPath()` 返回 `E:/orzmc/instances/<uuid>`，在容器内是
-  **相对工作目录 `/opt/mcsmanager/daemon`** 的路径，即实际解析为
-  `/opt/mcsmanager/daemon/E:/orzmc/instances/<uuid>`。
-- 因此**自挂载 target 应为 `/opt/mcsmanager/daemon/E:/orzmc/instances`**（含 `E:` 段的
-  绝对路径），且容器工作目录固定为 `/opt/mcsmanager/daemon`（镜像默认）。
+**当前（ADR-019）**：不设 `MCSM_DOCKER_WORKSPACE_PATH`，实例 cwd 保持 MCSManager 默认的
+`data/InstanceData/<uuid>/`，无需任何自挂载适配。
 
-> 注：也可把 target 设为 `/E:/orzmc/instances`，但那样容器内 `absoluteCwdPath()`（无前导
-> `/`，相对工作目录）匹配不到挂载点。**必须按容器内实际相对路径落点**。
-
-### 最终可用命令（daemon 手动启动）
+### 最终可用命令（daemon 手动启动，ADR-019 后）
 
 ```bash
 docker run -d --name orzmc-mcsmanager-daemon \
   --restart unless-stopped \
-  --env "MCSM_DOCKER_WORKSPACE_PATH=E:/orzmc/instances" \
   --env "TZ=Asia/Shanghai" \
   --mount type=bind,source="E:/orzmc/mcsmanager/daemon/data",target="/opt/mcsmanager/daemon/data" \
   --mount type=bind,source="E:/orzmc/mcsmanager/daemon/logs",target="/opt/mcsmanager/daemon/logs" \
-  --mount type=bind,source="E:/orzmc/instances",target="/opt/mcsmanager/daemon/E:/orzmc/instances" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   --network orzmc_default \
   githubyumao/mcsmanager-daemon@<digest>
@@ -226,7 +229,7 @@ docker run -d --name orzmc-mcsmanager-daemon \
 启动后验证：
 ```bash
 docker logs orzmc-mcsmanager-daemon | grep -iE "Daemon process has been successfully started|Access Key"
-docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"   # 应看到 papermc 实例目录
+docker exec orzmc-mcsmanager-daemon ls "/opt/mcsmanager/daemon/data/InstanceData"   # 面板实例数据
 ```
 
 > ⚠️ **daemon 不受 compose 管理**：重启后靠 `--restart unless-stopped` 自动恢复；升级/回滚
@@ -235,8 +238,8 @@ docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"   # 应看到 paperm
 >
 > **ADR-016 后**：上述命令已封装进 `lib/common.sh` 的 `win_daemon_run`（从 compose.yaml
 > 自动读 digest、`win_path` 转路径、lan 下自动补 `-p`），升级/回滚/重建统一用
-> `windows.sh stop && windows.sh start`，无需再手敲 `docker run`。daemon 数据/logs 卷
-> 与实例自挂载由 `win_daemon_run` 按同样参数生成。
+> `windows.sh stop && windows.sh start`，无需再手敲 `docker run`。daemon 数据/logs 卷由
+> `win_daemon_run` 按同样参数生成（ADR-019 起不再挂载 instances）。
 
 ---
 
@@ -371,7 +374,7 @@ docker restart orzmc-mcsmanager-web
 | 查看全部容器 | `docker ps -a` |
 | daemon 日志（含 Access Key） | `docker logs orzmc-mcsmanager-daemon` |
 | 节点连接结果 | `docker logs orzmc-mcsmanager-web \| grep -iE "节点\|daemon"` |
-| daemon 实例挂载自检 | `docker exec orzmc-mcsmanager-daemon ls "E:/orzmc/instances"` |
+| daemon 实例数据自检 | `docker exec orzmc-mcsmanager-daemon ls "/opt/mcsmanager/daemon/data/InstanceData"` |
 | 面板/状态页服务名解析 | `docker exec orzmc-mcsmanager-web getent hosts <service>` |
 | 公网入口自检 | `curl -s -o /dev/null -w "%{http_code}" https://<sub>.jokerhub.cn` |
 | daemon 重建（compose 无法管理，脚本自动） | `./orzmc.sh stop && ./orzmc.sh up`（内部 `win_daemon_rm` + `win_daemon_run`） |
@@ -391,9 +394,10 @@ docker restart orzmc-mcsmanager-web
 
 ## 8. 待上游改进建议（建议整理成 patch/issue）
 
-1. **compose 对 Windows 驱动器号 bind 卷的缺陷**：`docker compose up` 无法创建含
-   `E:/` source 的 bind mount（报 `too many colons`）。建议在 compose.yaml 给 daemon
-   的 instances 卷加 Windows 兼容路径说明，或文档声明 Windows 需 `docker run`。
+1. **compose 对 Windows 驱动器号 bind 卷的缺陷**：`docker compose up` 曾无法创建含
+   `E:/` target 的 bind mount（报 `too many colons`）。**ADR-019 已移除该 instances 卷**
+   （target 含驱动器冒号是诱因），问题消失；daemon 现仍按 ADR-016 走 `docker run` 仅为
+   三平台一致性。可保留此建议供上游了解历史缺陷。
 2. **隧道凭据恢复**：Cloudflare 控制台无凭据下载入口，仅 create 时本地生成。建议文档
    说明「凭据丢失可从 cert.pem + API `/cfd_tunnel/{id}/token` 重建」（见 §2.2）。
 3. **status config 占位符**：`ensure_status_config` 遇 `.env` 隧道 ID 为空时静默生成

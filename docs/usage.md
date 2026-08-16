@@ -482,7 +482,8 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 3. **替换 jar 并重启**（面板文件管理或宿主机目录均可，先停实例）：
 
    ```bash
-   SRV=$DATA_ROOT/instances/<实例名>/server
+   # 实例 cwd 由 MCSManager 面板管理，落 daemon/data/InstanceData/<uuid>/
+   SRV=$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<实例uuid>
    mv "$SRV/paper.jar" "$SRV/paper.jar.bak-$(date +%Y%m%d)"   # 备份旧启动器（回滚用）
    # 从 papermc.io/downloads 下载目标版本的 paperclip jar，命名为 paper.jar 放入 $SRV/
    ```
@@ -510,9 +511,9 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 ./backup.sh -d <DATA_ROOT> -o /mnt/backups   # 指定归档目录
 ```
 
-- 归档**整个 `$DATA_ROOT`**（含 `.env`、cloudflared 凭据、各服务数据、`instances/`、
-  `database/`），默认输出到 `$(dirname $DATA_ROOT)/orzmc-backups`（在 DATA_ROOT 之外，
-  避免自我包含）。
+- 归档**整个 `$DATA_ROOT`**（含 `.env`、cloudflared 凭据、各服务数据、
+  `mcsmanager/daemon/data/InstanceData/`（面板实例数据）、`database/`），默认输出到
+  `$(dirname $DATA_ROOT)/orzmc-backups`（在 DATA_ROOT 之外，避免自我包含）。
 - 归档名：`orzmc-backup-YYYYmmdd-HHMMSS.tar.gz`。
 - **MariaDB 逻辑备份**：打包前自动 `mariadb-dump --all-databases --single-transaction`
   产出一致快照到 `$DATA_ROOT/database/dumps/mariadb-all-*.sql`（随归档一起备份），
@@ -547,7 +548,8 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
 PaperMC 实例**不是** `compose.yaml` 的常驻服务，而是在 MCSManager 面板里创建的
 **实例**，由 MCSManager Daemon 管理，生命周期与平台层解耦。好处：加第二个服不用改
-编排；`$DATA_ROOT/instances/` 随整体数据一起备份/迁移。
+编排；实例数据落 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>/`，随整体数据
+一起备份/迁移。
 
 ### 6.1 首次登录与建管理员
 
@@ -772,7 +774,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 项 | 说明 |
 |---|---|
 | **建议同路径** | 实例 `InstanceConfig/*.json` 的 `cwd` 是**绝对路径**，`restore.sh` 只改写 `.env` 的 `DATA_ROOT`，不改写 `cwd`。**新机建议用与源机相同的 `DATA_ROOT` 路径**，否则需手动改实例 `cwd` |
-| macOS → Linux | 实例目录属主改为 `chown -R 1000:1000 <instances>`（Linux 容器内 uid 写盘）；反之 Linux → macOS 改为宿主用户属主（ADR-006） |
+| macOS → Linux | 实例目录属主改为 `chown -R 1000:1000 <mcsmanager/daemon/data/InstanceData>`（Linux 容器内 uid 写盘）；反之 Linux → macOS 改为宿主用户属主（ADR-006） |
 | 隧道单活 | 同一子域名只能归一个隧道：迁移后**停旧机 cloudflared**，新机隧道才生效 |
 | 实例自启 | `eventTask.autoStart` 默认 `false`，还原后需在面板手动启动实例 |
 | 实例镜像 | `eclipse-temurin:25-jre` 等实例镜像是 **tag 不是 digest**，新机需 `docker pull` |
@@ -836,6 +838,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 │   ├── web/{data,logs}
 │   └── daemon/
 │       ├── data/Config/global.json    # daemon key（密钥）
+│       ├── data/InstanceData/<uuid>/  # 面板创建的实例数据（cwd，含 world/plugins/...）
 │       └── logs/
 ├── easybot/
 │   └── data/                      # gateway.db 等网关数据
@@ -844,9 +847,6 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 ├── database/
 │   ├── mariadb/                   # InnoDB 数据目录（uid/gid=999）
 │   └── dumps/                     # backup.sh 逻辑备份（含系统库，密钥，600）
-└── instances/
-    ├── papermc-main/{server,backups}
-    └── papermc-test/{server,backups}
 ```
 
 ## 附录 D 服务与镜像
