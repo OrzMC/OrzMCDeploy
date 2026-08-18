@@ -180,5 +180,55 @@ curl http://<LAN_HOST_IP>:18090              # 真实 IP，非 .env 里过期值
 # 面板加节点（key 从对应 DATA_ROOT 的 global.json 取）
 # prod: ip=wss://mcs-node.<domain> / 443
 # local: ip=wss://mcs-node.localhost / 18443
-# lan:   ip=ws://<LAN_HOST_IP> / 24444
+# lan:   ip=ws://<LAN_HOST_IP> / 24444（Windows 例外：ip=ws://mcsmanager-daemon / 24444，见 §7）
 ```
+
+---
+
+## 7. Windows 三档验收实录（2026-08-18）
+
+> 平台：Windows 11 Home + Docker Desktop WSL2（`networkingMode=mirrored`，`wsl --shutdown`
+> 冷重启生效）。本次实测结论与 §1-§6 的 macOS 实录的**差异全部由 mirrored 网络模型引入**，
+> 详见 `docs/windows-deployment.md` §9/§10 与 `docs/architecture.md` ADR-020。
+
+### 7.1 关键差异速览（相对 macOS）
+
+| 维度 | macOS | Windows |
+|---|---|---|
+| 发布端口绑定 | 宿主真实网卡（可直接 LAN 可达） | mirrored 后才绑真实网卡；未冷重启前仍绑 localhost |
+| 宿主访问自身 LAN IP | 可达 | **必超时**（mirrored host-loopback 陷阱，非故障） |
+| 容器→宿主 LAN IP（hairpin） | 正常 | **内核级超时**（conntrack/NAT 层损坏） |
+| lan 档节点地址 | `ws://<LAN_HOST_IP>:24444` | `ws://mcsmanager-daemon:24444`（内网名） |
+| lan 档浏览器「网页直连」 | 可用 | **不可用**（ADR-020，已知限制） |
+| Caddy CA 信任 | `security add-trusted-cert` | `certutil -user -addstore -f Root`（免管理员） |
+
+### 7.2 验收实测结论
+
+- **prod（E:/orzmc，EDGE=cloudflare）**：容器全 Up、cloudflared 隧道注册、4 个公网入口
+  HTTP 200、面板节点在线 + 密钥验证通过、浏览器终端可用——**全部通过**。验收后按用户
+  要求停用（不恢复）。
+- **local（.local-data）**：Caddy `.localhost` 4 入口 `curl -k` 200；`certutil -user`
+  导入 Caddy 本地根证书 + 完全重启浏览器后「网页直连」可用（机器级 `-addstore` 报
+  AccessDenied，需 `-user`）。**全部通过**。
+- **lan（.local-data-lan）**：5 容器 Up；`LAN_HOST_IP` 手改真实 `192.168.0.33`；局域网
+  设备访问 18090/18091/18092/24444 可达（宿主自访 LAN IP 超时为预期）；节点 `ws://
+  mcsmanager-daemon:24444` 在线、面板管理（实例启停/状态/文件）正常；**浏览器实时终端
+  不可用**（ADR-020）。本次未创建实例（lan 档实例目录为空），实例创建步骤见
+  `docs/windows-deployment.md` §9.4（按 papermc-template + Mac 经验整理，未在 Windows
+  实机跑通）。
+
+### 7.3 Windows 特有坑（完整清单见 windows-deployment.md §10 P1-P8）
+
+1. **P1 mirrored 冷重启**：`.wslconfig` 改完必须 `wsl --shutdown`，Docker Desktop 重启
+   不算——曾误判「仍 NAT、需迁移引擎」。
+2. **P2 防火墙 Public profile**：Wi-Fi + Mihomo TUN 在 Public profile 入站全拦，局域网
+   设备连面板 `curl 000`；加 netsh 规则后恢复。
+3. **P3 win_daemon_run 相对路径 bug**：`.local-data` 相对路径传给 `--mount` 报 invalid
+   mount path（已修复，绝对化后再 win_path）。
+4. **P4 DAEMON_PORTS 模板缺失**：local/lan 模板曾漏（已补，提交 5c13047）。
+5. **P6 核心限制**：mirrored 下「面板可达地址（bridge 内网）与浏览器可达地址（LAN IP）
+   不相交」→ lan Windows 档浏览器直连不可用；唯一全功能解是 hostname 双解析（依赖路由
+   器自定义 DNS，当前不具备）。
+6. **P7 Caddy CA**：`certutil -user`（免管理员）；信任后须完全退出重启浏览器。
+7. **P8 排查顺序**：先分服务端侧（面板日志已连接/密钥验证）vs 浏览器侧（局域网设备
+   socket.io 握手），两侧共用同一节点地址。

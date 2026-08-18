@@ -914,3 +914,48 @@
   防火墙规则 `OrzMC Java 25565 TCP` 已启用；`netsh interface portproxy show all` 为空
   （已清理）；daemon 重建后实例日志 `Done`。
 
+### 2026-08-18 Windows 三档实机验收（prod / local / lan + ADR-020）
+
+> 承接 2026-08-16 的「局域网可达叫停」：用户改选「mirrored 网络 + 三档真实验收」路线，
+> 逐档 up→验证→stop 全过；文档全部补齐；生产档按用户要求停用（不恢复）。
+
+- **前置打通（局域网可达）**：`.wslconfig` 设 `networkingMode=mirrored` + **必须
+  `wsl --shutdown` 冷重启**（Docker Desktop 重启不算）→ 发布端口绑真实网卡，局域网设备
+  可直连 `192.168.0.33:25565`（Minecraft 真机实测通）。此结论**推翻** 2026-08-16 记录的
+  「Docker Desktop WSL2 端口转发仅 localhost」——当时 `.wslconfig` 未冷重启、且手机测不通
+  时实例正停机（`eventTask.autoStart=false`），是无效的否定测试。UDP 19132 在 mirrored 下
+  可能也通（可选未测）。
+- **修复 `lib/common.sh` win_daemon_run 相对路径 bug（未提交，随本批提交）**：
+  `win_path` 只处理 `C:/` 与 MSYS 前缀，`.local-data` 相对 DATA_ROOT 原样传给
+  `docker run --mount` → `invalid mount path`（exit 125）。已加绝对化逻辑后再 win_path。
+  local/lan 档必现；bash -n + EDGE×ENABLE validate 回归通过。
+- **补 `DAEMON_PORTS` 到 env.local/env.lan 模板（提交 5c13047）**：ADR-016 只给 env.prod
+  加了 `DAEMON_PORTS`，local/lan 漏 → 进程模式实例进服端口 25565/19132 不发布。已补。
+- **三档验收结果**：
+  - **prod（E:/orzmc，EDGE=cloudflare）**：容器全 Up、cloudflared 隧道注册、4 公网入口
+    HTTP 200、节点在线 + 密钥验证通过、浏览器终端可用——全 PASS。验收后按用户要求停用，
+    **生产档当前已停（容器/网络清空，数据完好）**，恢复 `./orzmc.sh -d E:/orzmc -e cloudflare up`。
+  - **local（.local-data）**：Caddy `.localhost` 4 入口 200；`certutil -user -addstore -f
+    Root` 导入 Caddy 根证书（机器级报 AccessDenied）+ 完全重启浏览器后「网页直连」可用——
+    全 PASS。
+  - **lan（.local-data-lan）**：`LAN_HOST_IP` 手改真实 `192.168.0.33`（模板占位
+    192.168.1.100 是死地址）；局域网设备访问 18090/18091/18092/24444 可达；节点改内网名
+    `ws://mcsmanager-daemon:24444` 在线、面板管理（启停/状态/文件）正常；**浏览器实时
+    终端不可用**（ADR-020）。宿主自访自身 LAN IP 必超时 = mirrored host-loopback 陷阱，
+    非故障，局域网可达性用其他设备验证。
+- **ADR-020（Windows mirrored lan 档节点地址）**：mirrored 下「容器→宿主自身 LAN IP 已
+  发布端口」内核级 hairpin 超时（决定性证据：同一路径 `172.18.0.1:24444` 通、
+  `192.168.0.33:24444` 超时；`ip route add`/`/etc/hosts`/`--privileged` 全无效）。
+  MCSManager 面板与浏览器共用节点地址 → lan Windows 档浏览器直连不可用（已知限制）。
+  全功能解 = hostname 双解析（面板 `extra_hosts` + 路由器自定义 DNS，当前不具备）。
+- **文档**：`docs/windows-deployment.md` §9（三档部署→节点→实例→验收全流程）+ §10
+  （P1-P8 踩坑）；`docs/acceptance.md` §7（Windows 验收实录）；`docs/architecture.md`
+  ADR-020；`AGENTS.md` / `docs/usage.md` §6.3 加 Windows lan 例外。
+- **清理（本阶段收尾）**：三档验收产生的容器/网络已清（含空 `orzmcdeploy_default`）；
+  `.local-data`（16G）/`.local-data-lan`（213M）本地验证数据已删（gitignored）；
+  **`E:/orzmc` 为真实生产数据，保留不删**。
+- **未完成（下一步）**：①Windows 实机创建 PaperMC 实例 + 进服闭环（lan 档实例目录当前
+  为空，流程见 windows-deployment.md §9.4）；②公网进服路线（路由器 DDNS + 端口转发 +
+  Cloudflare `play.<domain>` 灰云记录，见 memory「公网进服决策状态」）；③lan Windows 档
+  浏览器直连若需恢复 → 路由器自定义 DNS 双解析（ADR-020）。
+

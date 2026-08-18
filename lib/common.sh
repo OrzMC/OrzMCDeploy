@@ -416,8 +416,15 @@ win_daemon_alias() {
 # 写入 daemon 容器内 /opt/mcsmanager/daemon/data/InstanceData/<uuid>，经下方
 # daemon/data 的 bind 挂载落到宿主机 $DATA_ROOT/mcsmanager/daemon/data/InstanceData。
 win_daemon_run() {
-    local root img tz network port=() extra_ports
-    root="$(win_path "$DATA_ROOT")"
+    local root img tz network port=() extra_ports abs
+    # DATA_ROOT 可能是相对路径（local/lan 档的 .local-data）：docker run --mount 要求
+    # 绝对源路径，win_path 只处理 C:/ 与 MSYS 前缀，相对路径须先解析为绝对。
+    root="$DATA_ROOT"
+    if [[ "$root" != /* && "$root" != [A-Za-z]:* ]]; then
+        abs="$(cd "$root" 2>/dev/null && pwd)"
+        [ -n "$abs" ] && root="$abs"
+    fi
+    root="$(win_path "$root")"
     img="$(daemon_image)"
     tz="$(read_env_value TZ)"
     network="orzmc_default"

@@ -584,7 +584,8 @@ socket.io 直连 daemon；若填 Docker 内网主机名，浏览器解析不了�
 |---|---|---|---|
 | prod | `wss://mcs-node.<domain>` | `443` | cloudflared 隧道，面板/浏览器同一地址（ADR-013） |
 | local | `wss://mcs-node.localhost` | `18443` | Caddy 本地 TLS；web 容器 `extra_hosts` 解析 `.localhost` 到宿主（ADR-014）；浏览器须信任 Caddy 本地 CA 并完全重启 |
-| lan | `ws://<LAN_HOST_IP>` | `<LAN_MCS_DAEMON_PORT>` | daemon 端口发布宿主，浏览器经 LAN IP 直连（ADR-014） |
+| lan（macOS/Linux） | `ws://<LAN_HOST_IP>` | `<LAN_MCS_DAEMON_PORT>` | daemon 端口发布宿主，浏览器经 LAN IP 直连（ADR-014） |
+| lan（**Windows**） | `ws://mcsmanager-daemon` | `24444` | 内网名直连（ADR-020）：面板侧在线、管理可用；**浏览器解析不了内网名，「网页直连」/实时终端不可用**。需要浏览器终端用 local/prod 档 |
 
 - 面板服务端与浏览器同一地址的收益：实例启动/停止/配置/状态管理与终端/控制台/文件管理
   **均可用**。prod 的隧道 socket.io 已实测（polling/websocket + `{uuid,data}` 鉴权全通）；
@@ -604,9 +605,12 @@ socket.io 直连 daemon；若填 Docker 内网主机名，浏览器解析不了�
 - **lan 的 `LAN_HOST_IP` 是 DHCP**：换 IP 需同步改 `.env`、删 `status/config.yaml` 重新
   init、并改节点地址；`<LAN_MCS_DAEMON_PORT>` 默认 `24444`。
 
-> ⚠️ **「网页直连」应显示正常**：节点详情页「网页直连」反映浏览器直连 daemon 的
-> socket.io 通道，三档走上面的地址后该通道均可用。若误填内网地址 `ws://mcsmanager-daemon`
-> 会导致浏览器直连失败（内网主机名浏览器侧不可解析）。
+> ⚠️ **「网页直连」**：节点详情页「网页直连」反映浏览器直连 daemon 的 socket.io 通道。
+> macOS/Linux 三档走上面的地址后该通道均可用；若误填内网地址 `ws://mcsmanager-daemon`
+> 会导致浏览器直连失败（内网主机名浏览器侧不可解析）。**Windows lan 档是唯一例外**
+> （ADR-020）：由于 mirrored 下「容器→宿主 LAN IP」必超时，该档节点地址**只能**填
+> `ws://mcsmanager-daemon:24444`（面板侧可达），因此「网页直连」在本档不可用——属已知
+> 限制而非误配置，需要浏览器终端请用 local/prod 档。
 
 daemon 全部业务路由要求 daemon key 鉴权，无 key 无权限——这是有意的安全边界。
 

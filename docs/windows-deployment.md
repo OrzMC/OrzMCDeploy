@@ -4,10 +4,17 @@
 > 逐条记录遇到的**问题 → 根因 → 解决办法**，以指导项目后续向 Windows 平台扩展。
 > 与 `docs/architecture.md`（ADR-015 起）配套：本文件偏「怎么部署」，ADR 偏「为什么这么设计」。
 
-- **部署机器**：Windows 11 家庭版（SKU 101，无 RDP 服务端）、Docker Desktop 4.86 / WSL2、
-  数据目录 `E:\orzmc`、域 `jokerhub.cn`、profile=prod（cloudflared 隧道）。
-- **最终可用状态**：平台层 6 容器（web/daemon/easybot/mariadb/status/cloudflared）全部运行，
-  4 个公网入口经 Cloudflare 隧道 HTTP 200，Gatus 状态页健康检查全绿，面板↔daemon 节点已连接并通过密钥验证。
+- **部署机器**：Windows 11 家庭版（SKU 101，无 RDP 服务端）、Docker Desktop 4.86 / WSL2
+  **（`.wslconfig` 开 `networkingMode=mirrored`，见 §1.3 / ADR-020）**、域 `jokerhub.cn`。
+- **版本基线**：本文件面向 **ADR-017 EDGE 模型**——唯一入口 `./orzmc.sh [-d DATA_ROOT]
+  [-e EDGE] init|up|stop|status|validate|backup`（`EDGE=cloudflare|local|lan|none`）；
+  旧 `deploy.sh -p` / `local.sh` / `lan.sh` / `windows.sh` 兼容保留（deprecated）。
+  前 8 节的「问题#N」为 **prod 档历史实录**（旧 profile 模型），§9/§10 为
+  **2026-08-18 三档真实验收**（EDGE 模型）的部署/节点/实例/验收全流程与踩坑记录。
+- **最终可用状态（2026-08-18 三档验收）**：prod / local / lan 三档分别在
+  `E:/orzmc` / `.local-data` / `.local-data-lan` 实测 up→验证→stop 全通过；生产档已按
+  用户要求停用（容器清空、数据完好）。三档差异与 Windows 特有限制（mirrored hairpin）
+  见 §9 / §10 与 ADR-020。
 
 ---
 
@@ -23,6 +30,7 @@
 | 脚本路径 | `/c/...` 直接可用 | MSYS 生成 `/c/...`，Windows 原生 docker 拼成 `C:\c\...` 出错 | compose 一律用 Windows 原生路径（**ADR-016 起 `compose_cmd` 自动过 `win_path`**） |
 | 面板节点地址 | `wss://域名` 按文档填 | 协议前缀/端口写错即连不上 | 严格 `wss://<domain>:443`（prod） |
 | Docker 数据 | 默认路径够用 | WSL 数据占 C 盘 | 需迁移到 E 盘（见 §1.2） |
+| 网络模式 | NAT（Docker 默认）：发布端口只绑 localhost | **必须 `.wslconfig` 设 `networkingMode=mirrored` + `wsl --shutdown` 冷重启**，发布端口才绑宿主真实网卡（局域网设备/玩家可达）；代价：**容器→宿主自身 LAN IP 的已发布端口不可达**（面板 hairpin，ADR-020） | 局域网进服 + 局域网设备访问面板的前提 |
 
 > **ADR-016（三平台统一命令）+ ADR-017（单入口）**：从本版本起，macOS/Linux/Windows 使用
 > **同一套命令**（`./orzmc.sh init|up|stop|status|validate|backup`，或 `deploy.sh`）。Windows 下
@@ -362,7 +370,10 @@ docker restart orzmc-mcsmanager-web
 > ⚠️ 三种 profile 的节点地址格式（对照 ADR-013/014）：
 > - **prod**：`wss://<domain>:443`（经 cloudflared 隧道）
 > - **local**：`wss://mcs-node.localhost:18443`（Caddy 非特权 TLS）
-> - **lan**：`ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`（无 TLS，明文）
+> - **lan（macOS/Linux）**：`ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`（无 TLS，明文）
+> - **lan（Windows mirrored）**：**`ws://mcsmanager-daemon:24444`（内网名，ADR-020）**——
+>   面板容器经宿主 LAN IP 的已发布端口必然超时（hairpin），节点地址只能用内网名；后果是
+>   节点在线、面板管理正常，但浏览器「网页直连」/实时终端不可用（需要终端用 local/prod 档）。
 
 ---
 
@@ -382,6 +393,10 @@ docker restart orzmc-mcsmanager-web
 
 ### 已知限制（Windows 特有）
 
+- **mirrored 网络双陷阱（ADR-020）**：① 宿主访问**自己的** LAN IP 的发布端口必超时
+  （hostAddressLoopback 未开，非故障）；② **容器→宿主 LAN IP 的已发布端口必超时**
+  （内核级 hairpin）——导致 lan 档面板无法直连 LAN IP、浏览器实时终端不可用（见 §9.3/
+  §10 P6）。局域网可达性一律用**局域网其他设备**验证。
 - **仅 daemon 不由 compose 管理**：`docker compose up/down` 不作用于 daemon；`windows.sh
   stop/start`（内部 `win_daemon_rm`/`win_daemon_run`）统一管理其生命周期，靠
   `--restart unless-stopped` 自动恢复。status 自 ADR-016 起回归 compose 管理。
@@ -402,3 +417,177 @@ docker restart orzmc-mcsmanager-web
    说明「凭据丢失可从 cert.pem + API `/cfd_tunnel/{id}/token` 重建」（见 §2.2）。
 3. **status config 占位符**：`ensure_status_config` 遇 `.env` 隧道 ID 为空时静默生成
    占位符且不再覆盖，易留隐患。建议加「占位符残留告警」。
+
+---
+
+## 9. 三档部署 → 节点 → 实例 → 验收全流程（Windows，2026-08-18 真实验收）
+
+> EDGE 模型（ADR-017）唯一入口 `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init|up|stop|...`。
+> 三档**互斥**（共用 compose 项目名 `orzmc` 与容器名），**切档必须先 `stop` 当前档**。
+> 本节为本次 Windows 真实验收总结的最小可用路径；坑点详解见 §10，验收实录见
+> `docs/acceptance.md` §7。
+
+### 9.1 前置（每档都依赖）
+
+1. **WSL2 mirrored 网络（关键前置，见 §10 P1）**：`C:\Users\<user>\.wslconfig`：
+   ```ini
+   [wsl2]
+   networkingMode=mirrored
+   ```
+   改后**必须 `wsl --shutdown` 冷重启**（Docker Desktop 重启不算）。此后发布端口才绑宿主
+   真实网卡、局域网设备/玩家可达（NAT 模式只绑 localhost，2026-08-16 已实测不可达）。
+2. **Windows 防火墙入站放行（lan 档必需，§10 P2）**：Wi-Fi / Mihomo TUN 多为 **Public
+   profile**，入站默认全拦。管理员 PowerShell：
+   ```powershell
+   netsh advfirewall firewall add rule name="OrzMC Web 18090"   dir=in action=allow protocol=TCP localport=18090
+   netsh advfirewall firewall add rule name="OrzMC EasyBot 18091" dir=in action=allow protocol=TCP localport=18091
+   netsh advfirewall firewall add rule name="OrzMC Status 18092" dir=in action=allow protocol=TCP localport=18092
+   netsh advfirewall firewall add rule name="OrzMC Daemon 24444" dir=in action=allow protocol=TCP localport=24444
+   ```
+   实例进服端口 `25565/tcp`（Java）与 `19132/udp`（基岩）如需局域网直连同样放行。
+3. **真机验证优先（§10 P5）**：宿主访问**自己**的 LAN IP 的发布端口必超时（mirrored
+   host-loopback 陷阱，非故障）——局域网可达性一律用**局域网其他设备**验证；验证服务
+   本身用 `127.0.0.1`。
+4. **daemon key 取法**：`<DATA_ROOT>/mcsmanager/daemon/data/Config/global.json` 的 `key`
+   字段（47 位），面板添加节点时填入（写入节点配置 `apiKey`）。
+
+### 9.2 三档部署方法
+
+| 档 | DATA_ROOT | 部署命令 | 入口 |
+|---|---|---|---|
+| prod（cloudflare） | `E:/orzmc` | `./orzmc.sh -d E:/orzmc -e cloudflare init` → 编辑 `.env` 填 `CLOUDFLARE_TUNNEL_ID`/`DOMAIN_*`/密码 → `./orzmc.sh -d E:/orzmc up` | `https://mcs.<domain>` 等 4 入口 |
+| local | `.local-data` | `./orzmc.sh -e local init && ./orzmc.sh -e local up` | `https://mcs.localhost:18443` 等 4 入口 |
+| lan | `.local-data-lan` | `./orzmc.sh -e lan init` → 编辑 `.env` 把 `LAN_HOST_IP` 改成**真实局域网 IP**（如 `192.168.0.33`，模板默认 `192.168.1.100` 是死地址）→ `./orzmc.sh -e lan up` | `http://<LAN_HOST_IP>:18090` 等 4 端口 |
+
+> - local/lan 的 DATA_ROOT 是仓库内相对路径 `.local-data`/`.local-data-lan`（gitignored）；
+>   prod 用绝对盘符。`-d` 参数优先级最高（>`ORZMC_DATA_ROOT` > 默认值）。
+> - 模板差异：`env.prod`（域名/隧道）、`env.local`（Caddy `.localhost` 非特权端口
+>   18080/18443）、`env.lan`（`LAN_HOST_IP` + `LAN_*_PORT`，无域名/TLS）。
+> - **三档模板均已含 `DAEMON_PORTS=25565:25565/tcp,19132:19132/udp`**（仅 Windows 消费：
+>   进程模式实例进服端口由 daemon 容器 `-p` 发布；macOS/Linux 由 MCSManager 按实例配置
+>   映射，不消费本变量）。此变量曾漏在 env.local/env.lan，见 §10 P4。
+
+### 9.3 节点创建（面板「节点管理」→ 添加节点）
+
+| 档 | 节点 `ip` | 端口 | Windows 下是否可用 |
+|---|---|---|---|
+| prod | `wss://mcs-node.<domain>` | `443` | ✅ 面板 + 浏览器全可用（公网域名两端都能解析） |
+| local | `wss://mcs-node.localhost` | `18443` | ✅ 面板（web 容器 `extra_hosts: mcs-node.localhost:host-gateway`）+ 宿主浏览器（信任 Caddy 本地 CA 后，§10 P7） |
+| lan（macOS/Linux） | `ws://<LAN_HOST_IP>` | `24444` | ✅ 面板 + 局域网设备双向可达（ADR-014） |
+| **lan（Windows）** | **`ws://mcsmanager-daemon`** | `24444` | ⚠️ **仅面板侧可用**：节点在线、实例启停/状态/文件管理正常；**浏览器「网页直连」/实时终端不可用**（ADR-020 / §10 P6） |
+
+改节点配置后 `docker restart orzmc-mcsmanager-web` 生效；确认面板日志：
+```
+远程节点 Name: ... 已连接
+远程节点 ... 密钥验证通过
+```
+若面板日志出现 `Daemon exception detected ... reconnecting...` 即节点地址不可达。
+
+### 9.4 实例创建（面板「实例」→ 创建实例，参数参考 `docs/papermc-template.md`）
+
+Windows 推荐 **Java 版进程模式**（java 直接跑在 daemon 容器内；进服端口经 `DAEMON_PORTS`
+发布到宿主，局域网玩家直连 `http://<LAN_HOST_IP>:25565`）：
+1. 先备好实例目录文件：`paper.jar`、`eula.txt`（`eula=true`）、`server.properties`
+   （离线服 `online-mode=false`）；目录用面板默认 `data/InstanceData/<uuid>/`（经 daemon/data
+   落宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，ADR-019）。
+2. 面板创建实例：启动命令 `java -Xms2G -Xmx2G -jar paper.jar --nogui`；停止命令 `stop`；
+   Ready 关键字 `Done`；控制台编码 UTF-8；内存按需（测试服 2G）。
+3. 启动实例 → 等控制台 `Done` → 局域网设备进服测试（Java 25565；基岩 Geyser 19132/udp
+   需另加 UDP 防火墙规则）。
+4. 面板侧验证实例启停/重启/状态正常（走服务端 daemon 连接，Windows lan 档同样可用）。
+
+> ⚠️ **2026-08-18 本次验收未创建实例**（lan 档实例目录为空）——上述步骤按
+> `papermc-template.md` + macOS 验收经验整理，**未在 Windows 实机跑通**，下次验收第一
+> 优先补齐实例创建 + 进服闭环。
+
+### 9.5 逐档验收清单（下次直接照做）
+
+**通用**：`./orzmc.sh status` 看容器；`./orzmc.sh validate` 看配置；面板首次登录建管理员；
+节点连接后 `docker logs orzmc-mcsmanager-web | grep -E "已连接|密钥验证"`。
+
+**prod（cloudflare）**：
+- [ ] 6 容器 Up，mariadb+easybot healthy
+- [ ] cloudflared `Registered tunnel connection`（QUIC）
+- [ ] 4 公网入口：`curl -s -o /dev/null -w '%{http_code}' https://<sub>.<domain>` 全 200
+- [ ] 面板节点在线 + 密钥验证通过
+- [ ] 浏览器终端/控制台可用（公网域名两端可解析，Windows 正常）
+- [ ] 实例进服（可选，Windows 建议先测 25565 TCP）
+
+**local**：
+- [ ] 容器含 caddy、无 cloudflared；`curl -k https://mcs.localhost:18443` 等 4 入口 200
+- [ ] 面板节点在线（`wss://mcs-node.localhost:18443`）
+- [ ] **宿主浏览器信任 Caddy 本地 CA 后完全退出重启**，网页直连终端可用：
+      `certutil -user -addstore -f Root .local-data/caddy/data/caddy/pki/authorities/local/root.crt`
+      （`-user` 免管理员；机器级 `-addstore` 报 AccessDenied）
+- [ ] 实例端口已发布：`netstat -ano | findstr 25565`
+
+**lan**：
+- [ ] 5 容器 Up（无 caddy/cloudflared）
+- [ ] **局域网设备**访问 `http://192.168.0.33:18090`（面板）/18091/18092/24444 可达
+      （宿主自己访问 LAN IP 必超时，勿以此判故障）
+- [ ] `.env` 的 `LAN_HOST_IP` 为真实 IP；删除 `status/config.yaml` 后重新 init 使状态页
+      按钮指向正确 IP（`ensure_*` 绝不覆盖已有文件）
+- [ ] 面板节点在线（Windows 用 `ws://mcsmanager-daemon:24444`）+ 密钥验证通过
+- [ ] 实例启停/状态/文件管理正常（面板侧）
+- [ ] ⚠️ **浏览器实时终端在本档不可用**（Windows mirrored 限制）——需要终端用 local 档
+      （宿主浏览器）或 prod 档（任意设备）
+
+---
+
+## 10. Windows 三档验收踩坑记录（2026-08-18）
+
+### P1｜mirrored 未冷重启不生效（曾误判「引擎仍是 NAT、需迁移」）
+`.wslconfig` 改 `networkingMode=mirrored` 后，**必须 `wsl --shutdown` 冷重启**，Docker
+Desktop 重启不算（容器 Up 47min 证明 VM 未冷重启，mirrored 一直没落地）。此前误判
+「docker-desktop 仍 NAT、需迁移引擎」正是因此。验证：发布端口 `netstat -ano` 是否绑
+`0.0.0.0` 于真实网卡。
+
+### P2｜Windows 防火墙 Public profile 拦局域网入站
+Wi-Fi + Mihomo TUN 均在 **Public profile**，入站默认全拦；未加规则前局域网设备连面板
+`curl 000`。加 §9.1 的 4 条 netsh 规则（管理员）后恢复。
+
+### P3｜win_daemon_run 相对路径 bug（已修复，lib/common.sh 未提交）
+local/lan 档 DATA_ROOT 是相对路径 `.local-data`，`win_path` 只处理 `C:/` 与 MSYS 前缀，
+相对路径原样传给 `docker run --mount` → `invalid mount path: 'C:/.../AppData/Local/hermes/
+git/opt/mcsmanager/daemon/data'`（exit 125）。修复：先 `cd "$root" && pwd` 绝对化再
+`win_path`。**local/lan 档必现**，bash -n + 三档 validate 回归通过。
+
+### P4｜DAEMON_PORTS 模板缺失（已补，提交 5c13047）
+ADR-016 只给 `env.prod` 加了 `DAEMON_PORTS`，local/lan 模板漏 → 进程模式实例进服端口
+25565/19132 不发布。已补进 `templates/env.local` / `env.lan`（附注释说明仅 Windows 消费）。
+
+### P5｜宿主访问自身 LAN IP 必超时（mirrored host-loopback 陷阱）
+宿主 `curl http://192.168.0.33:18090` 超时（000），`curl http://127.0.0.1:18090` 200，
+`docker inspect` 显示 `0.0.0.0` 绑定正常——**非故障**。局域网可达性一律用局域网其他设备
+验证（手机真机验证 25565 已通过）。
+
+### P6（核心）｜lan 档节点地址在 Windows mirrored 下面板/浏览器不可兼得
+- 面板容器 → 宿主 LAN IP 已发布端口 = **内核级 hairpin 超时**。决定性证据：同一路径经
+  bridge 网关进入 VM，`dst=172.18.0.1:24444` 通（socket.io HTTP 200）、`dst=192.168.0.33:24444`
+  超时——入口一样、只差目标 IP。mirrored 下 VM 对「自身镜像 LAN IP」的本地投递在
+  conntrack/NAT 层坏掉。
+- 尝试全失败：容器内 `ip route add 192.168.0.33/32 via 172.18.0.1`（改路由不修 conntrack）、
+  `/etc/hosts` 注入（字面 IP 不查 hosts）、`docker exec --privileged` 提权 NET_ADMIN（同样
+  只改路由）。**Mac 能行是因为 macOS Docker Desktop 正确处理宿主 LAN IP 的 hairpin**。
+- MCSManager 面板服务端与浏览器**共用同一节点 `ip:port`**（`connectOpts` 只是 socket.io
+  重连选项，无独立服务端地址）→ 单一地址必须两端都可达，而 Windows mirrored 下面板可达
+  地址（bridge 内网）与浏览器可达地址（LAN IP）**不相交**。
+- **唯一全功能解 = hostname 双解析**：节点地址用自定义主机名（如 `mcs-node.lan`），面板
+  容器 `extra_hosts: mcs-node.lan:host-gateway` 指到 docker 网关（面板侧已实测：解析
+  host-gateway `192.168.65.254` → daemon socket.io 200），浏览器经**路由器自定义 DNS** 指
+  到 LAN IP。依赖路由器支持自定义 DNS 记录，当前环境不具备 → 未启用；路由具备能力时按
+  此启用即可恢复浏览器终端（详见 ADR-020）。
+- **落地**：Windows lan 档节点 = 内网名 `ws://mcsmanager-daemon:24444`——节点在线、面板
+  管理（启停/状态/文件）正常，浏览器实时终端不可用。与 macOS/Linux（ADR-014 LAN-IP 直连）
+  不同，见 ADR-020。
+
+### P7｜Caddy 本地 CA 信任（local 档）
+Windows 用 `certutil -user -addstore -f Root <root.crt>`（当前用户库，**免管理员**）；
+机器级 `certutil -addstore` 报 `AccessDenied (0x80070005)`。信任后必须**完全退出并重启
+浏览器**（Chrome 有缓存；「网页直连」异常先怀疑证书 + 浏览器重启）。
+
+### P8｜「网页直连异常」排查顺序（避免走弯路）
+先分「服务端侧 vs 浏览器侧」：服务端侧看面板日志「已连接/密钥验证通过」；浏览器侧看
+能否从**局域网设备浏览器**直连 `ws://<LAN_IP>:24444`（`socket.io/?EIO=4&transport=polling`
+握手）。两侧用的是**同一个**节点地址——服务端通浏览器不通 = 该地址对浏览器不可达
+（解析 / 防火墙 / 端口未发布），按 §9.3 节点表核对。

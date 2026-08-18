@@ -78,7 +78,13 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   - **lan**：节点 `ip` 填 `ws://<LAN_HOST_IP>` + 端口 `<LAN_MCS_DAEMON_PORT>`——daemon 端口
     本就发布到宿主，浏览器/局域网设备经 LAN IP 直连，解除 ADR-011 lan 遗留（ADR-014）。
     ⚠️ LAN IP 多为 DHCP，换 IP 需同步改 `.env` 与节点配置。
-  - 三档浏览器**终端/控制台/文件管理器均可用**；节点配置在
+    **Windows 例外（ADR-020）**：Windows 宿主在 WSL2 `networkingMode=mirrored` 下，内核级
+    hairpin 使「容器→宿主自身 LAN IP 的发布端口」必超时（面板连不上 LAN-IP 节点）；节点
+    `ip` 改填内网名 `ws://mcsmanager-daemon` + 端口 `24444`——节点在线、面板管理可用，但
+    浏览器解析不了内网名，**「网页直连」/实时终端在 lan Windows 档不可用**（macOS/Linux
+    无此问题）。需要浏览器终端时用 local 档（宿主浏览器）或 prod 档（任意设备）。
+  - **macOS/Linux 三档浏览器终端/控制台/文件管理器均可用**；Windows 例外：lan 档浏览器
+    直连不可用（ADR-020，见上）。节点配置在
     `$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/*.json`，改后
     `docker restart orzmc-mcsmanager-web`。daemon 全部业务路由要求密钥鉴权，无 key 无权限。
 - 服务端口**默认只 `expose`，不发布宿主机端口**（cloudflare/local；PaperMC 实例端口 `25565`

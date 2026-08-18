@@ -43,14 +43,16 @@
   （REST + WebSocket 同端口，内网无 TLS）。
 - **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 网络，直连 `mariadb:3306`
   （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件使用。
-- **daemon 连接（三档浏览器直连均可用，ADR-013 + ADR-014）**：节点地址统一「面板服务端
-  与浏览器同一地址」，按档不同：prod `wss://mcs-node.<domain>:443`（cloudflared 隧道，
-  隧道 socket.io 已实测可用——ADR-011 的 koa 拦截结论已过时，见 ADR-013）；local
-  `wss://mcs-node.localhost:18443`（Caddy，web 容器 `extra_hosts: mcs-node.localhost:
-  host-gateway` 使容器把 `.localhost` 解析到宿主，ADR-014）；lan `ws://<LAN_HOST_IP>:
-  <LAN_MCS_DAEMON_PORT>`（daemon 端口本就发布到宿主，浏览器/局域网设备经 LAN IP 可达，
-  解除 ADR-011 lan 遗留，ADR-014）。三档浏览器终端/控制台/文件管理器均可用；prod 代价是
-  面板↔daemon 依赖隧道在线。daemon 全部业务路由密钥鉴权，无 key 无权限。
+- **daemon 连接（macOS/Linux 三档浏览器直连均可用，ADR-013 + ADR-014 + ADR-020）**：
+  节点地址统一「面板服务端与浏览器同一地址」，按档不同：prod `wss://mcs-node.<domain>:443`
+  （cloudflared 隧道，隧道 socket.io 已实测可用——ADR-011 的 koa 拦截结论已过时，见
+  ADR-013）；local `wss://mcs-node.localhost:18443`（Caddy，web 容器 `extra_hosts:
+  mcs-node.localhost:host-gateway` 使容器把 `.localhost` 解析到宿主，ADR-014）；lan
+  `ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`（daemon 端口本就发布到宿主，浏览器/局域网
+  设备经 LAN IP 可达，解除 ADR-011 lan 遗留，ADR-014）。macOS/Linux 三档浏览器终端/
+  控制台/文件管理器均可用；**Windows 例外（ADR-020）**：lan 档节点改填内网名
+  `ws://mcsmanager-daemon:24444`（面板侧在线、管理可用，浏览器「网页直连」不可用）。
+  prod 代价是面板↔daemon 依赖隧道在线。daemon 全部业务路由密钥鉴权，无 key 无权限。
 - 所有服务端口只 `expose`，不发布宿主机端口（PaperMC 实例端口 `25565` 由 MCSManager
   按实例配置映射，供玩家局域网直连）。
 
@@ -111,11 +113,13 @@
 
 1. 管理浏览器 → Cloudflare 边缘（TLS）→ cloudflared（出站隧道，compose 网络内按
    hostname 路由）→ `mcsmanager-web:23333`（面板）/ `easybot:8080`（后台）。
-2. 面板服务端 → 节点地址（与浏览器同一地址，ADR-013 + ADR-014）：prod
-   `wss://mcs-node.<domain>:443`（cloudflared 隧道，浏览器直连终端可用，隧道 socket.io
+2. 面板服务端 → 节点地址（macOS/Linux 与浏览器同一地址，ADR-013 + ADR-014 + ADR-020）：
+   prod `wss://mcs-node.<domain>:443`（cloudflared 隧道，浏览器直连终端可用，隧道 socket.io
    已实测通过——ADR-011 的 koa 拦截结论已过时）；local `wss://mcs-node.localhost:18443`
    （Caddy，浏览器直连可用）；lan `ws://<LAN_HOST_IP>:<LAN_MCS_DAEMON_PORT>`（宿主发布
-   端口，浏览器/局域网设备直连可用）。三档浏览器终端/控制台/文件管理器均可用。
+   端口，浏览器/局域网设备直连可用）。macOS/Linux 三档浏览器终端/控制台/文件管理器均可用；
+   **Windows 例外（ADR-020）**：lan 档节点改内网名 `ws://mcsmanager-daemon:24444`——面板
+   侧在线、管理可用，浏览器「网页直连」/实时终端不可用。
 3. 管理浏览器 → `orzmcs.<domain>` → Cloudflare 边缘 → `status:8080`（Gatus 统一状态页，
    聚合产品入口 + 实时健康；页面无鉴权，仅服务名与状态、不含密钥）。
 4. PaperMC 插件 → `http://easybot:8080`（REST + WS，同 `orzmc_default` 网络）。
@@ -662,3 +666,39 @@ $DATA_ROOT/
 - 备份/恢复**无变化**（本就整包打包 `$DATA_ROOT`，InstanceData 已含）。
 - 升级路径：`orzmc.sh stop` 后 `docker rm` daemon → `orzmc.sh up` 重建（去掉 instances 挂载），
   删除 `$DATA_ROOT/instances`；已有实例数据在 `InstanceData/`，不受影响。
+
+### ADR-020：Windows mirrored 下 lan 档节点地址改内网名，浏览器直连不可用（2026-08-18，Windows 三档实机验收）
+
+**背景**：2026-08-18 Windows 三档实机验收发现，ADT-014 的「lan 节点填 `ws://<LAN_HOST_IP>:24444`
+（面板服务端与浏览器同一地址）」在 Windows 上**不成立**。Windows 宿主用 WSL2
+`networkingMode=mirrored`（`.wslconfig` + `wsl --shutdown` 冷重启，ADR-015 延伸）才能让
+发布端口绑定真实网卡、局域网可达；但 mirrored 模式有一个内核级陷阱：**VM（面板容器）对
+「宿主自身 LAN IP 的已发布端口」的本地投递在 conntrack/NAT 层损坏**，表现为连接超时。
+
+- **决定性证据**：面板容器经同一路径（bridge 网关 `172.18.0.1`）进入 VM，目标
+  `172.18.0.1:24444` 通（socket.io 握手 HTTP 200）、目标 `192.168.0.33:24444` 超时——
+  入口相同、仅目标 IP 不同。
+- 尝试过的补救均无效：容器内 `ip route add`（改路由不修 conntrack）、`/etc/hosts` 注入
+  （字面 IP 不查 hosts）、`docker exec --privileged` 提权 NET_ADMIN（同样只改路由）。
+- macOS 无此问题（Docker Desktop 正确实现宿主 LAN IP 的 hairpin），故 ADR-014 原结论
+  在 macOS/Linux 成立、在 Windows 不成立。
+
+**决策**：
+1. **Windows lan 档**：节点 `ip` 填内网名 `ws://mcsmanager-daemon`、端口 `24444`（与
+   ADR-011 相同，零运行时改动）。节点在线、面板服务端管理（实例启停/状态/文件管理）正常。
+2. **接受浏览器限制**：浏览器解析不了 Docker 内网主机名 `mcsmanager-daemon`，lan 档
+   Windows 上「网页直连」/实时终端**不可用**——这是 mirrored 下「面板可达地址（bridge 内网）
+   与浏览器可达地址（LAN IP）不相交」的硬约束，面板与浏览器共用同一节点地址无法兼得。
+3. **全功能解的可行路线（记录备查）**：节点地址用自定义主机名（如 `mcs-node.lan`）双解析
+   ——面板容器 `extra_hosts: mcs-node.lan:host-gateway`（已实测面板侧可达，socket.io 200）
+   + 浏览器经**路由器自定义 DNS** 解析到 LAN IP。依赖路由器支持自定义 DNS 记录，当前环境
+   不具备；具备时按此启用即可恢复浏览器终端。
+4. **需要浏览器终端时**：用 local 档（宿主浏览器，Caddy `.localhost`）或 prod 档
+   （公网域名，任意设备）——这两个入口浏览器可达，无此限制。
+
+**影响**：
+- `templates/env.lan` 补充注释说明 lan Windows 节点地址（内网直连 + 浏览器不可用）。
+- AGENTS.md / docs/usage.md §6.3 / docs/architecture.md §2.x 的「三档浏览器直连均可用」
+  需加「macOS/Linux」限定与 Windows lan 例外。
+- 文档同步：`AGENTS.md` §4、`docs/usage.md` §6.3、`docs/windows-deployment.md` §7/§9/§10、
+  `docs/acceptance.md`（Windows 验收实录）、`EXECUTION_PATH.md`。
