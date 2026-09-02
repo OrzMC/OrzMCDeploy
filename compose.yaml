@@ -50,6 +50,12 @@ services:
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
+      # Docker 实例 cwd 路径翻译（daemon 源码读取）：daemon 容器内
+      # /opt/mcsmanager/daemon/data/InstanceData/<uuid> → 宿主
+      # $DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>。
+      # 缺失时 docker 实例 bind source 用容器内路径，宿主引擎报
+      # "bind source path does not exist"（ADR-019 移除旧 instances 方案时误删）。
+      MCSM_DOCKER_WORKSPACE_PATH: "${DATA_ROOT}/mcsmanager/daemon/data/InstanceData"
     expose:
       - "${MCS_DAEMON_PORT}"
     volumes:
