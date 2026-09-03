@@ -27,6 +27,11 @@ name: orzmc
 
 services:
   mcsmanager-web:
+    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     image: githubyumao/mcsmanager-web@sha256:4df0d86b59f7da423b838516e20c024b56352a0b5e54fb6c77f6f0a31f618555
     container_name: orzmc-mcsmanager-web
     restart: unless-stopped
@@ -45,6 +50,11 @@ services:
       - "mcs-node.localhost:host-gateway"
 
   mcsmanager-daemon:
+    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     image: githubyumao/mcsmanager-daemon@sha256:70c69471142047e1670e85858cd0ca64d2ff396566f63c4d2abb489ea37d65cf
     container_name: orzmc-mcsmanager-daemon
     restart: unless-stopped
@@ -70,6 +80,11 @@ services:
   # 核心 web/daemon 无 profile 常驻，不随 ENABLE_* 变化。
 
   easybot:
+    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     # 依赖 EasyBot ≥0.0.35（镜像 digest 锁定，勿回退到更低版本；升级见 update-image-digests.sh）
     # ENABLE_EASYBOT=true 时启用（compose_cmd 追加 --profile easybot）
     profiles: ["easybot"]
@@ -100,6 +115,11 @@ services:
   # 时，实例挂 orzmc_default，JDBC 用 jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>。
   # 数据在 $DATA_ROOT/database/mariadb（随整机备份）；逻辑备份由 backup.sh 自动产出。
   mariadb:
+    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     profiles: ["mariadb"]
     image: mariadb@sha256:67873d30a17f6a9c331f06363b2fa15f38abca415529966d67c84f87f82439fe
     container_name: orzmc-mariadb
@@ -127,6 +147,11 @@ services:
   # scratch 镜像无 shell/curl，不设 compose healthcheck（页面本身即存活信号）。
   # 仅 depends_on 核心 web/daemon（不依赖可选服务，避免 ENABLE_* 禁用时依赖报错）。
   status:
+    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
+    deploy:
+      resources:
+        limits:
+          memory: 256M
     profiles: ["status"]
     image: twinproduction/gatus@sha256:0009b90a11c042809f7f988c05c3f398dbf24b7498a0b7083efe3b9e8e126550
     container_name: orzmc-status
