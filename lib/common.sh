@@ -456,6 +456,7 @@ win_daemon_run() {
     fi
     docker run -d --name "$(daemon_container)" \
         --restart unless-stopped \
+        --memory 512m \
         --env "TZ=${tz}" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/data,target=/opt/mcsmanager/daemon/data" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/logs,target=/opt/mcsmanager/daemon/logs" \
