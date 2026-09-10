@@ -702,3 +702,52 @@ $DATA_ROOT/
   需加「macOS/Linux」限定与 Windows lan 例外。
 - 文档同步：`AGENTS.md` §4、`docs/usage.md` §6.3、`docs/windows-deployment.md` §7/§9/§10、
   `docs/acceptance.md`（Windows 验收实录）、`EXECUTION_PATH.md`。
+
+### ADR-021：Mac→Windows 迁移四问题修复（#4–#7）（2026-09-09）
+
+**背景**：2026-09-09 Mac→Windows 整机迁移（2.36G `restore.sh` 归档，两个 docker 型
+实例）暴露 4 个问题，均已定位根因并修复（对应远端 issue #4–#7）：
+
+1. **#4 Windows daemon 缺 `MCSM_DOCKER_WORKSPACE_PATH`**：docker 型实例 `cwd` 为容器内
+   `/opt/mcsmanager/daemon/data/InstanceData/<uuid>`，daemon 需该 env 翻译成宿主路径做
+   bind source。`bce6fb0`（#1）只补进 `compose.yaml`（macOS/Linux compose-managed daemon
+   生效），**Windows 的 `win_daemon_run` 裸 `docker run` 漏同步** → bind source 用容器内
+   路径，报 `bind source path does not exist`。
+2. **#5 `restore.sh` 大归档 SIGPIPE**：`top="$(tar tzf "$ARCHIVE" | head -n1)"` 中 `head`
+   读一行即关管道，`tar` 收 SIGPIPE(141)，配合 `set -euo pipefail` 令还原中途退出
+   （小归档/条目少不触发，大归档必现）。
+3. **#6 `DAEMON_PORTS` 与 docker 型实例端口撞车**：该变量本意服务**进程模式**实例
+   （java 跑在 daemon 容器内），Windows `win_daemon_run` 无条件 `-p` 到 daemon；docker 型
+   实例各自容器再发布同宿主端口 → `Bind for 0.0.0.0:25565 failed: port is already allocated`。
+4. **#7 冷数据还原后 mariadb healthcheck 误报**：`healthcheck.sh --su-mysql` 依赖
+   `mysql@localhost` unix_socket 账号，该账号**仅镜像首次 init 空数据目录创建**；还原的
+   冷数据目录没有 → 数据库正常但 healthcheck 恒 unhealthy（无 `depends_on: service_healthy`，
+   仅误报不阻塞）。
+
+**决策**：
+1. `win_daemon_run` 的 docker run 在 `--env TZ` 后补
+   `--env MCSM_DOCKER_WORKSPACE_PATH=${root}/mcsmanager/daemon/data/InstanceData`，与
+   `compose.yaml` 对齐（`root` 已 win_path 化为宿主绝对路径）。**属 ADR-019 的勘误补全**
+   ——ADR-019 只移除 `instances/` **自挂载**，该 env 是 daemon 的 cwd 宿主路径翻译，方案
+   仍是面板默认 `data/InstanceData/` 布局，**不恢复 `instances/` 自挂载**。`tests/windows_ci.sh`
+   断言由「无该 env」改为「含该 env」。
+2. `restore.sh` 取顶层目录名改为 `top="$( { tar tzf "$ARCHIVE" | head -n1; } || true )"`，
+   `|| true` 兜住管道 SIGPIPE 退出码；首个顶层名仍由 head 正常输出，不可读/空归档由后续
+   非空校验拦截。**纯 bash/bsdtar 兼容，不引入 python3 依赖**。
+3. `DAEMON_PORTS` 语义**限定为进程模式实例**；新增 `win_warn_daemon_ports_conflict`：daemon
+   创建/复用前扫描 `daemon/data/InstanceConfig/*.json`，检测到 `processType: docker` 且
+   `DAEMON_PORTS` 非空即告警（**只告警、不改变发布行为**，避免误伤进程模式）。三个
+   `templates/env.*` 与文档注明：用 docker 型实例时须把 `DAEMON_PORTS` 置空。
+4. `compose.yaml` mariadb healthcheck 由
+   `healthcheck.sh --su-mysql --connect --innodb_initialized` 改为 root 经 unix socket +
+   `MARIADB_ROOT_PASSWORD` 的 innodb 就绪查询
+   （`mariadb --protocol socket --skip-ssl -uroot -p"$MARIADB_ROOT_PASSWORD" ... | grep -qx 1`）。
+   只依赖 `.env` 的口令，冷/热数据与改密后均适用；鉴权失败会如实报 unhealthy。
+
+**影响**：
+- 代码：`lib/common.sh`（env + 告警）、`restore.sh`（SIGPIPE）、`compose.yaml`（healthcheck）。
+- 测试：`tests/windows_ci.sh` 同步断言（Windows 分支单测；CI 会跑）。
+- 模板/文档：`templates/env.{prod,local,lan}` 注释、`docs/windows-deployment.md` §9.4/§10
+  P9–P11、`docs/usage.md` §5.6。
+- **无架构性变化**：4 个公网/局域网入口、服务集、卷、网络拓扑均不变；仅健壮性与 Windows
+  路径补全。迁移后若使用 docker 型实例，需手工把 `.env` 的 `DAEMON_PORTS` 置空（已告警）。

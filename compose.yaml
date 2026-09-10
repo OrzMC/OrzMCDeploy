@@ -135,7 +135,12 @@ services:
     volumes:
       - "${DATA_ROOT}/database/mariadb:/var/lib/mysql"
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--su-mysql", "--connect", "--innodb_initialized"]
+      # 不用镜像自带 `healthcheck.sh --su-mysql --connect --innodb_initialized`：它依赖
+      # `mysql@localhost`（unix_socket 免密）账号，该账号仅镜像**首次 init 空数据目录**时
+      # 创建；restore 冷数据还原后不存在 → 数据库正常但 healthcheck 恒报 unhealthy
+      # （issue #7）。改用 root 经 unix socket + .env 口令执行 innodb 就绪查询，只依赖
+      # MARIADB_ROOT_PASSWORD：冷/热数据、改密后均适用，且鉴权失败会如实报 unhealthy。
+      test: ["CMD-SHELL", "mariadb --protocol socket --skip-ssl -uroot -p\"$$MARIADB_ROOT_PASSWORD\" --skip-column-names -e \"SELECT 1 FROM information_schema.ENGINES WHERE engine='innodb' AND support IN ('YES','DEFAULT','ENABLED')\" | grep -qx 1"]
       interval: 5s
       timeout: 5s
       retries: 10

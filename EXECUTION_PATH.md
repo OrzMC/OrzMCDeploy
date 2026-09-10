@@ -959,3 +959,21 @@
   Cloudflare `play.<domain>` 灰云记录，见 memory「公网进服决策状态」）；③lan Windows 档
   浏览器直连若需恢复 → 路由器自定义 DNS 双解析（ADR-020）。
 
+
+### 2026-09-09 Mac→Windows 迁移 issue 修复（#4–#7，ADR-021）
+
+- **来源**：2026-09-09 Mac→Windows 整机迁移（2.36G `restore.sh` 归档，两个 docker 型
+  实例）暴露的 4 个问题，远端 issue #4–#7；本批一次性修复。
+- **#4（代码）**：`win_daemon_run` 补 `--env MCSM_DOCKER_WORKSPACE_PATH`（与 `compose.yaml`
+  对齐）；`tests/windows_ci.sh` 断言同步（30 通过 / 0 失败）。ADR-019 只移除 instances
+  自挂载，此为勘误补全，不恢复自挂载。
+- **#5（代码）**：`restore.sh` 取顶层目录名改 `{ tar tzf ... | head -n1; } || true`，消除
+  大归档 SIGPIPE(141) 中途退出；本地复现 141 → 修复后 exit 0。
+- **#6（代码+文档）**：`win_warn_daemon_ports_conflict` 告警 docker 型实例与 DAEMON_PORTS
+  撞车；`templates/env.*` + `docs/windows-deployment.md` §9.4/§10 P9 注明置空。
+- **#7（代码+文档）**：mariadb healthcheck 改为 root+socket 口令 innodb 就绪查询，解除对
+  `mysql@localhost` unix_socket 账号依赖；`docs/usage.md` §5.6 补说明。
+- **回归**：`bash -n` + `tests/windows_ci.sh`（30/0）通过；`./orzmc.sh -d /tmp/... -e local
+  init && validate` 通过（healthcheck 插值解析正常）。`docker compose config` 解析正常。
+- **待办**：因本会话无推送凭据，修复已在本地分支 `fix/issues-4-7-mac-to-win-2026-09-09`
+  提交，待推送后开 PR（close #4 #5 #6 #7）。
