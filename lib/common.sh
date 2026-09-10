@@ -412,9 +412,30 @@ win_daemon_alias() {
     fi
 }
 
+# issue #6：DAEMON_PORTS 只服务**进程模式**实例（java 直接跑在 daemon 容器内）。
+# 若同时存在 **docker 型实例**（实例各自起容器、再发布同宿主端口），daemon 会先抢占
+# 25565/19132，实例启动报 `Bind for 0.0.0.0:25565 failed: port is already allocated`。
+# 此处仅对存量 docker 型实例告警（不擅自改变发布行为，避免误伤进程模式）；根治办法是
+# 使用 docker 型实例时把 .env 的 DAEMON_PORTS 置空。详见 docs/windows-deployment.md §10 P9。
+win_warn_daemon_ports_conflict() {
+    local root="$1" ports icfg
+    ports="$(read_env_value DAEMON_PORTS)"
+    [ -n "$ports" ] || return 0
+    # 实例配置由面板写在 daemon/data/InstanceConfig/<uuid>.json，bind 已落宿主。
+    for icfg in "$root"/mcsmanager/daemon/data/InstanceConfig/*.json; do
+        [ -f "$icfg" ] || continue
+        if grep -qE '"processType"[[:space:]]*:[[:space:]]*"docker"' "$icfg" 2>/dev/null; then
+            warn "检测到 docker 型实例（${icfg##*/}）且 DAEMON_PORTS 非空（${ports}）：daemon 会先占用同名宿主端口，实例启动将报 'port is already allocated'。使用 docker 型实例请在 .env 置空 DAEMON_PORTS（issue #6）"
+            return 0
+        fi
+    done
+    return 0
+}
+
 # 创建 daemon（幂等：已存在则跳过并补别名）。实例数据由 MCSManager 面板默认
 # 写入 daemon 容器内 /opt/mcsmanager/daemon/data/InstanceData/<uuid>，经下方
 # daemon/data 的 bind 挂载落到宿主机 $DATA_ROOT/mcsmanager/daemon/data/InstanceData。
+# docker 型实例还依赖下方 MCSM_DOCKER_WORKSPACE_PATH 做 cwd 宿主路径翻译（issue #4）。
 win_daemon_run() {
     local root img tz network port=() extra_ports abs
     # DATA_ROOT 可能是相对路径（local/lan 档的 .local-data）：docker run --mount 要求
@@ -429,6 +450,8 @@ win_daemon_run() {
     tz="$(read_env_value TZ)"
     network="orzmc_default"
     [ -n "$img" ] || die "无法从 compose.yaml 解析 daemon 镜像"
+    # 存量 daemon 也要告警，故置于"已存在则跳过"之前（issue #6）。
+    win_warn_daemon_ports_conflict "$root"
     if docker inspect "$(daemon_container)" >/dev/null 2>&1; then
         info "daemon 已存在，跳过创建（补别名）"
         win_daemon_alias
@@ -458,6 +481,7 @@ win_daemon_run() {
         --restart unless-stopped \
         --memory 512m \
         --env "TZ=${tz}" \
+        --env "MCSM_DOCKER_WORKSPACE_PATH=${root}/mcsmanager/daemon/data/InstanceData" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/data,target=/opt/mcsmanager/daemon/data" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/logs,target=/opt/mcsmanager/daemon/logs" \
         -v /var/run/docker.sock:/var/run/docker.sock \
