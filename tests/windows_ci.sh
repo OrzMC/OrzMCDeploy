@@ -168,7 +168,22 @@ check "docker.sock 挂载" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '/
 check "network orzmc_default" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-\-network orzmc_default')"
 check "DAEMON_PORTS 25565 展开" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-p 25565:25565/tcp')"
 check "DAEMON_PORTS 19132 展开" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-p 19132:19132/udp')"
+check "issue #10 --memory 缺省 512M" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c -- '--memory 512M')"
+check "issue #10 覆盖 CMD 降堆（384）" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c 'node --max-old-space-size=384 app.js')"
+check "issue #10 healthcheck 探活端口" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c -- '--health-cmd')"
 check "镜像 digest" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c 'githubyumao/mcsmanager-daemon@sha256:')"
+
+# ===========================================================================
+section "issue #9 —— docker 型实例存在时自动忽略 DAEMON_PORTS"
+INST_ROOT="$TMP/inst-root"
+mkdir -p "$INST_ROOT/mcsmanager/daemon/data/InstanceConfig"
+cat > "$INST_ROOT/mcsmanager/daemon/data/InstanceConfig/AAAA.json" <<'EOF'
+{"processType":"docker"}
+EOF
+check "find_docker_instance 命中 docker 型实例" "AAAA.json" "$(find_docker_instance "$INST_ROOT")"
+check "win_effective_daemon_ports 自动忽略" "" "$(win_effective_daemon_ports "$INST_ROOT" 2>/dev/null)"
+mkdir -p "$TMP/inst-empty/mcsmanager/daemon/data/InstanceConfig"
+check "无 docker 型实例时原样输出" "25565:25565/tcp,19132:19132/udp" "$(win_effective_daemon_ports "$TMP/inst-empty" 2>/dev/null)"
 
 # ===========================================================================
 section "win_daemon_run —— lan 模式补 daemon API 端口"
@@ -242,6 +257,8 @@ EDGE=cloudflare
 DATA_ROOT="$TMP/orzmc"
 mkdir -p "$DATA_ROOT/cloudflared"
 touch "$DATA_ROOT/cloudflared/config.yml"
+# issue #11：站点增量 override（存在即自动 -f 追加）
+printf 'services: {}\n' > "$DATA_ROOT/compose.site.yaml"
 # env_file 指向 DATA_ROOT/.env（已有）
 COMPOSE_FILE="$REPO_ROOT/compose.yaml"
 compose_cmd up -d >/dev/null 2>&1
@@ -251,6 +268,7 @@ check "up 用 --no-deps 显式服务列表" "1" "$(printf '%s' "$calls" | grep -
 check "服务列表不含 daemon" "0" "$(printf '%s' "$calls" | grep 'up -d --no-deps' | grep -c 'mcsmanager-daemon')"
 check "服务列表含 web" "1" "$(printf '%s' "$calls" | grep 'up -d --no-deps' | grep -c 'mcsmanager-web')"
 check "COMPOSE_FILE 转 Windows 原生路径" "1" "$(printf '%s' "$calls" | grep -c '\-f C:/')"
+check "issue #11 自动追加 site override" "1" "$(printf '%s' "$calls" | grep -c 'compose.site.yaml')"
 
 # ===========================================================================
 section "posix 分支不受影响（回归）—— compose_cmd 透传"
@@ -265,6 +283,16 @@ calls="$(printf '%s\n' "${DOCKER_CALLS[@]}")"
 echo "  docker 调用: $calls"
 check "posix 下 compose_cmd ps 原样透传（无 --no-deps、无 daemon 接管）" "0" "$(printf '%s' "$calls" | grep -c -- '--no-deps')"
 check "posix 下路径不转原生（保留 MSYS 相对形式）" "0" "$(printf '%s' "$calls" | grep -c '\-f C:/')"
+
+# ===========================================================================
+section "issue #11 —— COMPOSE_FILE_EXTRA 追加任意路径 compose 文件"
+EXTRA_FILE="$TMP/extra-override.yaml"
+printf 'services: {}\n' > "$EXTRA_FILE"
+printf 'COMPOSE_FILE_EXTRA=%s\n' "$EXTRA_FILE" >> "$TMP/.env"
+DOCKER_CALLS=()
+compose_cmd ps >/dev/null 2>&1
+calls="$(printf '%s\n' "${DOCKER_CALLS[@]}")"
+check "COMPOSE_FILE_EXTRA 文件被 -f 追加" "1" "$(printf '%s' "$calls" | grep -c 'extra-override.yaml')"
 
 # ===========================================================================
 echo ""

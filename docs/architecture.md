@@ -145,6 +145,8 @@
 ```text
 $DATA_ROOT/
   .env                    # 全部环境变量 + 密钥（权限 600，不入 Git）
+  compose.site.yaml       # 站点增量 override：compose_cmd 检测到即自动 -f 追加
+                          # （升级/换包不丢；ADR-022，issue #11）
   caddy/                  # 仅 local profile 使用
     Caddyfile  data/  config/
   cloudflared/            # 仅 prod profile 使用；含密钥（cert.pem / <id>.json）
@@ -582,6 +584,7 @@ $DATA_ROOT/
 | 服务增减 / 入口变更 | `compose.yaml`、`compose.edge.*.yaml`（边缘层 override）、`templates/*`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
 | `.env` 必需变量增减 | `templates/env.*`、`lib/common.sh`(required_env_list / ENABLE_*) |
 | 卷 / 网络调整 | `compose.yaml`、`lib/common.sh`(ensure_data_dirs) |
+| 站点增量/站点特有配置 | `templates/compose.site.yaml`、`lib/common.sh`(collect_site_override_files)、`docs/usage.md` §4.5 |
 | 镜像升级/回滚 | `compose.yaml`(digest)、`update-image-digests.sh`(映射) |
 | 安全边界变化 | `docs/architecture.md`(ADR)、`AGENTS.md`(安全约束) |
 | 文档索引 / 命令变化 | `README.md`、`AGENTS.md` |
@@ -751,3 +754,54 @@ $DATA_ROOT/
   P9–P11、`docs/usage.md` §5.6。
 - **无架构性变化**：4 个公网/局域网入口、服务集、卷、网络拓扑均不变；仅健壮性与 Windows
   路径补全。迁移后若使用 docker 型实例，需手工把 `.env` 的 `DAEMON_PORTS` 置空（已告警）。
+
+### ADR-022：站点增量挂载点 / DAEMON_PORTS 自动忽略 / daemon 堆-限额对齐（#9–#12）（2026-09-10）
+
+**背景**：0.0.3 发布后远端提交 4 个 issue（#9–#12），均为「默认值/文档让用户踩坑」型：
+
+1. **#9 `DAEMON_PORTS` 默认非空 + 仅告警**：模板默认 `25565:25565/tcp,19132:19132/udp`，
+   用户按模板部署（docker 型实例）时 daemon 先抢宿主 25565，实例启动报
+   `port is already allocated`——表现为「实例起不来」，且 daemon 创建时实例尚不存在，
+   仅告警无法阻止窗口期。
+2. **#10 daemon 容器 512M vs 镜像 CMD `--max-old-space-size=8192`**：V8 按 8G 规划堆，
+   重负载有 cgroup OOM kill 风险；daemon 无 healthcheck，被杀后实例失去跟踪。两数字分居
+   `compose.yaml` / `win_daemon_run`，易漂移。
+3. **#11 无官方站点增量挂载点**：站点特有的 `FEISHU_*` / 额外 env/挂载只能改包内
+   `compose.yaml`，升级换包即丢（「升级后机器人不工作」），无 diff 提示。
+4. **#12 实例配置持久化语义未文档化**：`InstanceConfig/<uuid>.json` 是 daemon 内存缓存 +
+   刷盘副本，运行中改会被回写；先改再 `docker restart` 也会被退出刷盘覆盖；`autoStart` /
+   `autoRestart` 语义与手动启停姿势无文档。
+
+**决策**：
+
+1. **站点增量挂载点 `$DATA_ROOT/compose.site.yaml`**（issue #11）：`init` 生成模板（绝不
+   覆盖），`compose_cmd` 通过 `collect_site_override_files` 检测到即自动 `-f` 追加；另支持
+   `.env` 的 `COMPOSE_FILE_EXTRA`（空格/逗号分隔）追加任意路径 compose 文件。文件在
+   `$DATA_ROOT`，随数据备份/迁移，与包内文件彻底解耦。**不提供仓库内 site 文件**（铁律：
+   配置/密钥不入库）。
+2. **`DAEMON_PORTS` 自动忽略 + 模板默认置空**（issue #9）：新增 `find_docker_instance` /
+   `win_effective_daemon_ports`，Windows daemon 创建时扫描 `InstanceConfig/*.json`，检测到
+   `processType: docker` 即**忽略** `DAEMON_PORTS`（info 说明；存量 daemon 额外提示重建）；
+   三个 `templates/env.*` 把 `DAEMON_PORTS` 默认**注释置空**，消除「daemon 先创建抢端口」
+   窗口。macOS/Linux daemon 走 compose 不消费该变量，无影响。
+3. **daemon 内存/堆对齐 + healthcheck**（issue #10）：内存上限与 Node 堆上限收敛到 `.env`
+   的 `DAEMON_MEMORY_LIMIT`（默认 `512M`）/ `DAEMON_NODE_HEAP_MB`（默认 `384`），compose 与
+   Windows `docker run` 共用；**覆盖镜像 CMD** 为 `node --max-old-space-size=<heap> app.js`
+   （命令行 flag 优先级高于 `NODE_OPTIONS`，仅设 env 无效）；daemon 增 TCP healthcheck
+   （node net 探 `24444`）。
+4. **实例生命周期文档**（issue #12）：`docs/usage.md` §6.5 改名为「生命周期与配置持久化」，
+   写清配置权威来源（daemon 内存 + 刷盘）、正确顺序「停 daemon → 改 JSON → 启 daemon」、
+   `autoStart`/`autoRestart` 语义与表格、完全手动启停做法；`papermc-template.md` 与
+   `windows-deployment.md` P13 同步。
+
+**影响**：
+- 代码：`lib/common.sh`（site override + `win_effective_daemon_ports` + `win_daemon_run`
+  内存/堆/健康检查）、`deploy.sh`（init 生成 site 模板）、`compose.yaml`（daemon
+  command/healthcheck/limits）、`templates/compose.site.yaml`（新增）、`templates/env.*`。
+- 测试：`tests/windows_ci.sh` 新增 #9/#10/#11 断言（Windows 分支命令构造）。
+- 文档：`README.md`、`docs/usage.md` §4.5/§6.5、`docs/architecture.md`（本 ADR + §5/§8）、
+  `docs/windows-deployment.md` §9.4/§10 P4/P9/P12/P13、`AGENTS.md`、`CHANGELOG.md`、
+  `EXECUTION_PATH.md`。
+- **兼容性**：新增 `.env` 变量均**可选带默认值**（不入 `required_env_list`）；site override
+  为新增可选文件；`DAEMON_PORTS` 仅在用户显式启用且无 docker 型实例时生效。旧 `.env`
+  无需改动即可升级（唯一行为差异：非空 `DAEMON_PORTS` 在 docker 型实例存在时不再发布）。

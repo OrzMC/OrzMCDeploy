@@ -1,0 +1,34 @@
+# ===========================================================================
+# 站点增量 override（issue #11）——运行时位于 $DATA_ROOT/compose.site.yaml
+#
+# 背景：compose.yaml / compose.edge.*.yaml 是**包内文件**，升级换包（git pull 或重下
+# Release tarball）会整体替换；站点特有增量（如飞书 FEISHU_*、额外环境变量、额外挂载）
+# 直接写进包内文件，升级后必丢（表现为「升级后机器人不工作了」）。本文件是官方提供的
+# **站点增量挂载点**：位于 $DATA_ROOT（随数据备份/迁移），compose_cmd 检测到即自动
+# `-f` 追加，与包内文件彻底解耦。
+#
+# 用法：
+#   1) 把下面一行 `services: {}` 改成 `services:`，再在其下按缩进添加服务覆盖
+#      （示例见文件末尾注释）；
+#   2) 值优先放 $DATA_ROOT/.env（密钥不入库、不硬编码），本文件用 ${VAR} 引用；
+#   3) `./orzmc.sh validate` 校验（compose 会合并本文件），`./orzmc.sh up` 生效。
+#
+# 合并语义是 Docker Compose 原生 override：同名字段「后加载覆盖先加载」，
+# environment 等 map 逐键合并，volumes 列表追加。另支持 .env 的
+# COMPOSE_FILE_EXTRA=（空格/逗号分隔）追加任意路径的 compose 文件。
+# 详见 docs/usage.md §4.5。
+# ===========================================================================
+
+services: {}
+
+# ---- 示例（需要时把上面的 `services: {}` 改为 `services:` 再解开注释）--------
+# services:
+#   # easybot 增加飞书适配器凭据（值填 .env：FEISHU_APP_ID / FEISHU_APP_SECRET）
+#   easybot:
+#     environment:
+#       FEISHU_APP_ID: "${FEISHU_APP_ID}"
+#       FEISHU_APP_SECRET: "${FEISHU_APP_SECRET}"
+#   # 站点特有只读挂载 / 资源上限 / 端口等同样可在此覆盖
+#   mcsmanager-web:
+#     volumes:
+#       - "${DATA_ROOT}/site/extra:/opt/mcsmanager/web/extra:ro"

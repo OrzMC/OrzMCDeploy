@@ -62,6 +62,12 @@ OrzMC 的最小容器化落地方案。平台层包括：
 `LAN_*_PORT` 端口、纯 HTTP（ADR-012）。**EasyBot 插件 API 仅内网**——插件挂
 `orzmc_default` 网络直连 `http://easybot:8080`，无 `easybot-api` 子域名。
 
+**站点增量与升级不丢**（ADR-022）：站点特有配置（如飞书 `FEISHU_*`、额外 env/挂载）
+写入 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），升级换包不丢；
+也可用 `.env` 的 `COMPOSE_FILE_EXTRA=` 追加任意路径 compose 文件。详见
+[`docs/usage.md` §4.5](docs/usage.md)。daemon 容器内存与 Node 堆上限由 `.env` 的
+`DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` 派生（缺省 `512M` / `384`），并带 TCP healthcheck。
+
 ## 免克隆安装（无需 git clone）
 
 从 GitHub Release 下载"运行时" tarball 即可，无需克隆仓库（无 `.git`、无数据/密钥，铁律：

@@ -986,3 +986,26 @@
   `orzmc-0.0.3.tar.gz` + `.sha256` 并创建 Release；`install.sh` 随即取到新版本。
 - **动因**：`install.sh` 默认拉最新 Release tarball，而 v0.0.2 缺 #4（Windows docker 型
   实例 workspace env）与 #5（大归档 restore SIGPIPE）——新装用户整服迁移会直接失败。
+
+### 2026-09-10 远端 issue #9–#12 处理（ADR-022）
+
+- **来源**：0.0.3 发布后远端 issue #9（docker 型实例自动忽略 `DAEMON_PORTS`）、#10（daemon
+  512M vs 镜像 8G 堆 + 无 healthcheck）、#11（站点增量挂载点 `compose.site.yaml`）、
+  #12（实例配置回写与 `autoStart`/`autoRestart` 语义）。
+- **代码**：`lib/common.sh` 新增 `find_docker_instance` / `win_effective_daemon_ports`
+  （docker 型实例存在即忽略 `DAEMON_PORTS`，info 提示 + 存量 daemon 重建告警）、
+  `collect_site_override_files`（`$DATA_ROOT/compose.site.yaml` + `.env` 的
+  `COMPOSE_FILE_EXTRA` 自动 `-f`）、`ensure_site_override`；`win_daemon_run` 内存/堆/
+  healthcheck 与 `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` 对齐并覆盖 CMD 降堆；
+  `compose.yaml` daemon 增 command/healthcheck/limits；`deploy.sh init` 生成 site 模板；
+  新增 `templates/compose.site.yaml`。
+- **模板**：三个 `templates/env.*` 的 `DAEMON_PORTS` 默认注释置空 + daemon 内存/堆可选变量
+  + 站点增量说明。
+- **测试**：`tests/windows_ci.sh` 新增 #9/#10/#11 断言（本地 macOS bash 3.2 因 `mapfile`
+  无法跑完 Windows compose 段，CI ubuntu 跑全量）。
+- **文档**：ADR-022 + §5/§8、`docs/usage.md` §4.5/§6.5、`docs/papermc-template.md`、
+  `docs/windows-deployment.md` §9.4/P4/P9/P12/P13、README/AGENTS/CHANGELOG。
+- **回归**：`bash -n` 全通过；`./orzmc.sh -e none init`（生成 site 模板）通过；site /
+  `COMPOSE_FILE_EXTRA` 的 `-f` 拼接与缺失文件报错本地验证通过；CI 将跑 shellcheck +
+  EDGE×ENABLE validate + windows 单测。
+- **待办**：推送分支 → 开 PR → 合入后评论/关闭 #9–#12。

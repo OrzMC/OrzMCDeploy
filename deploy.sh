@@ -99,6 +99,7 @@ cmd_init() {
     ensure_env_file
     ensure_data_dirs
     ensure_easybot_local_config
+    ensure_site_override
     ensure_status_config
     case "$(normalize_edge)" in
         local)      ensure_caddyfile ;;

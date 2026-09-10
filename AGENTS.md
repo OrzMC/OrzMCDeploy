@@ -107,6 +107,8 @@ templates/              首次 init 的配置模板
   Caddyfile             local profile 反代模板（仅本地使用）
   gatus-config.yml      Gatus 统一状态页配置模板（init 生成到 DATA_ROOT/status/config.yaml）
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
+  compose.site.yaml     站点增量 override 模板（init 生成到 DATA_ROOT/compose.site.yaml，
+                         升级/换包不丢；compose_cmd 检测到即 -f 追加，ADR-022）
   env.papermc           PaperMC 参数参考（compose 不消费）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导、平台层 detect_os/win_path/win_daemon_*）
 orzmc.sh               统一部署入口（ADR-017 起唯一入口；EDGE/ENABLE_* 从 .env 读，三平台一致）
@@ -149,6 +151,9 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 - `DATA_ROOT` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
 - 所有 compose 调用统一走 `lib/common.sh` 的 `compose_cmd`（显式
   `--env-file $DATA_ROOT/.env` + 按 EDGE/ENABLE_* 追加 `-f` override 与 `--profile`）。
+- **站点增量**放 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），
+  或 `.env` 的 `COMPOSE_FILE_EXTRA`（空格/逗号分隔，任意路径）。站点特有 env/挂载
+  **不改包内 `compose.yaml`**——升级换包会丢（ADR-022，issue #11）。
 - 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 兼容保留（deprecated），
   `-p prod` 自动映射 `EDGE=cloudflare`。
 
