@@ -415,6 +415,36 @@ deploy.sh -d <DATA_ROOT> templates --force    # 备份旧文件后覆盖
 
 `init` 生成的引导文件**绝不覆盖已有文件**（`ensure_*` 系列）；模板变更一律用上面的命令同步。
 
+### 4.5 站点增量 override：`compose.site.yaml`（升级不丢）
+
+`compose.yaml` / `compose.edge.*.yaml` 是**包内运行时文件**，升级换包（`git pull` 或重下
+Release tarball）会整体替换。站点特有增量（如飞书 `FEISHU_*`、额外环境变量、额外挂载）
+直接写进包内文件，升级后必丢（表现为「升级后机器人不工作了」）。
+
+为此提供官方**站点增量挂载点** `$DATA_ROOT/compose.site.yaml`（`init` 生成模板，绝不覆盖）：
+
+- `compose_cmd` 检测到该文件即自动追加 `-f`，与包内文件彻底解耦；文件在 `$DATA_ROOT`
+  （随数据备份/迁移），升级/换包不丢。
+- 另支持 `.env` 的 `COMPOSE_FILE_EXTRA=`（空格/逗号分隔）追加**任意路径**的 compose 文件
+  （可放仓库/数据目录之外）。
+- 合并语义是 Docker Compose 原生 override：同名字段「后加载覆盖先加载」，`environment` 等
+  map 逐键合并，`volumes` 列表追加。
+- 值优先放 `.env`（密钥不入库），site 文件用 `${VAR}` 引用。改完 `./orzmc.sh validate`
+  校验、`./orzmc.sh up` 生效。
+
+例：给 `easybot` 增加飞书适配器（`FEISHU_APP_ID` / `FEISHU_APP_SECRET` 填 `$DATA_ROOT/.env`）：
+
+```yaml
+services:
+  easybot:
+    environment:
+      FEISHU_APP_ID: "${FEISHU_APP_ID}"
+      FEISHU_APP_SECRET: "${FEISHU_APP_SECRET}"
+```
+
+> 模板文件是 `templates/compose.site.yaml`（含注释示例）；也可直接编辑已生成的
+> `$DATA_ROOT/compose.site.yaml`。
+
 ---
 
 ## 5 日常运维
@@ -476,8 +506,8 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
    - 同代小版本：镜像不用动。
    - 跨代升 Java：需改 `InstanceConfig/<uuid>.json` 的 `docker.image`，走
-     [第 6.5 节](#65-生命周期与改配置)的正确姿势（停实例 → 改 JSON → 重启 daemon
-     容器 → 再启动），运行中改会被内存副本覆盖。
+     [第 6.5 节](#65-生命周期与配置持久化)的正确姿势（**先停 daemon → 改 JSON → 再启
+     daemon**），运行中改会被内存副本覆盖。
 
 3. **替换 jar 并重启**（面板文件管理或宿主机目录均可，先停实例）：
 
@@ -639,21 +669,55 @@ daemon 全部业务路由要求 daemon key 鉴权，无 key 无权限——这�
 重启策略 `unless-stopped`、Ready 关键字 `Done`、编码 `utf8`、启动命令
 `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms4G -Xmx4G -jar paper.jar --nogui`。
 
-### 6.5 生命周期与改配置
+### 6.5 生命周期与配置持久化
+
+#### 实例启停：一律走面板
 
 - 面板内可对实例：**启动 / 停止 / 重启 / 控制台 / 文件管理 / 配置编辑**。生命周期一律
   走面板（或 daemon API），**不要**直接 `docker restart MCSM-<uuid>`——会被 daemon 当作
   停止而回收容器。
-- ⚠️ **改实例配置（InstanceConfig JSON）的正确姿势**：实例**运行中**直接改
-  `InstanceConfig/<uuid>.json` 会被 daemon 用内存副本覆盖写回。正确顺序：
+- 平台层 `stop`/`up` 只影响 web/daemon 等平台容器；**实例不随之启停**（实例由 daemon
+  启动时按 `autoStart` 决定是否拉起，见下）。
 
-  ```bash
-  # 1. 面板先停止实例
-  # 2. 编辑 $DATA_ROOT/mcsmanager/daemon/data/InstanceConfig/<uuid>.json
-  # 3. 重启 daemon 容器，从磁盘重载
-  docker restart orzmc-mcsmanager-daemon
-  # 4. 面板再启动实例
-  ```
+#### 实例配置的权威来源是 daemon 内存（不是磁盘）
+
+`daemon/data/InstanceConfig/<uuid>.json` 看起来像配置文件，实际是 **daemon 启动时读入
+内存、并在状态变化/退出时把内存副本刷回磁盘** 的缓存：
+
+- **运行中直接改 JSON 会被回写覆盖**（实测约 5 分钟后被刷回原值），静默无效；
+- **先改 JSON 再 `docker restart daemon` 也会丢**——daemon 退出时会把内存副本刷回磁盘，
+  覆盖你刚写的改动；只停**实例**（`docker stop MCSM-<uuid>`）同样不够，daemon 仍在内存
+  里持有旧配置。
+
+正确顺序是**先停 daemon，再改文件，再启 daemon**（启动时以磁盘为准）：
+
+```bash
+# 1. 面板停止相关实例（避免运行中的实例被 daemon 关闭时回写）
+# 2. 停 daemon 容器（三平台容器同名；Windows 下也是 docker run 创建的同一容器名）
+docker stop orzmc-mcsmanager-daemon
+# 3. 编辑 $DATA_ROOT/mcsmanager/daemon/data/InstanceConfig/<uuid>.json
+# 4. 启动 daemon（此时以磁盘内容为准）
+docker start orzmc-mcsmanager-daemon
+# 5. 面板按需启动实例
+```
+
+> 关键点：`docker stop` 的刷盘发生在**编辑之前**，所以磁盘改动不会被覆盖。
+
+#### `autoStart` / `autoRestart` 语义（互不相关）
+
+| 字段 | 含义 | 触发时机 |
+|---|---|---|
+| `eventTask.autoStart` | **daemon 启动时**是否自动拉起该实例 | daemon 容器启动 / 重启时 |
+| `eventTask.autoRestart` | 实例进程**异常退出**时 daemon 是否自动重启它 | 实例崩溃 / 被 OOM kill 等 |
+
+- 两者**相互独立**：`autoStart=true` 不会让实例崩溃后自动重启，`autoRestart=true` 也不会
+  在 daemon 启动时拉起实例。
+- **实例「上次是运行/停止」不做持久化**：重启后的行为由上述开关与当前内存态决定，因此
+  同一份配置在不同实例上观察到不同行为（一个被拉起、一个没有）属预期，不是 bug。
+- 想完全**手动启停**（不跟随 daemon/宿主重启自动起来）：把该实例的 `autoStart` 与
+  `autoRestart` 都置为 `false`，再按上面的「停 daemon → 改 → 启 daemon」流程生效。
+
+> 面板开关的 tooltip 目前只显示名称，语义以上表为准。
 
 ---
 
@@ -751,7 +815,7 @@ platforms:
 | 实例容器"消失" | 直接 `docker restart MCSM-<uuid>` 被 daemon 当作停止并回收 | 实例生命周期一律走面板/daemon API |
 | 玩家进不去 `25565` | 实例未启动 / 端口映射错 / `online-mode` 阻挡 | 面板启动实例；核对 `docker.ports`；离线服把 `server.properties` 的 `online-mode` 设 `false` |
 | 隧道连不上 | `cert.pem`/隧道凭据缺失，或旧主机隧道仍活跃 | 确认 `<DATA_ROOT>/cloudflared/` 有 `cert.pem` 与 `<id>.json`；同一子域名只能归一个隧道，停旧机 cloudflared |
-| 改了实例 JSON 又回退 | 实例运行中直接改被内存副本覆盖 | 按[第 6.5 节](#65-生命周期与改配置)正确顺序：停→改→重启 daemon→起 |
+| 改了实例 JSON 又回退 | 实例运行中直接改被内存副本覆盖；先改后 `docker restart` 也会被退出刷盘覆盖 | 按[第 6.5 节](#65-生命周期与配置持久化)正确顺序：**停 daemon → 改 → 启 daemon** |
 
 更多实战教训记录在 `EXECUTION_PATH.md`。
 
@@ -932,7 +996,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 
 当前生产实例配置为 `-Xms4G -Xmx4G`（堆 4G），`InstanceConfig/<uuid>.json` 中 `memory: 4096`
 （单位 MB）。调低可压低最低要求（1–3 人小服可降到 2–3G → 整机 4–5G 即可）；调高方法见
-[6.5 节](#65-生命周期与改配置)（⚠️ 改配置的"停 → 改 → 重启 daemon → 启动"顺序）。
+[6.5 节](#65-生命周期与配置持久化)（⚠️ 先停 daemon → 改 → 再启 daemon 的顺序）。
 
 ### 一句话买机建议
 

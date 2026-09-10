@@ -13,6 +13,34 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **Windows**：daemon 创建时检测到 docker 型实例（`processType: docker`）会**自动忽略**
+  `DAEMON_PORTS`（不再仅告警），避免 daemon 抢占 25565 → 实例启动报
+  `port is already allocated`（[#9]）；三个 `templates/env.*` 的 `DAEMON_PORTS` 默认
+  注释置空。
+- **daemon 内存/堆对齐**：容器上限与 Node 堆上限由 `.env` 的 `DAEMON_MEMORY_LIMIT`
+  （默认 `512M`）/ `DAEMON_NODE_HEAP_MB`（默认 `384`）派生，并**覆盖镜像 CMD**
+  （`node --max-old-space-size=<heap> app.js`，命令行 flag 优先于 `NODE_OPTIONS`），
+  消除 512M 上限 vs 8G 堆的 OOM kill 风险；daemon 补 TCP healthcheck（[#10]）。
+- **实例配置持久化**：纠正「改 JSON 后 `docker restart daemon`」的错误姿势——daemon
+  退出时会把内存副本刷回磁盘、覆盖改动；正确顺序为**停 daemon → 改 JSON → 启 daemon**
+  （[#12]，`docs/usage.md` §6.5 / `docs/papermc-template.md`）。
+
+### 新增
+
+- **站点增量挂载点**：`init` 生成 `$DATA_ROOT/compose.site.yaml`，`compose_cmd` 检测到即
+  自动 `-f` 追加；站点特有增量（飞书凭据、额外 env/挂载）写这里，升级换包不丢；另支持
+  `.env` 的 `COMPOSE_FILE_EXTRA`（空格/逗号分隔，任意路径）（[#11]，ADR-022）。
+- daemon 新增 TCP healthcheck（compose 与 Windows `docker run` 两侧同步）。
+
+### 文档
+
+- `docs/usage.md` 新增 §4.5（站点增量 override）；§6.5 重写为「生命周期与配置持久化」
+  （配置权威来源/回写时机、`autoStart`/`autoRestart` 语义、手动启停姿势）（[#12]）。
+- 新增 ADR-022（#9–#12 四项修复）；`docs/windows-deployment.md` §10 P9/P12/P13、
+  `docs/papermc-template.md`、`README.md`、`AGENTS.md` 同步。
+
 ## [0.0.3] - 2026-09-10
 
 ### 修复
@@ -92,3 +120,7 @@
 [#5]: https://github.com/OrzMC/OrzMCDeploy/issues/5
 [#6]: https://github.com/OrzMC/OrzMCDeploy/issues/6
 [#7]: https://github.com/OrzMC/OrzMCDeploy/issues/7
+[#9]: https://github.com/OrzMC/OrzMCDeploy/issues/9
+[#10]: https://github.com/OrzMC/OrzMCDeploy/issues/10
+[#11]: https://github.com/OrzMC/OrzMCDeploy/issues/11
+[#12]: https://github.com/OrzMC/OrzMCDeploy/issues/12

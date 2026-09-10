@@ -93,8 +93,10 @@
   （如 `D[10:52:13 ...`）。开启 pty 后容器分配伪终端（`Tty=true`），单路文本流，日志
   干净且 Paper 自动启用 ANSI 彩色输出（面板终端为 xterm 渲染，能正确处理 `\r`/`[K`/颜色）。
 - **修改实例配置的姿势**：实例**运行中**直接改 `InstanceConfig/<uuid>.json` 会被 daemon
-  用内存副本覆盖（stop/start 会写回磁盘，`pty` 变回 `false`）。正确顺序：先停实例 →
-  改 JSON → **重启 daemon 容器**（从磁盘重载）→ 再启动实例。
+  用内存副本覆盖（stop/start 会写回磁盘，`pty` 变回 `false`）。而且**先改 JSON 再
+  `docker restart daemon` 也会丢**——daemon 退出时把内存副本刷回磁盘。正确顺序：先停
+  **daemon 容器** → 改 JSON → 再启 daemon（启动时以磁盘为准）→ 面板启动实例。详见
+  [usage.md §6.5](usage.md#65-生命周期与配置持久化)。
 - **实例 `cwd` 由面板默认写入 daemon 的 `data/InstanceData/<uuid>/`**；该目录经
   `daemon/data` bind 落到宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，文件管理器
   能读到真实文件（ADR-019 取代了 ADR-007 的 instances 自挂载方案）。

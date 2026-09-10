@@ -488,11 +488,13 @@ docker restart orzmc-mcsmanager-web
 Windows 推荐 **Java 版进程模式**（java 直接跑在 daemon 容器内；进服端口经 `DAEMON_PORTS`
 发布到宿主，局域网玩家直连 `http://<LAN_HOST_IP>:25565`）：
 
-> ⚠️ **`DAEMON_PORTS` 只服务进程模式实例（issue #6）**：docker 型实例各自容器再发布
-> 自己的宿主端口，而 daemon 会先用 `DAEMON_PORTS` 抢占 25565/19132，实例启动即报
-> `Bind for 0.0.0.0:25565 failed: port is already allocated`。**用 docker 型实例时把
-> `.env` 的 `DAEMON_PORTS` 置空**再 `./orzmc.sh up`（`win_daemon_run` 检测到 docker 型
-> 实例会告警）。macOS/Linux 无此冲突（daemon 只 expose，不消费本变量）。
+> ⚠️ **`DAEMON_PORTS` 只服务进程模式实例（issue #6/#9）**：docker 型实例各自容器再发布
+> 自己的宿主端口，而 daemon 若先用 `DAEMON_PORTS` 抢占 25565/19132，实例启动即报
+> `Bind for 0.0.0.0:25565 failed: port is already allocated`。因此：**模板默认已将
+> `DAEMON_PORTS` 注释置空**；用进程模式实例（Windows）且需玩家经 daemon 端口进服时，
+> 取消 `$DATA_ROOT/.env` 中该行注释；用 docker 型实例保持置空。`win_daemon_run` 检测到
+> docker 型实例会**自动忽略** `DAEMON_PORTS`（仅 info 提示，issue #9）。macOS/Linux 无此
+> 冲突（daemon 只 expose，不消费本变量）。
 1. 先备好实例目录文件：`paper.jar`、`eula.txt`（`eula=true`）、`server.properties`
    （离线服 `online-mode=false`）；目录用面板默认 `data/InstanceData/<uuid>/`（经 daemon/data
    落宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，ADR-019）。
@@ -561,6 +563,8 @@ git/opt/mcsmanager/daemon/data'`（exit 125）。修复：先 `cd "$root" && pwd
 ### P4｜DAEMON_PORTS 模板缺失（已补，提交 5c13047）
 ADR-016 只给 `env.prod` 加了 `DAEMON_PORTS`，local/lan 模板漏 → 进程模式实例进服端口
 25565/19132 不发布。已补进 `templates/env.local` / `env.lan`（附注释说明仅 Windows 消费）。
+**后续（issue #9，本批）**：为避免「默认抢 25565 → docker 型实例起不来」的坑，三个模板
+均改为**默认注释置空** `DAEMON_PORTS`，进程模式需用时取消注释。
 
 ### P5｜宿主访问自身 LAN IP 必超时（mirrored host-loopback 陷阱）
 宿主 `curl http://192.168.0.33:18090` 超时（000），`curl http://127.0.0.1:18090` 200，
@@ -598,15 +602,19 @@ Windows 用 `certutil -user -addstore -f Root <root.crt>`（当前用户库，**
 握手）。两侧用的是**同一个**节点地址——服务端通浏览器不通 = 该地址对浏览器不可达
 （解析 / 防火墙 / 端口未发布），按 §9.3 节点表核对。
 
-### P9｜docker 型实例与 DAEMON_PORTS 端口撞车（issue #6，已补告警 + 文档）
+### P9｜docker 型实例与 DAEMON_PORTS 端口撞车（issue #6/#9，已自动忽略）
 Windows 上 daemon 由 `win_daemon_run` 裸 `docker run` 创建，会把 `.env` 的 `DAEMON_PORTS`
 全量 `-p` 到 daemon（`compose.yaml` 的 daemon 只 `expose`，无此问题）。若实例为 **docker 型**
 （`processType: docker`，各自容器再发布同宿主端口），daemon 先占 25565/19132 → 实例启动
-报 `Bind for 0.0.0.0:25565 failed: port is already allocated`。
-- **修复（本批）**：`win_warn_daemon_ports_conflict` 在 daemon 创建/复用时扫描
-  `daemon/data/InstanceConfig/*.json`，检测到 `processType: docker` 且 `DAEMON_PORTS` 非空
-  即告警（不擅自改发布行为，避免误伤进程模式）；`templates/env.*` 与 §9.4 已注明。
-- **操作**：使用 docker 型实例时把 `.env` 的 `DAEMON_PORTS` 置空；进程模式才需要它。
+报 `Bind for 0.0.0.0:25565 failed: port is already allocated`（表现为「实例起不来」，
+排查方向易被带偏）。
+- **修复（#6）**：`templates/env.*` 注明用 docker 型实例须置空 `DAEMON_PORTS`。
+- **修复（#9，本批）**：daemon 创建时若扫描到 `InstanceConfig/*.json` 有 `processType: docker`，
+  `win_effective_daemon_ports` 会**自动忽略** `DAEMON_PORTS`（仅 info 说明，幂等安全：
+  进程模式与 docker 型实例互斥）；三个模板同时把默认值**注释置空**，从源头避免
+  「daemon 先创建抢端口、实例后建」的窗口（daemon 创建时实例配置尚不存在）。
+- **存量 daemon**：若旧容器已按 `DAEMON_PORTS` 占了端口，会额外警告——置空 `.env` 后
+  `./orzmc.sh stop && ./orzmc.sh up` 重建 daemon。
 
 ### P10｜restore.sh 大归档 SIGPIPE exit 141（issue #5，已修）
 `restore.sh` 原先用 `top="$(tar tzf "$ARCHIVE" | head -n1)"` 取归档顶层目录名。对大归档
@@ -626,3 +634,24 @@ Windows 上 daemon 由 `win_daemon_run` 裸 `docker run` 创建，会把 `.env` 
   查询（`mariadb --protocol socket -uroot -p"$MARIADB_ROOT_PASSWORD" ... | grep -qx 1`），
   只依赖 `MARIADB_ROOT_PASSWORD`：冷/热数据、改密后均适用，鉴权失败会如实报 unhealthy。
 - **旧数据兼容**：若你曾手动补建 `mysql@localhost`，新 healthcheck 不受影响，可继续保留。
+
+### P12｜daemon 内存/堆不匹配与无健康检查（issue #10，已修）
+daemon 镜像默认 CMD 是 `node app.js --max-old-space-size=8192`（8G），而部署限额 512M：
+V8 按 8G 规划堆增长，重负载（世界合并/大范围扫描）有被 cgroup **OOM kill** 风险，且 daemon
+无健康检查兜底，容器被杀后实例会失去跟踪/管理。
+- **修复（本批）**：
+  - 容器内存上限与 Node 堆上限收敛到 `.env` 的 `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB`
+    （缺省 `512M` / `384`，compose 与 Windows `docker run` 共用同一对值，避免两处漂移）；
+  - **覆盖镜像 CMD** 为 `node --max-old-space-size=<heap> app.js`——命令行 flag 优先级高于
+    `NODE_OPTIONS`，仅设 env 不生效；
+  - daemon 补 TCP 健康检查（node 内置 net 模块探 24444），被 OOM kill 时如实转 unhealthy；
+    Windows 路径对应 `--health-cmd` / `--health-interval` / `--health-retries` /
+    `--health-start-period`。
+
+### P13｜实例配置回写与 autoStart/autoRestart 语义（issue #12，已补文档）
+`daemon/data/InstanceConfig/<uuid>.json` 是 daemon 的**内存缓存 + 刷盘副本**：运行中改会被
+回写覆盖；**先改再 `docker restart daemon` 也会丢**（优雅退出时把内存刷回磁盘）；只停实例
+不够。正确顺序：**停 daemon → 改 JSON → 启 daemon**。同时 `autoStart`（daemon 启动时是否
+拉起实例）与 `autoRestart`（实例异常退出是否重启）相互独立，且实例「上次运行/停止」不做
+持久化——想完全手动启停就把两者都置 `false`。完整说明见
+[docs/usage.md §6.5](usage.md#65-生命周期与配置持久化)。

@@ -201,6 +201,21 @@ ensure_easybot_local_config() {
     info "已生成 gateway.local.yaml: $target"
 }
 
+# 站点增量 override 引导（issue #11）：生成 $DATA_ROOT/compose.site.yaml（绝不覆盖
+# 已有文件）。该文件是官方提供的「站点增量挂载点」，与包内 compose.yaml 解耦（升级/换包
+# 不丢），compose_cmd 检测到即自动 -f 追加；站点特有增量（飞书凭据、额外 env/挂载）写这里。
+ensure_site_override() {
+    local target="$DATA_ROOT/compose.site.yaml"
+    if [ -f "$target" ]; then
+        info "站点 override 已存在: $target"
+        return 0
+    fi
+    [ -f "$TEMPLATES_DIR/compose.site.yaml" ] || die "模板不存在: $TEMPLATES_DIR/compose.site.yaml"
+    mkdir -p "$DATA_ROOT"
+    cp "$TEMPLATES_DIR/compose.site.yaml" "$target"
+    info "已生成站点 override 模板: ${target}（站点增量写这里，升级换包不丢）"
+}
+
 # 统一状态页（Gatus）配置：由 templates/gatus-config.yml 按 profile 替换占位符
 # 生成 $DATA_ROOT/status/config.yaml。与 Caddyfile/gateway.local.yaml 一样**绝不
 # 覆盖**已有文件（用户可能自行扩展 endpoints/buttons）；改域名后需删除已落盘
@@ -412,24 +427,39 @@ win_daemon_alias() {
     fi
 }
 
-# issue #6：DAEMON_PORTS 只服务**进程模式**实例（java 直接跑在 daemon 容器内）。
-# 若同时存在 **docker 型实例**（实例各自起容器、再发布同宿主端口），daemon 会先抢占
-# 25565/19132，实例启动报 `Bind for 0.0.0.0:25565 failed: port is already allocated`。
-# 此处仅对存量 docker 型实例告警（不擅自改变发布行为，避免误伤进程模式）；根治办法是
-# 使用 docker 型实例时把 .env 的 DAEMON_PORTS 置空。详见 docs/windows-deployment.md §10 P9。
-win_warn_daemon_ports_conflict() {
-    local root="$1" ports icfg
-    ports="$(read_env_value DAEMON_PORTS)"
-    [ -n "$ports" ] || return 0
-    # 实例配置由面板写在 daemon/data/InstanceConfig/<uuid>.json，bind 已落宿主。
+# 扫描面板实例配置，输出首个 docker 型实例名（无则无输出）。实例配置由面板写在
+# daemon/data/InstanceConfig/<uuid>.json，bind 已落宿主。
+find_docker_instance() {
+    local root="$1" icfg
     for icfg in "$root"/mcsmanager/daemon/data/InstanceConfig/*.json; do
         [ -f "$icfg" ] || continue
         if grep -qE '"processType"[[:space:]]*:[[:space:]]*"docker"' "$icfg" 2>/dev/null; then
-            warn "检测到 docker 型实例（${icfg##*/}）且 DAEMON_PORTS 非空（${ports}）：daemon 会先占用同名宿主端口，实例启动将报 'port is already allocated'。使用 docker 型实例请在 .env 置空 DAEMON_PORTS（issue #6）"
+            printf '%s\n' "${icfg##*/}"
             return 0
         fi
     done
     return 0
+}
+
+# issue #6/#9：DAEMON_PORTS 只服务**进程模式**实例（java 直接跑在 daemon 容器内）。
+# 若同时存在 docker 型实例（实例各自起容器、再发布同宿主端口），daemon 按 DAEMON_PORTS
+# 先占 25565/19132，实例启动即报 `port is already allocated`——表现为「实例起不来」而非
+# 「端口冲突」，排查易被带偏。故检测到 docker 型实例时**自动忽略** DAEMON_PORTS（幂等且
+# 安全：进程模式与 docker 型实例互斥），仅留一条 info 让行为可见；无 docker 型实例时原样
+# 输出。详见 docs/windows-deployment.md §10 P9。
+win_effective_daemon_ports() {
+    local root="$1" ports docker_inst
+    ports="$(read_env_value DAEMON_PORTS)"
+    [ -n "$ports" ] || return 0
+    docker_inst="$(find_docker_instance "$root")"
+    if [ -n "$docker_inst" ]; then
+        info "检测到 docker 型实例（${docker_inst}），已自动忽略 DAEMON_PORTS=${ports}（该变量仅服务进程模式实例，issue #9）" >&2
+        if docker inspect "$(daemon_container)" >/dev/null 2>&1; then
+            warn "现有 daemon 容器可能已按旧 DAEMON_PORTS 占用宿主端口：请在 .env 置空 DAEMON_PORTS 后 stop && up 重建 daemon"
+        fi
+        return 0
+    fi
+    printf '%s\n' "$ports"
 }
 
 # 创建 daemon（幂等：已存在则跳过并补别名）。实例数据由 MCSManager 面板默认
@@ -437,7 +467,7 @@ win_warn_daemon_ports_conflict() {
 # daemon/data 的 bind 挂载落到宿主机 $DATA_ROOT/mcsmanager/daemon/data/InstanceData。
 # docker 型实例还依赖下方 MCSM_DOCKER_WORKSPACE_PATH 做 cwd 宿主路径翻译（issue #4）。
 win_daemon_run() {
-    local root img tz network port=() extra_ports abs
+    local root img tz network port=() extra_ports abs mem heap dport
     # DATA_ROOT 可能是相对路径（local/lan 档的 .local-data）：docker run --mount 要求
     # 绝对源路径，win_path 只处理 C:/ 与 MSYS 前缀，相对路径须先解析为绝对。
     root="$DATA_ROOT"
@@ -450,8 +480,15 @@ win_daemon_run() {
     tz="$(read_env_value TZ)"
     network="orzmc_default"
     [ -n "$img" ] || die "无法从 compose.yaml 解析 daemon 镜像"
-    # 存量 daemon 也要告警，故置于"已存在则跳过"之前（issue #6）。
-    win_warn_daemon_ports_conflict "$root"
+    # issue #10：容器内存上限与 Node 堆上限收敛到 .env，避免两处漂移（默认 512M/384，
+    # 384 留出堆外内存余量）。镜像默认 CMD 带 --max-old-space-size=8192，必须覆盖 CMD
+    # 才能真正生效（命令行 flag 优先级高于 NODE_OPTIONS）。
+    mem="$(read_env_value DAEMON_MEMORY_LIMIT)"; [ -n "$mem" ] || mem="512M"
+    heap="$(read_env_value DAEMON_NODE_HEAP_MB)"; [ -n "$heap" ] || heap="384"
+    dport="$(read_env_value MCS_DAEMON_PORT)"; [ -n "$dport" ] || dport="24444"
+    # 计算生效的 DAEMON_PORTS（docker 型实例存在时自动忽略，issue #9）；
+    # 需在"已存在则跳过"之前求值，存量 daemon 也能给出提示。
+    extra_ports="$(win_effective_daemon_ports "$root")"
     if docker inspect "$(daemon_container)" >/dev/null 2>&1; then
         info "daemon 已存在，跳过创建（补别名）"
         win_daemon_alias
@@ -462,9 +499,9 @@ win_daemon_run() {
         docker network create "$network" >/dev/null 2>&1 || true
     fi
     # 进程模式 PaperMC 实例（cwd 在 daemon 内部）的进服端口须由 daemon 容器 -p 暴露。
-    # .env 的 DAEMON_PORTS 追加额外映射（逗号分隔 host:container/proto），供玩家进服
-    # （Java 25565/tcp、基岩 19132/udp 等）。lan 模式下 daemon API 端口另发。
-    extra_ports="$(read_env_value DAEMON_PORTS)"
+    # 生效值由上方 win_effective_daemon_ports 计算（逗号分隔 host:container/proto，供
+    # 玩家进服：Java 25565/tcp、基岩 19132/udp 等；存在 docker 型实例时已自动忽略）。
+    # lan 模式下 daemon API 端口另发。
     if [ -n "$extra_ports" ]; then
         local oldifs="$IFS"
         IFS=','
@@ -479,21 +516,48 @@ win_daemon_run() {
     fi
     docker run -d --name "$(daemon_container)" \
         --restart unless-stopped \
-        --memory 512m \
+        --memory "$mem" \
         --env "TZ=${tz}" \
         --env "MCSM_DOCKER_WORKSPACE_PATH=${root}/mcsmanager/daemon/data/InstanceData" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/data,target=/opt/mcsmanager/daemon/data" \
         --mount "type=bind,source=${root}/mcsmanager/daemon/logs,target=/opt/mcsmanager/daemon/logs" \
         -v /var/run/docker.sock:/var/run/docker.sock \
+        --health-cmd "node -e 'const s=require(\"net\").connect(${dport},\"127.0.0.1\");s.on(\"connect\",()=>{s.destroy();process.exit(0)});s.on(\"error\",()=>process.exit(1));s.setTimeout(3000,()=>process.exit(1));'" \
+        --health-interval 30s \
+        --health-timeout 5s \
+        --health-retries 3 \
+        --health-start-period 20s \
         "${port[@]}" \
         --network "$network" \
-        "$img" >/dev/null
+        "$img" node --max-old-space-size="$heap" app.js >/dev/null
     info "daemon 已通过 docker run 创建（Windows 专用路径）"
     win_daemon_alias
 }
 
 win_daemon_rm() {
     docker rm -f "$(daemon_container)" 2>/dev/null || true
+}
+
+# 站点增量 override 文件列表（供 compose -f 追加，issue #11）：填充全局数组
+# SITE_OVERRIDE_FILES（不用命令替换，以免 die 在子 shell 里静默失效）：
+#   1) $DATA_ROOT/compose.site.yaml：init 生成的模板，存在即追加。站点特有增量
+#      （飞书凭据、额外 env/挂载）写这里，升级/换包不丢。
+#   2) .env 的 COMPOSE_FILE_EXTRA：空格/逗号分隔的额外 compose 文件，路径任意（可放
+#      仓库/数据目录之外）。显式配置但不存在的文件给出清晰报错。
+SITE_OVERRIDE_FILES=()
+collect_site_override_files() {
+    local site="$DATA_ROOT/compose.site.yaml" extra f
+    SITE_OVERRIDE_FILES=()
+    if [ -f "$site" ]; then
+        SITE_OVERRIDE_FILES+=("$site")
+    fi
+    extra="$(read_env_value COMPOSE_FILE_EXTRA)"
+    [ -n "$extra" ] || return 0
+    for f in ${extra//,/ }; do
+        [ -n "$f" ] || continue
+        [ -f "$f" ] || die "COMPOSE_FILE_EXTRA 指定的 compose 文件不存在: ${f}"
+        SITE_OVERRIDE_FILES+=("$f")
+    done
 }
 
 # ---- compose 统一入口 ----------------------------------------------------
@@ -534,6 +598,15 @@ compose_cmd() {
     while IFS= read -r p; do
         [ -n "$p" ] && profiles_flags+=("--profile" "$p")
     done < <(enabled_profiles)
+    # 站点增量 override（issue #11）：$DATA_ROOT/compose.site.yaml + .env 的
+    # COMPOSE_FILE_EXTRA，存在即追加；与包内文件解耦，升级/换包不丢。
+    # （判空再用：bash 3.2 + set -u 下空数组 "${arr[@]}" 会被当成未定义变量。）
+    collect_site_override_files
+    if [ "${#SITE_OVERRIDE_FILES[@]}" -gt 0 ]; then
+        for f in "${SITE_OVERRIDE_FILES[@]}"; do
+            extra+=(-f "$f")
+        done
+    fi
     # posix（macOS/Linux）：base 用原生路径 + 边缘层 override + ENABLE_* profile
     base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" "${profiles_flags[@]}")
     # Windows：COMPOSE_FILE / override / env-file 是 MSYS 路径（/c/...），docker compose

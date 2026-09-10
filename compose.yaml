@@ -51,13 +51,20 @@ services:
 
   mcsmanager-daemon:
     # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
+    # 与下方 NODE_HEAP 对齐：两者均由 .env 派生，避免「容器上限 / Node 堆上限」两处漂移
+    # （issue #10）。默认 512M / 384（384 留出堆外内存余量）。
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: "${DAEMON_MEMORY_LIMIT:-512M}"
     image: githubyumao/mcsmanager-daemon@sha256:70c69471142047e1670e85858cd0ca64d2ff396566f63c4d2abb489ea37d65cf
     container_name: orzmc-mcsmanager-daemon
     restart: unless-stopped
+    # issue #10：镜像默认 CMD 是 `node app.js --max-old-space-size=8192`（8G），在 512M
+    # cgroup 上限下重负载有被 OOM kill 风险（daemon 无健康检查兜底时实例会失去跟踪）。
+    # 必须**覆盖 CMD** 才能真正降堆：命令行 flag 优先级高于 NODE_OPTIONS（env 方案无效）。
+    # 若镜像升级后 CMD 改变，需同步核对本行（update-image-digests.sh 后回归）。
+    command: ["node", "--max-old-space-size=${DAEMON_NODE_HEAP_MB:-384}", "app.js"]
     environment:
       TZ: "${TZ}"
       # Docker 实例 cwd 路径翻译（daemon 源码读取）：daemon 容器内
@@ -66,6 +73,16 @@ services:
       # 缺失时 docker 实例 bind source 用容器内路径，宿主引擎报
       # "bind source path does not exist"（ADR-019 移除旧 instances 方案时误删）。
       MCSM_DOCKER_WORKSPACE_PATH: "${DATA_ROOT}/mcsmanager/daemon/data/InstanceData"
+    healthcheck:
+      # TCP 探活 daemon 端口（node 内置模块，镜像自带 node，无需 curl/wget）；
+      # 重负载被 cgroup OOM kill 时转为 unhealthy，便于及时发现（issue #10）。
+      test:
+        - CMD-SHELL
+        - node -e 'const s=require("net").connect(Number("${MCS_DAEMON_PORT:-24444}"),"127.0.0.1");s.on("connect",()=>{s.destroy();process.exit(0)});s.on("error",()=>process.exit(1));s.setTimeout(3000,()=>process.exit(1));'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     expose:
       - "${MCS_DAEMON_PORT}"
     volumes:
