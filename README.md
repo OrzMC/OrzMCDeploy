@@ -150,6 +150,7 @@ compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck 
 - [`docs/windows-deployment.md`](docs/windows-deployment.md) —— **Windows 平台部署指南**（问题/根因/解法，含 ADR-015/016，三平台统一命令）
 - [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) —— AI 智能体守则
 - [`EXECUTION_PATH.md`](EXECUTION_PATH.md) —— 执行路径、门禁、checklist、状态记录
+- [`CHANGELOG.md`](CHANGELOG.md) —— 版本变更记录（Release 说明）
 
 ## 安全
 

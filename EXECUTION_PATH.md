@@ -977,3 +977,12 @@
   init && validate` 通过（healthcheck 插值解析正常）。`docker compose config` 解析正常。
 - **待办**：因本会话无推送凭据，修复已在本地分支 `fix/issues-4-7-mac-to-win-2026-09-09`
   提交，待推送后开 PR（close #4 #5 #6 #7）。
+
+### 2026-09-10 发布 v0.0.3（CHANGELOG + Release）
+
+- **新增 `CHANGELOG.md`**（Keep a Changelog 格式；回填 0.0.1/0.0.2，记录 0.0.3），
+  `ci.yml` 的 `package` 文件清单纳入该文件随 Release tarball 分发；README/AGENTS 目录导航同步。
+- **发布方式**（ADR-018）：打 tag `v0.0.3` 推送 → CI `package` job 产出
+  `orzmc-0.0.3.tar.gz` + `.sha256` 并创建 Release；`install.sh` 随即取到新版本。
+- **动因**：`install.sh` 默认拉最新 Release tarball，而 v0.0.2 缺 #4（Windows docker 型
+  实例 workspace env）与 #5（大归档 restore SIGPIPE）——新装用户整服迁移会直接失败。

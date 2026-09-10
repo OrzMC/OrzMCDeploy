@@ -161,7 +161,7 @@ jobs:
               --exclude='./.env' --exclude='./.local-data' --exclude='./.local-data-lan' \
               --exclude='./.local-backups' \
               -czf "orzmc-${VERSION}.tar.gz" \
-              AGENTS.md CLAUDE.md README.md .gitignore \
+              AGENTS.md CLAUDE.md README.md CHANGELOG.md .gitignore \
               orzmc.sh deploy.sh local.sh lan.sh windows.sh \
               backup.sh restore.sh update-image-digests.sh install.sh \
               lib templates compose.yaml compose.edge.cloudflare.yaml \
