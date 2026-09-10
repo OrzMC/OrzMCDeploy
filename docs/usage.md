@@ -540,6 +540,12 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
   若归档只有逻辑备份（冷目录缺失/损坏），解压后手动导入再启动：
   `docker exec -i orzmc-mariadb mariadb -uroot -p"<MARIADB_ROOT_PASSWORD>" < database/dumps/mariadb-all-*.sql`
   （⚠️ 归档解压在 DATA_ROOT 内，命令须在该 DATA_ROOT 对应的栈上执行）。
+- **冷数据还原后的 healthcheck**：`mariadb` 容器可能显示 `unhealthy`，但数据库经 TCP
+  用 `.env` 凭据连接完全正常（web 面板/插件不受影响）。原因是镜像自带 healthcheck 依赖
+  `mysql@localhost` unix_socket 账号，该账号**仅首次空目录 init 创建**，还原的冷数据目录
+  没有（issue #7）。本批已把 healthcheck 改为 root+socket 口令探活，还原后即为 `healthy`；
+  旧环境可手动补建：`CREATE USER IF NOT EXISTS 'mysql'@'localhost' IDENTIFIED VIA unix_socket;`
+  `GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;`
 - 详细迁移流程见[第 10 章](#10-迁移到新主机)。
 
 ---

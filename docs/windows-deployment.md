@@ -487,6 +487,12 @@ docker restart orzmc-mcsmanager-web
 
 Windows 推荐 **Java 版进程模式**（java 直接跑在 daemon 容器内；进服端口经 `DAEMON_PORTS`
 发布到宿主，局域网玩家直连 `http://<LAN_HOST_IP>:25565`）：
+
+> ⚠️ **`DAEMON_PORTS` 只服务进程模式实例（issue #6）**：docker 型实例各自容器再发布
+> 自己的宿主端口，而 daemon 会先用 `DAEMON_PORTS` 抢占 25565/19132，实例启动即报
+> `Bind for 0.0.0.0:25565 failed: port is already allocated`。**用 docker 型实例时把
+> `.env` 的 `DAEMON_PORTS` 置空**再 `./orzmc.sh up`（`win_daemon_run` 检测到 docker 型
+> 实例会告警）。macOS/Linux 无此冲突（daemon 只 expose，不消费本变量）。
 1. 先备好实例目录文件：`paper.jar`、`eula.txt`（`eula=true`）、`server.properties`
    （离线服 `online-mode=false`）；目录用面板默认 `data/InstanceData/<uuid>/`（经 daemon/data
    落宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，ADR-019）。
@@ -591,3 +597,32 @@ Windows 用 `certutil -user -addstore -f Root <root.crt>`（当前用户库，**
 能否从**局域网设备浏览器**直连 `ws://<LAN_IP>:24444`（`socket.io/?EIO=4&transport=polling`
 握手）。两侧用的是**同一个**节点地址——服务端通浏览器不通 = 该地址对浏览器不可达
 （解析 / 防火墙 / 端口未发布），按 §9.3 节点表核对。
+
+### P9｜docker 型实例与 DAEMON_PORTS 端口撞车（issue #6，已补告警 + 文档）
+Windows 上 daemon 由 `win_daemon_run` 裸 `docker run` 创建，会把 `.env` 的 `DAEMON_PORTS`
+全量 `-p` 到 daemon（`compose.yaml` 的 daemon 只 `expose`，无此问题）。若实例为 **docker 型**
+（`processType: docker`，各自容器再发布同宿主端口），daemon 先占 25565/19132 → 实例启动
+报 `Bind for 0.0.0.0:25565 failed: port is already allocated`。
+- **修复（本批）**：`win_warn_daemon_ports_conflict` 在 daemon 创建/复用时扫描
+  `daemon/data/InstanceConfig/*.json`，检测到 `processType: docker` 且 `DAEMON_PORTS` 非空
+  即告警（不擅自改发布行为，避免误伤进程模式）；`templates/env.*` 与 §9.4 已注明。
+- **操作**：使用 docker 型实例时把 `.env` 的 `DAEMON_PORTS` 置空；进程模式才需要它。
+
+### P10｜restore.sh 大归档 SIGPIPE exit 141（issue #5，已修）
+`restore.sh` 原先用 `top="$(tar tzf "$ARCHIVE" | head -n1)"` 取归档顶层目录名。对大归档
+（entry 多，实测 26KB/2000 文件即可复现），`head` 读一行即关管道 → `tar` 收 SIGPIPE 以
+141 退出，配合顶部 `set -euo pipefail` 令整个还原中途终止（小归档/条目少时不触发）。
+- **修复（本批）**：改为 `top="$( { tar tzf "$ARCHIVE" | head -n1; } || true )"`——`|| true`
+  兜住管道的 SIGPIPE 退出码，首个顶层名仍由 head 正常输出；不可读/空归档由后续非空
+  校验拦截。无需 python3，纯 bash/bsdtar 兼容。
+
+### P11｜mariadb 冷数据还原后 healthcheck 误报 unhealthy（issue #7，已修）
+`compose.yaml` 原先用镜像自带 `healthcheck.sh --su-mysql --connect --innodb_initialized`，
+它依赖 `mysql@localhost`（unix_socket 免密）账号；该账号**仅镜像首次 init 空数据目录时
+创建**，`restore.sh` 还原的冷数据目录没有 → `Access denied for user 'mysql'@'localhost'`，
+数据库本身正常但 healthcheck 恒 unhealthy（无服务 `depends_on: service_healthy`，故仅误报，
+不阻塞启动）。
+- **修复（本批）**：healthcheck 改用 root 经 unix socket + `.env` 口令执行 innodb 就绪
+  查询（`mariadb --protocol socket -uroot -p"$MARIADB_ROOT_PASSWORD" ... | grep -qx 1`），
+  只依赖 `MARIADB_ROOT_PASSWORD`：冷/热数据、改密后均适用，鉴权失败会如实报 unhealthy。
+- **旧数据兼容**：若你曾手动补建 `mysql@localhost`，新 healthcheck 不受影响，可继续保留。
