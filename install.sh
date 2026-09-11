@@ -12,7 +12,7 @@
 #     4. 解压到 INSTALL_DIR（默认见下），然后照常 ./orzmc.sh
 #
 # 默认:
-#   REPO         orzmc/orzmc-deploy（-r 覆盖，支持 "owner/repo" 或完整 URL 前缀）
+#   REPO         OrzMC/OrzMCDeploy（-r 覆盖，支持 "owner/repo" 或完整 URL 前缀）
 #   INSTALL_DIR  ~/.local/share/orzmc-deploy（macOS/Linux）；Windows 无自定义则用
 #                "$HOME/orzmc-deploy"
 #   版本         最新 release
@@ -23,7 +23,7 @@
 
 set -euo pipefail
 
-REPO="orzmc/orzmc-deploy"
+REPO="OrzMC/OrzMCDeploy"
 VERSION=""
 INSTALL_DIR=""
 
@@ -33,7 +33,7 @@ usage() {
 
   -d INSTALL_DIR   安装目录（默认 ~/.local/share/orzmc-deploy）
   -v VERSION       指定版本号（默认最新 release，如 v1.2.3；可带/不带 v）
-  -r REPO          GitHub 仓库 "owner/repo"（默认 orzmc/orzmc-deploy）
+  -r REPO          GitHub 仓库 "owner/repo"（默认 OrzMC/OrzMCDeploy）
 EOF
 }
 

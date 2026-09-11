@@ -75,10 +75,11 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 ```bash
 # 一键安装最新 release 到默认目录（~/.local/share/orzmc-deploy）
-curl -fsSL <一键脚本URL> | bash
+curl -fsSL https://raw.githubusercontent.com/OrzMC/OrzMCDeploy/main/install.sh | bash
 
 # 或指定版本 / 安装目录 / 仓库
-curl -fsSL <一键脚本URL> | bash -s -- -v v1.2.3 -d /opt/orzmc-deploy
+curl -fsSL https://raw.githubusercontent.com/OrzMC/OrzMCDeploy/main/install.sh \
+  | bash -s -- -v v1.2.3 -d /opt/orzmc-deploy
 
 # 装好后与 git clone 部署完全一致：
 cd <安装目录>
@@ -90,7 +91,8 @@ cd <安装目录>
 - 脚本会**校验 tarball 的 sha256**（防篡改/损坏），失败即中止。
 - **幂等**：可重复运行；运行时/数据分离保证不会触碰 `$DATA_ROOT`。
 - 更新到新版本：重跑脚本（默认取最新 release）。
-- 一键脚本 URL = `https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh`。
+- 一键脚本 URL = `https://raw.githubusercontent.com/OrzMC/OrzMCDeploy/main/install.sh`
+  （仓库/版本不同时用 `-r owner/repo`、`-v vX.Y.Z` 覆盖）。
 
 > 也可以直接 `git clone` 部署（等价，只是多了 `.git` 目录）。两种方式最终都得到
 > 同一套 `orzmc.sh` 与配置文件，行为一致。

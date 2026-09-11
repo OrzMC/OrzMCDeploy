@@ -28,6 +28,8 @@
 - **实例配置持久化**：纠正「改 JSON 后 `docker restart daemon`」的错误姿势——daemon
   退出时会把内存副本刷回磁盘、覆盖改动；正确顺序为**停 daemon → 改 JSON → 启 daemon**
   （[#12]，`docs/usage.md` §6.5 / `docs/papermc-template.md`）。
+- **install.sh**：默认仓库名修正为 `OrzMC/OrzMCDeploy`（原 `orzmc/orzmc-deploy` 请求
+  GitHub API 返回 404，免克隆安装的默认路径不可用）；README 一键脚本 URL 补全为真实仓库。
 
 ### 新增
 
