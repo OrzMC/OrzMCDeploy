@@ -1018,3 +1018,8 @@
   `orzmc-0.0.4.tar.gz` + `.sha256` 并创建 Release；`install.sh` 默认取最新 Release。
 - **动因**：0.0.3 的模板默认 `DAEMON_PORTS` 非空 + daemon 镜像 8G 堆与 512M 限额不匹配，
   新装用户会直接踩 issue #9/#10；站点增量挂载点（#11）与实例配置语义（#12）文档补齐。
+- **发布校验发现并修复**：`install.sh` 默认 `REPO=orzmc/orzmc-deploy` 请求 GitHub API 404
+  （真实仓库 `OrzMC/OrzMCDeploy`），免克隆安装默认路径不可用 → 修正默认值 + README URL
+  （commit `6f0a0db`）。因 v0.0.4 tag 刚推送、尚无消费方，删除 Release/tag 后**重新打到
+  `6f0a0db`** 并重建 Release（资产同前）。端到端复验：`./install.sh -d /tmp/...` 解析到
+  v0.0.4、sha256 校验通过、解压含 `templates/compose.site.yaml` 与修正后的 `install.sh`。
