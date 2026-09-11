@@ -1009,3 +1009,12 @@
   `COMPOSE_FILE_EXTRA` 的 `-f` 拼接与缺失文件报错本地验证通过；CI 将跑 shellcheck +
   EDGE×ENABLE validate + windows 单测。
 - **待办**：推送分支 → 开 PR → 合入后评论/关闭 #9–#12。
+
+### 2026-09-11 发布 v0.0.4（#9–#12 / ADR-022）
+
+- **内容**：合并 PR #13（squash `d4cd9c3`），修复远端 issue #9–#12；CHANGELOG 归档为
+  `[0.0.4] - 2026-09-11`，`[Unreleased]` 归零。
+- **发布方式**（ADR-018）：打 tag `v0.0.4` 推送 → CI `package` job 产出
+  `orzmc-0.0.4.tar.gz` + `.sha256` 并创建 Release；`install.sh` 默认取最新 Release。
+- **动因**：0.0.3 的模板默认 `DAEMON_PORTS` 非空 + daemon 镜像 8G 堆与 512M 限额不匹配，
+  新装用户会直接踩 issue #9/#10；站点增量挂载点（#11）与实例配置语义（#12）文档补齐。
