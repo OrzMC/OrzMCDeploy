@@ -1043,3 +1043,20 @@
   config` 校验 `${EASYBOT_MEMORY_LIMIT:-1G}` 插值（本机无 docker，改由 CI validate 兜底）。
 - **待办**：推送分支 → 开 PR → 合入后评论/关闭 #14–#16；发下一版（含新 digest）后
   `install.sh` 才对新装用户生效。
+
+### 2026-10-01 发布 v0.0.5（#14–#16 / ADR-023）
+
+- **内容**：合并 PR #17（squash `977be3b`），修复远端 issue #14–#16；CHANGELOG 归档为
+  `[0.0.5] - 2026-10-01`（`[Unreleased]` 归零），发布单 `a81f595`。
+- **发布方式**（ADR-018）：打 tag `v0.0.5` 推送 → CI `package` job 产出
+  `orzmc-0.0.5.tar.gz`（122621 B）+ `.sha256` 并创建 Release。
+- **动因**：easybot 旧 digest（v0.0.38）在 Windows bind mount 下会静默退回内存库（#14）、
+  easybot 512M 上限被 OOM kill 反复重启（#16）；EasyBot v0.0.41（2026-10-01 发布）的
+  release notes 同时含上游 #121/#122/#123 与 #139 修复，一次 digest bump 覆盖两个根因；
+  端口映射文档缺口（#15）同步补齐。
+- **发布校验**（端到端复验）：CI 4 job 全 success；`gh release view v0.0.5` 资产齐全且为
+  latest；`./install.sh -d /tmp/... -v 0.0.5` → sha256 校验通过（`cd102bae…`）、解压包内
+  `compose.yaml` 已钉 `sha256:23a6eace…`、三个模板均含 `EASYBOT_MEMORY_LIMIT`、无
+  `.git`/`.env`/`.local-data` 禁入路径。
+- **待办**：无（#14–#16 已随 PR 合入由 GitHub 自动 close）。后续新装用户经 `install.sh`
+  默认即取 v0.0.5。
