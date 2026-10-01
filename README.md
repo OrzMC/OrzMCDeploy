@@ -66,7 +66,8 @@ OrzMC 的最小容器化落地方案。平台层包括：
 写入 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），升级换包不丢；
 也可用 `.env` 的 `COMPOSE_FILE_EXTRA=` 追加任意路径 compose 文件。详见
 [`docs/usage.md` §4.5](docs/usage.md)。daemon 容器内存与 Node 堆上限由 `.env` 的
-`DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` 派生（缺省 `512M` / `384`），并带 TCP healthcheck。
+`DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` 派生（缺省 `512M` / `384`），并带 TCP healthcheck；
+easybot 内存上限由 `.env` 的 `EASYBOT_MEMORY_LIMIT` 派生（缺省 `1G`，issue #16）。
 
 ## 免克隆安装（无需 git clone）
 

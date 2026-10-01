@@ -1023,3 +1023,23 @@
   （commit `6f0a0db`）。因 v0.0.4 tag 刚推送、尚无消费方，删除 Release/tag 后**重新打到
   `6f0a0db`** 并重建 Release（资产同前）。端到端复验：`./install.sh -d /tmp/...` 解析到
   v0.0.4、sha256 校验通过、解压含 `templates/compose.site.yaml` 与修正后的 `install.sh`。
+
+### 2026-10-01 远端 issue #14–#16 处理（ADR-023）
+
+- **来源**：0.0.4 后远端 issue #14（easybot digest 过期，`cd0b4e44` v0.0.38 的 Windows
+  bind mount `EPERM` → 静默退回内存库）、#15（端口映射文档缺口：只给 TCP 示例却在
+  windows-deployment 要求放行 19132/udp）、#16（easybot 512M 上限过紧，被 cgroup OOM kill
+  反复重启）。
+- **上游确认**：EasyBot v0.0.41（2026-10-01 发布）release notes 明确含 #121/#122/#123（存储
+  加固降级 / 降级显式上报）与 #139（近空载匿名内存泄漏，schema 迁移 v4）修复——同时覆盖
+  #14 与 #16 根因。
+- **代码/运行时**：`compose.yaml` easybot digest → `sha256:23a6eace…`（v0.0.41，多架构
+  index）、内存上限改 `${EASYBOT_MEMORY_LIMIT:-1G}`；三个 `templates/env.*` 新增可选
+  `EASYBOT_MEMORY_LIMIT`。
+- **文档**：`docs/papermc-template.md` 新增「端口映射与多实例分配（Geyser/基岩必读）」；
+  `docs/windows-deployment.md` §9.1/§9.4 补发布前提、§10 P2 补 TUN 代理抢路由判定；
+  `docs/usage.md` 附录 F 新增平台层服务内存上限表；ADR-023 + README + CHANGELOG。
+- **回归**：`bash -n` 全通过；`./orzmc.sh -e none init` + `validate` 通过；`docker compose
+  config` 校验 `${EASYBOT_MEMORY_LIMIT:-1G}` 插值（本机无 docker，改由 CI validate 兜底）。
+- **待办**：推送分支 → 开 PR → 合入后评论/关闭 #14–#16；发下一版（含新 digest）后
+  `install.sh` 才对新装用户生效。

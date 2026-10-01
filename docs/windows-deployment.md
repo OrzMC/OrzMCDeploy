@@ -445,6 +445,10 @@ docker restart orzmc-mcsmanager-web
    netsh advfirewall firewall add rule name="OrzMC Daemon 24444" dir=in action=allow protocol=TCP localport=24444
    ```
    实例进服端口 `25565/tcp`（Java）与 `19132/udp`（基岩）如需局域网直连同样放行。
+   > ⚠️ **前提（issue #15）**：防火墙规则只对**宿主已有转发**的端口生效。docker 型实例的
+   > 容器端口不会自动发布——必须在实例 `docker.ports` 中显式写明 `宿主:容器/协议`（Java
+   > `"25565:25565/tcp"`、Geyser 基岩 `"19132:19132/udp"`），否则宿主无监听，放行防火墙也
+   > "静默不可达"。推导规则与多实例分配见 [papermc-template.md](papermc-template.md#端口映射与多实例分配geyser基岩必读)。
 3. **真机验证优先（§10 P5）**：宿主访问**自己**的 LAN IP 的发布端口必超时（mirrored
    host-loopback 陷阱，非故障）——局域网可达性一律用**局域网其他设备**验证；验证服务
    本身用 `127.0.0.1`。
@@ -501,7 +505,7 @@ Windows 推荐 **Java 版进程模式**（java 直接跑在 daemon 容器内；�
 2. 面板创建实例：启动命令 `java -Xms2G -Xmx2G -jar paper.jar --nogui`；停止命令 `stop`；
    Ready 关键字 `Done`；控制台编码 UTF-8；内存按需（测试服 2G）。
 3. 启动实例 → 等控制台 `Done` → 局域网设备进服测试（Java 25565；基岩 Geyser 19132/udp
-   需另加 UDP 防火墙规则）。
+   需先在实例 `docker.ports` 发布 `19132:19132/udp`，再另加 UDP 防火墙规则，缺一不可）。
 4. 面板侧验证实例启停/重启/状态正常（走服务端 daemon 连接，Windows lan 档同样可用）。
 
 > ⚠️ **2026-08-18 本次验收未创建实例**（lan 档实例目录为空）——上述步骤按
@@ -553,6 +557,16 @@ Desktop 重启不算（容器 Up 47min 证明 VM 未冷重启，mirrored 一直�
 ### P2｜Windows 防火墙 Public profile 拦局域网入站
 Wi-Fi + Mihomo TUN 均在 **Public profile**，入站默认全拦；未加规则前局域网设备连面板
 `curl 000`。加 §9.1 的 4 条 netsh 规则（管理员）后恢复。
+
+> **入站可达性排查（issue #15 附带）**：若「端口已发布 + 防火墙已放行 + 路由器映射正确」
+> 仍然外网不可达（**内网通、外网 ICMP 通但 TCP/UDP 全超时**，同公网 IP 下其它机器的服务
+> 却可通），先查宿主是否开了 **TUN 模式的透明代理（Clash / mihomo 等）**：TUN 网卡默认路由
+> metric 优于物理网卡时，本机为入站连接发出的响应包会被送进代理隧道（源地址被定成 TUN 地址），
+> 对端收不到正确 SYN-ACK / RakNet pong → 外网永远握不上手，而局域网直连不受影响。
+> 判定法：WSL 内 `tcpdump -i any` 看 SYN 到达后 SYN-ACK 是否从 TUN 网卡发出；修法是按源地址
+> 做策略路由——`ip route replace default via <LAN网关> dev <LAN网卡> src <LAN_IP> table 100`
+> + `ip rule add from <LAN_IP> table 100 pref 85`（任意端口零维护，代理出站源地址不受影响）。
+> 验证公网端口时 `api.mcsrvstat.us` 有约 30 分钟缓存，**至少两个数据源交叉验证**再下结论。
 
 ### P3｜win_daemon_run 相对路径 bug（已修复，lib/common.sh 未提交）
 local/lan 档 DATA_ROOT 是相对路径 `.local-data`，`win_path` 只处理 `C:/` 与 MSYS 前缀，
