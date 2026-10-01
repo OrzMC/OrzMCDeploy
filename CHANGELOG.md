@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-10-01
+
 ### 修复
 
 - **easybot 镜像升级到 v0.0.41**（digest `cd0b4e44…` → `23a6eace…`）：含 SQLite 权限加固
@@ -130,7 +132,8 @@
 - 文档：`README`、`docs/architecture.md`（ADR-001–014）、`docs/usage.md`、
   `docs/easybot.md`、`docs/papermc-template.md`。
 
-[Unreleased]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.1...v0.0.2
