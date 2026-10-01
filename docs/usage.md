@@ -992,6 +992,23 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 5. **100 人以上网络变成硬约束**：家用宽带上行普遍 20–40 Mbps，撑不住 100+ 人持续区块流，
    该档位需要机房裸金属（≥1 Gbps 上行）。
 
+### 平台层各服务内存上限（可调，issue #16）
+
+平台层固定占用很小，但**容器内存上限（fuse）与服务实际工作集不匹配**时会变成 OOM 重启风暴。
+可调项收敛到 `.env`，站点级覆盖写 `$DATA_ROOT/compose.site.yaml`（升级换包不丢）：
+
+| 服务 | `.env` 变量 | 缺省上限 | 说明 |
+|---|---|---|---|
+| `mcsmanager-daemon` | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | `512M` / `384` | 堆须与上限对齐，见 issue #10 |
+| `easybot` | `EASYBOT_MEMORY_LIMIT` | `1G` | EasyBot ≤0.0.40 有空载内存泄漏（上游 #139），0.0.41 已修根因 |
+| `mcsmanager-web` | —（`compose.yaml` 硬编码） | `512M` | 面板服务，占用平稳 |
+| `mariadb` | —（`compose.yaml` 硬编码） | `512M` | buffer pool 128M，可另调 `--innodb-buffer-pool-size` |
+| `status`（Gatus） | —（`compose.yaml` 硬编码） | `256M` | scratch 镜像，占用可忽略 |
+
+> 上调 easybot 上限：`.env` 写 `EASYBOT_MEMORY_LIMIT=2G` 后 `./orzmc.sh up`（compose 重建）；
+> 下调同理。仅当容器被 cgroup OOM kill（`docker inspect orzmc-easybot --format '{{.RestartCount}}'`
+> 持续增长 + 宿主 `dmesg` 出现 `Killed process ... easybot`）才需要，先确认不是应用自身异常。
+
 ### 如何查看/调整实例内存
 
 当前生产实例配置为 `-Xms4G -Xmx4G`（堆 4G），`InstanceConfig/<uuid>.json` 中 `memory: 4096`

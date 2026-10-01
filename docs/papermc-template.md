@@ -19,7 +19,7 @@
 | 显示名 | `OrzMC Test` | `OrzMC Main` | 面板显示名称 |
 | 镜像名 | `eclipse-temurin:21-jre` | `eclipse-temurin:21-jre` | 已验证可运行的 Java 21 基础镜像 |
 | 服务端口 | `25566` | `25565` | 测试服避开正式服默认端口 |
-| 端口映射 | `25566:25566` | `25565:25565` | 宿主机到容器映射 |
+| 端口映射 | `25566:25566/tcp`（启用 Geyser 再加 `19133:19133/udp`） | `25565:25565/tcp`（启用 Geyser 再加 `19132:19132/udp`） | `宿主:容器/协议`，一个对外端口一条；启用 Geyser 必须**显式发布 UDP**，仅写 TCP 时基岩通道在容器外不可达（见「端口映射与多实例分配」） |
 | 服务目录 | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置） |
 | 挂载定义 | `.../InstanceData/<uuid>:/server` | `.../InstanceData/<uuid>:/server` | 核心数据挂载（`<uuid>` 由面板生成） |
 | Java 版本 | `21` | `21` | 根据目标 Paper 版本选择 |
@@ -41,7 +41,7 @@
 | 镜像拉取策略 | `IfNotPresent` | 避免无意中升级镜像 |
 | 工作目录 | `/server` | 与挂载定义保持一致 |
 | 重启策略 | `unless-stopped` | 平台层统一约定 |
-| 协议 | `tcp` | Minecraft 默认 |
+| 协议 | `tcp` / `udp` | 按通道分别发布：Java 用 `tcp`，Geyser 基岩用 `udp`（`docker.ports` 每项自带协议） |
 | 监听地址 | `0.0.0.0` | 允许容器监听全部地址 |
 | 网络模式 | `bridge` | 与平台层编排一致 |
 | 挂载模式 | `rw` | 运行目录必须可写 |
@@ -61,7 +61,8 @@
 - 宿主机服务目录：`<server-dir>`（生产 macOS 建议属主改为宿主用户，见下文"Docker 实例字段格式"）
 - 启动命令：`java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui`
   （正式服可用 `-Xms4G -Xmx4G`）
-- 端口映射：`25566:25566/tcp`（测试服） / `25565:25565/tcp`（正式服）
+- 端口映射：`25566:25566/tcp`（测试服） / `25565:25565/tcp`（正式服）；启用 Geyser 时
+  另加 `19133:19133/udp`（测试服） / `19132:19132/udp`（正式服）
 - `paper.jar`：预先下载到宿主机服务目录
 - `eula.txt`：预先写入 `eula=true`
 - 正版验证：需要离线进服时把 `server.properties` 的 `online-mode` 设为 `false`
@@ -82,10 +83,11 @@
 
 以下为本仓库生产实例（`papermc-main`，uuid `e92495...`）实测结论（MCSManager v10）：
 
-- **端口映射必须为字符串数组**：`docker.ports` 填 `["25565:25565/tcp"]`
+- **端口映射必须为字符串数组**：`docker.ports` 填 `["25565:25565/tcp", "19132:19132/udp"]`
   （`host:container/protocol` 字符串，daemon 内部 `split("/")` + `split(":")` 解析）；
   **不要**用对象数组 `[{"host":..., "container":..., "protocol":...}]`，否则启动报
-  `此容器的开放端口配置有误！`。
+  `此容器的开放端口配置有误！`。**启用 Geyser 时必须显式写 `.../udp` 条目**（详见
+  「端口映射与多实例分配」）。
 - **内存单位为 MB**：`docker.memory: 4096` 即 4G（daemon 内部 `*1024*1024` 换算成字节）；
   填字节值（如 `4294967296`）会让容器内存配额错乱。
 - **强烈建议 `terminalOption.pty: true`**：docker 实例非 pty 时 stdout/stderr 是两路独立
@@ -105,6 +107,61 @@
   `1000:1000`（见 ADR-006）。
 - **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`，
   也与 mariadb 同网才能用 `jdbc:mysql://mariadb:3306/...`（见下文"插件接入 MariaDB"）。
+
+## 端口映射与多实例分配（Geyser/基岩必读）
+
+> 现象锚点（issue #15）：容器内 Geyser 正常监听、日志 `Started Geyser on UDP port 19132`，
+> 但宿主机/局域网探测返回 `WinError 10054`（ICMP 端口不可达）——**docker 型实例的容器端口
+> 不会自动发布**，`docker.ports` 没写的协议/端口即便容器内监听也传不到宿主机。此时按
+> [windows-deployment.md §9.1](windows-deployment.md#91-前置每档都依赖) 放行的 `19132/udp`
+> 防火墙规则**完全无效**（宿主没有该端口的转发），极易误判为防火墙 / Geyser 配置 / 客户端问题。
+
+### 铁律：端口必须从配置推导，并逐条显式发布
+
+`docker.ports` 每一项写成 **`宿主:容器/协议`**，一个对外端口一条。不要照抄默认值——
+宿主端口 ≠ 容器端口是常态，且各服务端口来自实例实际配置：
+
+| 通道 | 端口权威来源 | 是否必发布 |
+|---|---|---|
+| Java | `server.properties: server-port`（默认 `25565`） | ✅ 必发布 |
+| 基岩（Geyser） | `config.yml: bedrock.port`（默认 `19132`，可改） | ✅ 启用 Geyser 时必发布（`/udp`） |
+| Query | `server.properties: query.port`（`enable-query=true` 时） | 按需 |
+| RCON | `server.properties: rcon.port` | 按需 |
+| 语音（Simple Voice Chat 等） | 插件配置（UDP） | 按需 |
+
+- **面板的 `pingConfig.port` / `basePort` 是容器端口语义**，不能当宿主端口填。
+- **`clone-remote-port` 在「宿主≠容器」时必须保持 `false`**，否则端口映射错乱。
+- 基岩客户端**不支持 SRV 记录**，玩家必须手填 `主机:端口`，因此每个基岩服需要独立的宿主 UDP 端口。
+- 容器之间 netns 隔离，容器内都绑 `19132` 并不冲突；**冲突只发生在宿主发布层**——两个实例
+  都发 `19132:19132/udp` 时，后启动的会因宿主端口占用创建失败。
+
+### 多实例宿主端口分配范式
+
+同一宿主多实例按实例号排块，宿主端口尽量与容器端口一致（Geyser 直接改 `bedrock.port`），
+让 **RakNet pong 回报的端口 / 玩家填写的端口 / 配置文件端口** 三者一致：
+
+| 实例 | Java（TCP） | 基岩（UDP） |
+|---|---|---|
+| #1（正式） | `25565:25565/tcp` | `19132:19132/udp` |
+| #2（测试） | `25566:25565/tcp` | `19133:19132/udp` |
+
+```jsonc
+// InstanceConfig/<uuid>.json 中的 docker.ports（字符串数组）
+"ports": ["25565:25565/tcp", "19132:19132/udp"]   // #1；#2 改左值宿主端口
+```
+
+### 验证与边界
+
+- **改完重启实例**，宿主应出现 `0.0.0.0:25565->25565/tcp` 与 `0.0.0.0:19132->19132/udp`；
+  宿主机 `127.0.0.1:25565` Java 握手 Ping、`127.0.0.1:19132` RakNet Ping 均应通。
+- **Cloudflare Tunnel 只承载 TCP**：**基岩 UDP 无法走 cloudflared**，远程基岩需 playit.gg
+  之类的 UDP 隧道或自建 UDP 中继；Java 通道不受影响。
+- **无停机改端口（进阶，实测）**：面板 HTTP API `PUT /api/instance` 需 `ROLE.ADMIN`
+  （普通用户 `403`）；可改用 daemon 自身 socket.io 协议——连 `http://<daemon>:24444`
+  （`path=/socket.io`，key 取 `daemon/data/Config/global.json` 的 `key`），依次
+  `auth` → `instance/detail` → `instance/update`，daemon 立即更新内存并落盘，无需停 daemon。
+  仅在无法使用面板 / 无 admin key 时采用；常规仍推荐 [usage.md §6.5](usage.md#65-生命周期与配置持久化)
+  的停机改写姿势（语义清晰、可审计）。
 
 ## 选填字段
 

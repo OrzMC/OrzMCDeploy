@@ -805,3 +805,44 @@ $DATA_ROOT/
 - **兼容性**：新增 `.env` 变量均**可选带默认值**（不入 `required_env_list`）；site override
   为新增可选文件；`DAEMON_PORTS` 仅在用户显式启用且无 docker 型实例时生效。旧 `.env`
   无需改动即可升级（唯一行为差异：非空 `DAEMON_PORTS` 在 docker 型实例存在时不再发布）。
+
+### ADR-023：EasyBot 镜像升级 v0.0.41 / easybot 内存上限可调 / 端口映射文档（#14–#16）（2026-10-01）
+
+**背景**：0.0.4 发布后远端 issue #14–#16：
+
+1. **#14 easybot 镜像 digest 过期**：钉的 `cd0b4e44`（v0.0.38）在 Windows bind mount 下对
+   已存在 `gateway.db` 的 `chmod` 加固会 `EPERM` → **静默降级到内存库**（数据不落盘、
+   `no such table` 刷屏、健康端点仍绿）。上游 PR #122/#123 已把加固失败降级为 WARN、并让
+   `/api/v1/ready` 显式上报存储降级（503）。
+2. **#16 easybot 512M 上限过紧**：EasyBot ≤0.0.40 近空载下匿名内存单调增长直至顶满 cgroup
+   上限，被 OOM kill 反复重启（重启风暴 + 消息丢失）；上游 issue #139 定位为 outbox 查询缺
+   覆盖索引导致 SQLite 反复建 TEMP B-tree，0.0.41 新增 schema 迁移 v4 修复。easybot fuse
+   硬编码 512M，运维只能改包内 `compose.yaml`（升级即丢）。
+3. **#15 端口映射文档缺口**：`papermc-template.md` 只给 TCP 映射示例，而
+   `windows-deployment.md` 要求放行 `19132/udp`——docker 型实例的容器端口不会自动发布，
+   容器内 Geyser 监听正常但宿主/局域网不可达，防火墙放行反而造成误判。
+
+**决策**：
+
+1. **easybot digest bump 到 v0.0.41**（`sha256:23a6eace…`，多架构 index digest，与既有口径
+   一致）：一次升级同时含 #121/#122/#123（存储加固/降级上报）与 #139（内存泄漏）修复，
+   覆盖 #14 与 #16 的根因。升级路径 `update-image-digests.sh easybot` 不变。
+2. **easybot 内存上限收敛到 `.env`**（issue #16）：`compose.yaml` 的 hard limit 改为
+   `${EASYBOT_MEMORY_LIMIT:-1G}`；三个 `templates/env.*` 增加可选变量（注释带缺省值说明）。
+   v0.0.41 已修泄漏，1G 为修后仍保留的安全余量，可按站点负载下调/上调或写
+   `compose.site.yaml`（不破坏运行时/数据分离铁律）。
+3. **文档化端口映射规则**（issue #15）：`papermc-template.md` 新增「端口映射与多实例分配
+   （Geyser/基岩必读）」——端口从实例实际配置（`server-port` / `bedrock.port` / `query.port` /
+   `rcon.port`）推导、逐条 `宿主:容器/协议` 显式发布、多实例宿主端口分配范式、
+   `clone-remote-port` 语义、云隧道不承载 UDP；`windows-deployment.md` §9.1/§9.4 补「先发布
+   再放行防火墙」前提、§10 P2 补 TUN 代理抢路由导致「内网通外网不通」的判定与策略路由修法。
+
+**影响**：
+- 运行时：`compose.yaml`（easybot digest + 内存上限变量化）、`templates/env.{prod,local,lan}`
+  （新增可选 `EASYBOT_MEMORY_LIMIT`）。
+- 文档：`docs/papermc-template.md`（端口映射章节）、`docs/windows-deployment.md`（§9.1/§9.4/P2）、
+  `docs/usage.md` 附录 F（平台层服务内存上限表）、`README.md`、`CHANGELOG.md`、本 ADR。
+- **兼容性**：`EASYBOT_MEMORY_LIMIT` 为可选变量（不入 `required_env_list`），旧 `.env` 无需改动
+  即可升级；唯一行为差异是 easybot 上限默认由 512M 变为 1G（按 issue #16 诉求）。
+- **未纳入**：issue #15 附带的 daemon socket.io 无停机改端口姿势仅作为「进阶（实测）」记录在
+  文档，不作为官方推荐路径（语义/鉴权面更大，常规仍走停 daemon 改写）。

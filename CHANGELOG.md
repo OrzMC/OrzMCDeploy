@@ -13,6 +13,23 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **easybot 镜像升级到 v0.0.41**（digest `cd0b4e44…` → `23a6eace…`）：含 SQLite 权限加固
+  失败不再中止初始化（Windows bind mount 的 `EPERM` 不再退回内存库）、存储降级显式上报
+  （`/api/v1/ready` 503）、以及近空载匿名内存泄漏（上游 #139）修复——一并解决 [#14]/[#16]。
+- **easybot 内存上限不再硬编码 512M**：改为 `.env` 的 `EASYBOT_MEMORY_LIMIT` 派生
+  （缺省 `1G`），消除 `restart: unless-stopped` 下的 cgroup OOM 重启风暴（[#16]）。
+
+### 文档
+
+- `docs/papermc-template.md` 新增「端口映射与多实例分配（Geyser/基岩必读）」：端口必须从
+  实例实际配置推导并逐条 `宿主:容器/协议` 显式发布（含 `19132/udp`），多实例宿主端口分配
+  范式，`clone-remote-port` 语义，云隧道不承载 UDP（[#15]）。
+- `docs/windows-deployment.md` §9.1/§9.4 补「先在 `docker.ports` 发布端口、防火墙规则才
+  生效」前提；§10 P2 补宿主 TUN 代理抢路由导致「内网通、外网静默不可达」的判定与策略路由修法。
+- `docs/usage.md` 附录 F 新增「平台层各服务内存上限（可调）」表；`README.md` 同步。
+
 ## [0.0.4] - 2026-09-11
 
 ### 修复
@@ -129,3 +146,6 @@
 [#10]: https://github.com/OrzMC/OrzMCDeploy/issues/10
 [#11]: https://github.com/OrzMC/OrzMCDeploy/issues/11
 [#12]: https://github.com/OrzMC/OrzMCDeploy/issues/12
+[#14]: https://github.com/OrzMC/OrzMCDeploy/issues/14
+[#15]: https://github.com/OrzMC/OrzMCDeploy/issues/15
+[#16]: https://github.com/OrzMC/OrzMCDeploy/issues/16
