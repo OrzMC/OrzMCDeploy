@@ -97,14 +97,14 @@ services:
   # 核心 web/daemon 无 profile 常驻，不随 ENABLE_* 变化。
 
   easybot:
-    # 资源上限（issue #16）：由 .env 的 EASYBOT_MEMORY_LIMIT 派生（缺省 1G）。
-    # 旧的硬编码 512M 会把 `restart: unless-stopped` 变成 OOM 重启风暴——EasyBot ≤0.0.40
-    # 在近空载下匿名内存单调增长直至顶满 cgroup 上限（上游 issue #139）。v0.0.41 已修根因，
-    # 此处仍留 1G 余量；站点可按实际负载经 .env / $DATA_ROOT/compose.site.yaml 调整。
+    # 资源上限（issue #16）：由 .env 的 EASYBOT_MEMORY_LIMIT 派生（缺省 512M，与原硬编码值一致）。
+    # 刻意保持**紧**上限：EasyBot v0.0.41 已修掉近空载匿名内存泄漏（上游 issue #139），
+    # 若随之把上限放大（曾短暂用 1G），反而会**掩盖**未来的内存回归——泄漏应尽快由 OOM/重启
+    # 暴露，而不是被余量吞掉。仅当站点确有更重负载时才上调（.env / compose.site.yaml）。
     deploy:
       resources:
         limits:
-          memory: "${EASYBOT_MEMORY_LIMIT:-1G}"
+          memory: "${EASYBOT_MEMORY_LIMIT:-512M}"
     # 依赖 EasyBot ≥0.0.35（镜像 digest 锁定，勿回退到更低版本；升级见 update-image-digests.sh）
     # 钉 v0.0.41：含 SQLite 权限加固降级 / 存储降级显式上报（上游 #121/#122/#123）与近空载
     # 匿名内存泄漏修复（上游 #139），对应本仓库 issue #14/#16。

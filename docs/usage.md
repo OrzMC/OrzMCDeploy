@@ -1000,14 +1000,17 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | 服务 | `.env` 变量 | 缺省上限 | 说明 |
 |---|---|---|---|
 | `mcsmanager-daemon` | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | `512M` / `384` | 堆须与上限对齐，见 issue #10 |
-| `easybot` | `EASYBOT_MEMORY_LIMIT` | `1G` | EasyBot ≤0.0.40 有空载内存泄漏（上游 #139），0.0.41 已修根因 |
+| `easybot` | `EASYBOT_MEMORY_LIMIT` | `512M` | 与旧值一致的**紧**上限；v0.0.41 已修空载内存泄漏（上游 #139），放大上限会掩盖回归 |
 | `mcsmanager-web` | —（`compose.yaml` 硬编码） | `512M` | 面板服务，占用平稳 |
 | `mariadb` | —（`compose.yaml` 硬编码） | `512M` | buffer pool 128M，可另调 `--innodb-buffer-pool-size` |
 | `status`（Gatus） | —（`compose.yaml` 硬编码） | `256M` | scratch 镜像，占用可忽略 |
 
-> 上调 easybot 上限：`.env` 写 `EASYBOT_MEMORY_LIMIT=2G` 后 `./orzmc.sh up`（compose 重建）；
-> 下调同理。仅当容器被 cgroup OOM kill（`docker inspect orzmc-easybot --format '{{.RestartCount}}'`
-> 持续增长 + 宿主 `dmesg` 出现 `Killed process ... easybot`）才需要，先确认不是应用自身异常。
+> **easybot 上限刻意保持紧**（缺省 `512M`，与原硬编码值一致）：EasyBot v0.0.41 修掉了空载
+> 内存泄漏后，不要为了“保险”把上限放大——放大只会让未来的内存回归更晚暴露。仅当站点确有
+> 更重负载（多适配器/大量插件回传）且确认是**正常**工作集超限时，才 `.env` 写
+> `EASYBOT_MEMORY_LIMIT=1G` 后 `./orzmc.sh up`；下调同理。判断是否 OOM：
+> `docker inspect orzmc-easybot --format '{{.RestartCount}}'` 持续增长 +
+> 宿主 `dmesg` 出现 `Killed process ... easybot`。
 
 ### 如何查看/调整实例内存
 
