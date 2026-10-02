@@ -1060,3 +1060,17 @@
   `.git`/`.env`/`.local-data` 禁入路径。
 - **待办**：无（#14–#16 已随 PR 合入由 GitHub 自动 close）。后续新装用户经 `install.sh`
   默认即取 v0.0.5。
+
+### 2026-10-01 发布 v0.0.6（easybot 上限回调 512M / ADR-024）
+
+- **背景**：#14–#16 修复（v0.0.5）把 easybot 上限缺省从 512M 提到 1G；但同批 digest 已升到
+  EasyBot v0.0.41（修掉上游 #139 空载内存泄漏）——512M 曾"过紧"是泄漏所致，放大 fuse 反而会
+  **掩盖**未来回归。故发布 v0.0.6 把 `EASYBOT_MEMORY_LIMIT` 缺省回调为 `512M`（保留可调）。
+- **内容**：commit `7ebc53e`（fix）+ `ee47b08`（release）；CHANGELOG 归档 `[0.0.6] - 2026-10-01`；
+  新增 ADR-024（修正 ADR-023 的上限决策）；`compose.yaml` / 三个 `templates/env.*` 缺省回调 512M。
+- **发布方式**（ADR-018）：tag `v0.0.6` → CI `package` job 产出 `orzmc-0.0.6.tar.gz`（123438 B）
+  + `.sha256`，Release 于 2026-10-02T00:52:08Z 发布。
+- **发布校验**：CI 4 job 全 success；`gh release view v0.0.6` 资产齐全且为 latest；
+  `./install.sh -v 0.0.6` sha256 校验通过（`6641fff1…`）、包内 `compose.yaml` 为
+  `${EASYBOT_MEMORY_LIMIT:-512M}`、模板含 `EASYBOT_MEMORY_LIMIT=512M`。
+- **待办**：父仓库 `OrzMC/OrzMC` bump deploy 指针到本 main 最新。
