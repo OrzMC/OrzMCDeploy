@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-10-01
+
 ### 修复
 
 - **easybot 内存上限缺省值由 `1G` 回调为 `512M`**（`EASYBOT_MEMORY_LIMIT` 仍可调）：v0.0.41
@@ -138,7 +140,8 @@
 - 文档：`README`、`docs/architecture.md`（ADR-001–014）、`docs/usage.md`、
   `docs/easybot.md`、`docs/papermc-template.md`。
 
-[Unreleased]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.2...v0.0.3
