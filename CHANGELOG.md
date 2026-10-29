@@ -13,6 +13,20 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-29
+
+### ⚠️ 破坏性变更（升级前必读）
+
+- **`DATA_ROOT` 不再有默认值**（ADR-033）：所有命令必须带 `-d <数据目录>` 或
+  `export ORZMC_DATA_ROOT=<数据目录>`，否则直接报错。
+- **删除边缘层与旧入口**（ADR-027）：不再有 `compose.edge.*.yaml` / `-e <edge>` /
+  `local.sh` / `lan.sh` / `windows.sh`；只保留局域网直连。
+- **daemon 不再对外发布端口**（ADR-026）：节点地址固定 `ws://mcsmanager-daemon:24444`，
+  浏览器终端/文件管理经面板中转（旧装需把 `dataPlane` 切到 `proxy`，见 usage §6.3）。
+- **平台层移除 MariaDB / Gatus 状态页**（ADR-025）：需要时用 `compose.site.yaml` 加回。
+- **默认限源**（ADR-028）：新增 `LAN_BIND_ADDR` / `LAN_CIDR` / `ALLOW_EXTRA_CIDRS` 与
+  `./orzmc.sh firewall apply`；升级后请把防火墙来源收回局域网网段。
+
 ### 修复（CI：可执行位缺失导致 firewall 用例一直失败）
 
 - **根因**：`lib/firewall.sh` 在 git 里是 `100644`（无执行位），而 `orzmc.sh` 直接执行它 →
