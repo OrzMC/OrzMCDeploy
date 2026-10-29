@@ -32,7 +32,7 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 
 | 术语 | 含义 |
 |---|---|
-| **DATA_ROOT** | 宿主机上的统一数据目录，存放全部配置与密钥。默认值按平台：macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`（`-d` / `ORZMC_DATA_ROOT` 可覆盖） |
+| **DATA_ROOT** | 宿主机上的统一数据目录，存放全部配置与密钥（默认值见 §4.1） |
 | **局域网模式** | 本项目唯一的运行形态（ADR-027）：宿主发布 `LAN_*_PORT`，纯 HTTP |
 | **daemon key** | MCSManager Daemon 的鉴权密钥，等同最高权限（daemon 可管理宿主机 Docker）。位于 `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` |
 | **会话 key** | EasyBot 后台为某个平台会话分配的标识（如 `qq:xxxxxxxx`），填进插件 `easybot.yml` |
@@ -74,8 +74,7 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 ./orzmc.sh -d /path/to/orzmc status   # 打印访问地址 + 容器状态
 ```
 
-省略 `-d` 时用平台默认 DATA_ROOT（Linux `/srv/orzmc`、macOS `/Users/Shared/orzmc`、
-Windows `E:/orzmc`）。
+省略 `-d` 时用平台默认值（见 §4.1）。
 
 `up` 会拉起 `mcsmanager-web` / `mcsmanager-daemon`（+ `easybot`，除非 `ENABLE_EASYBOT=false`）；
 `status` 打印两个入口：`http://<LAN_HOST_IP>:18090`（面板）、`:18091`（EasyBot 后台）。
@@ -107,10 +106,18 @@ Windows `E:/orzmc`）。
 
 ### 4.1 DATA_ROOT 与 .env
 
-**DATA_ROOT 优先级**：命令行 `-d/--data-root` 参数 > 环境变量 `ORZMC_DATA_ROOT` >
-平台默认值（macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`）。所有脚本
-（deploy / backup / restore）统一按此解析，并用 `compose_cmd` 显式 `--env-file
-$DATA_ROOT/.env` 调用 compose。
+**DATA_ROOT 优先级**：命令行 `-d/--data-root` > 环境变量 `ORZMC_DATA_ROOT` > 平台默认值。
+**平台默认值（本文唯一权威说明，其他文档不再重复）**：
+
+| 平台 | 默认 `DATA_ROOT` | 说明 |
+|---|---|---|
+| Linux | `/srv/orzmc` | 生产推荐；需 root 或 docker 组权限 |
+| macOS | `/Users/Shared/orzmc` | Docker Desktop 默认共享目录 |
+| Windows | `E:/orzmc` | 必须 Windows 原生路径；盘符可按需改 |
+
+所有脚本（deploy / backup / restore）统一按此解析，并用 `compose_cmd` 显式
+`--env-file $DATA_ROOT/.env` 调用 compose。**换机器/换路径时用 `-d` 或
+`ORZMC_DATA_ROOT` 显式指定即可，无需改仓库文件。**
 
 `.env` 是**唯一配置源**（含密钥）。首次由 `init` 从 `templates/env` 生成，之后**改配置 =
 编辑 `.env`**。必需变量清单由 `lib/common.sh` 的 `required_env_list` 定义（`orzmc.sh validate`
@@ -381,13 +388,14 @@ key 在 `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json`，权限 600，�
 | 内存单位 | `docker.memory: 4096`（= 4G，**MB 单位**） | 填字节值会让容器内存配额错乱 |
 | 日志乱码 | `terminalOption.pty: true` | 非 pty 时 stdout/stderr 双路复用错位，每行首字符乱码（如 `D[10:52...`） |
 | 插件连 EasyBot | 网络挂 **`orzmc_default`** | 实例与 easybot 同网，插件才能内网直连 `http://easybot:8080` |
-| macOS 属主 | 实例目录 `chown` 给宿主用户（`sudo chown -R joker:staff <instance-dir>`） | macOS 容器内 uid 检查通过但写盘走宿主用户，`1000:1000` 会写盘失败 |
+| macOS 属主 | 实例目录 `chown` 给**你自己的宿主用户**（`sudo chown -R <宿主用户>:staff <instance-dir>`） | macOS 容器内 uid 检查通过但写盘走宿主用户，`1000:1000` 会写盘失败 |
 | Linux 属主 | 保持 `runAs 1000:1000` | Linux 无 macOS 问题 |
 | 镜像 | 建议 digest 锁定（如 `eclipse-temurin:25-jre` 对应 Paper 26.2） | 避免无意升级；模板建议用固定 tag |
 
 字段速记：运行方式 `docker`、工作目录 `/server`、镜像拉取策略 `IfNotPresent`、
 重启策略 `unless-stopped`、Ready 关键字 `Done`、编码 `utf8`、启动命令
-`java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms4G -Xmx4G -jar paper.jar --nogui`。
+`java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms<堆> -Xmx<堆> -jar paper.jar --nogui`
+（`<堆>` 与 `docker.memory` 一致，按在线人数定，见附录 E）。
 
 ### 6.5 生命周期与配置持久化
 
@@ -593,8 +601,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 | 防火墙收敛 | `./orzmc.sh firewall show` / `apply` |
 
-- `<DATA_ROOT>` 默认值：macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`。
-- 统一入口解析：`-d` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 平台默认值。
+- 平台默认 `<DATA_ROOT>` 与优先级见 [§4.1](#41-data_root-与-env)（三平台默认值不同，值是固定的）。
 - 非 Windows 平台的 `firewall apply` 需 root/管理员（Linux 走 `ufw`，macOS 只打印 `pf` 规则）。
 
 ## 附录 B 端口约定

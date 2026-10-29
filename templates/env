@@ -11,13 +11,15 @@ TZ=Asia/Shanghai
 DATA_ROOT=<DATA_ROOT>
 
 # ---- 局域网入口：宿主发布端口（改完 up 即生效；init 不会覆盖已存在的 .env）----
-LAN_HOST_IP=192.168.1.100
+# 下面两项是示例值：换成你自己的宿主局域网 IP 与网段（两者应属同一网段）
+LAN_HOST_IP=192.168.0.10
 LAN_MCS_WEB_PORT=18090
 LAN_EASYBOT_PORT=18091
 
 # ---- 暴露面（ADR-028）：绑定地址 + 防火墙来源 ----
 # LAN_BIND_ADDR：0.0.0.0 所有网卡 / 127.0.0.1 仅本机（配合反代、VPN）/ 具体 IP 只绑该网卡
 LAN_BIND_ADDR=0.0.0.0
+# 防火墙放行来源：示例值，改成你的局域网网段（orzmc.sh firewall apply 使用）
 LAN_CIDR=192.168.0.0/24
 # 额外放行来源（逗号分隔，如 Tailscale 100.64.0.0/10、另一台机器 IP）；留空=不放行
 ALLOW_EXTRA_CIDRS=

@@ -172,13 +172,10 @@ $DATA_ROOT/
 
 **背景**：站点运行数月后复盘「服务是否都在创造价值」，两个服务被证伪：
 
-1. **MariaDB（ADR-008）从未被使用**：`SHOW DATABASES` 显示 `papermc` 库 **0 张表**，
-   两个实例的 LuckPerms 均为 `storage-method: h2`，AuthMe/EzShops/GriefPrevention
-   全走本地存储，`information_schema.processlist` 无业务连接。
-   它的真实成本却一直在：1 个容器（109 MB 常驻）、162 MB 数据目录、每次备份一次的
-   `mariadb-dump`（+`dumps/` 轮转）、4 个 `.env` 变量（含 2 个密钥）、
-   issue #7 专门重写的 healthcheck，以及 `db_root_pw`/`wait_for_mariadb`/
-   `dump_db_logical` 共 48 行库代码。
+1. **MariaDB（ADR-008）从未被使用**：站点实测该库零表、无业务连接（插件各自用
+   h2/sqlite/yaml 本地存储），但它带来常驻容器、每次备份的逻辑 dump、4 个 `.env`
+   变量（含 2 个密钥）、专用 healthcheck，以及 `db_root_pw` / `wait_for_mariadb` /
+   `dump_db_logical` 一批库代码。
 2. **Gatus 状态页（ADR-009/010）成本高于价值**：只读看板、无鉴权、6 张健康卡片，
    而面板本身已显示节点/实例状态。更关键的是它**自我轮询**：`status/config.yaml`
    的端点指向公网域名，每 30 s 各走一遍 Cloudflare 隧道（实测每次约 1 s），
@@ -272,8 +269,8 @@ prod 回改隧道 URL（ADR-013）→ local 用 Caddy `.localhost`、lan 用 LAN
   一段访问提示、一批文档分支；CI 要跑 4 档 × ENABLE 的矩阵；旧入口 `local.sh`/`lan.sh`/
   `windows.sh` 还要维护兼容。
 - 而实际使用中，公网入口的真实需求是"我自己找办法"：站点已具备 DDNS + 端口映射能力，
-  也可用 VPN/反代；Cloudflare 隧道受跨境路由影响（实测到边缘 TTFB 中位数 0.76 s，
-  且关掉代理直连 CF 时 `connect` 0.19–0.52 s、2/6 请求失败），维护成本高而收益低。
+  也可用 VPN/反代；Cloudflare 隧道受跨境路由影响（站点实测 TTFB 中位数接近 1 s、
+  偶发请求失败），维护成本高而收益低。
 - ADR-026 之后公网入口只剩 `mcs` + `easybot` 两个 HTTP 站点，边缘层退化为"把一个 HTTP
   端口转出去"，完全可以由站点侧的反代/NAT 承担。
 
@@ -317,7 +314,7 @@ HTTP + 口令登录，`Any` 意味着同网段任何设备（含访客 Wi-Fi、�
 |---|---|---|
 | L1 容器网络 | daemon 不发布端口（ADR-026） | 已生效 |
 | L2 绑定地址 | `.env` 的 `LAN_BIND_ADDR` → compose `ports` 的 host_ip | `0.0.0.0`（可改 `127.0.0.1`） |
-| L3 宿主防火墙 | `./orzmc.sh firewall apply`，来源取 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS` | 仅 `192.168.0.0/24` |
+| L3 宿主防火墙 | `./orzmc.sh firewall apply`，来源取 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS` | `LAN_CIDR`（模板给的是示例网段，须改成站点网段） |
 
 - 新增 `lib/firewall.sh` + `./orzmc.sh firewall show|apply [--dry-run]`：幂等重建
   `OrzMC-*` 入站规则（Windows 走 PowerShell `New-NetFirewallRule`，Linux 走 ufw，
@@ -341,7 +338,7 @@ TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 
 
 **背景**：ADR-016 曾断言 Windows 下 compose 无法创建 daemon，故 `compose_cmd` 在 Windows
 分支剔除 daemon 并改用 `docker run`。但 ADR-019 移除 `instances/` 自挂载后，本次实测
-（Docker Desktop 4.95 / compose 29.8）**Windows 原生 compose 能正常创建 daemon**
+（Docker Desktop + compose v2 实测）**Windows 原生 compose 能正常创建 daemon**
 （容器带 `com.docker.compose.project=orzmc` 标签）。
 
 **决策**：Windows 档改为 **compose 优先**——`DAEMON_PORTS` 为空（docker 型实例）时直接

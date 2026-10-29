@@ -15,8 +15,8 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 ### 1. 运行时与数据分离
 
 - **仓库只承载"运行时"**：compose 编排、镜像 digest、部署脚本、配置模板、文档。
-- **全部配置与数据通过卷映射落在宿主机统一目录 `$DATA_ROOT`**（生产
-  `/Users/Shared/orzmc`；Windows 建议 `E:/orzmc`）。
+- **全部配置与数据通过卷映射落在宿主机统一目录 `$DATA_ROOT`**（平台默认值与优先级见
+  `docs/usage.md` §4.1，下文「命令速查」列出当前值）。
 - 运行数据包括：`.env`（全部环境变量 + 密钥）、`compose.site.yaml`、EasyBot 数据、
   MCSManager 数据、PaperMC 实例目录。
 - 由此获得的能力：运行时独立演进（升级镜像/改编排不触碰数据）、数据独立
@@ -107,8 +107,8 @@ docs/papermc-template.md PaperMC 实例录入字段参考（面板运行数据�
 - 局域网入口在 `$DATA_ROOT/.env` 里配：`LAN_HOST_IP` + `LAN_MCS_WEB_PORT`(18090) +
   `LAN_EASYBOT_PORT`(18091)；可选服务开关 `ENABLE_EASYBOT` 也在 `.env` 里（缺省 `true`）。
   `-e/--edge` 参数与 `local.sh`/`lan.sh`/`windows.sh` 入口已随 ADR-027 移除。
-- 生产默认 `DATA_ROOT` 按平台：Linux `/srv/orzmc`、macOS `/Users/Shared/orzmc`、
-  Windows `E:/orzmc`（见 `lib/common.sh` 的 `default_data_root`）。
+- **平台默认 `DATA_ROOT`**（唯一权威说明见 `docs/usage.md` §4.1）：Linux `/srv/orzmc`、
+  macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`（`lib/common.sh` 的 `default_data_root`）。
 - `DATA_ROOT` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
 - 所有 compose 调用统一走 `lib/common.sh` 的 `compose_cmd`（显式
   `--env-file $DATA_ROOT/.env` + 站点 override + `--profile easybot`）。
@@ -156,7 +156,7 @@ CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 ·
 - **macOS / Docker Desktop 写盘走宿主用户**：容器内 uid 检查通过后，实际磁盘写入由
   macOS 侧文件共享进程（宿主用户）执行；`runAs 1000:1000` 的容器在宿主目录属主非该
   用户时仍会写盘失败（Operation not permitted / AccessDenied）。生产 macOS 将实例目录
-  属主改为宿主用户（`sudo chown -R joker:staff <instance-dir>`）；Linux 生产无此问题，
+  属主改为宿主用户（`sudo chown -R <宿主用户>:staff <instance-dir>`）；Linux 生产无此问题，
   保持 `1000:1000`。
 
 ## 安全约束（必须遵守）

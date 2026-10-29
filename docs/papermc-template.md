@@ -3,10 +3,10 @@
 本文档是在 `MCSManager` 面板创建 `PaperMC` Docker 实例时的逐项字段参考（唯一来源；
 这些字段属**运行数据**，由面板写入 `InstanceConfig/<uuid>.json`，不在仓库配置里）。
 
-## 建议的实例拆分
+## 建议的实例拆分（示例命名/端口，可自定）
 
-- `papermc-test`：功能验证 / 插件测试 / 临时活动服（端口 `25566`、内存 2G）
-- `papermc-main`：正式生存服（端口 `25565`、内存 4G）
+- 测试服（如 `papermc-test`）：功能验证 / 插件测试 / 临时活动服，错开正式服端口
+- 正式服（如 `papermc-main`）：对玩家的生存服
 
 ## 必填字段
 
@@ -17,12 +17,12 @@
 | 镜像名 | `eclipse-temurin:25-jre` | `eclipse-temurin:25-jre` | 按 Paper 版本选 Java（Paper 26.2→Java 25；1.21.x→`eclipse-temurin:21-jre`） |
 | 服务端口 | `25566` | `25565` | 测试服避开正式服默认端口 |
 | 端口映射 | `25566:25566/tcp`（启用 Geyser 再加 `19133:19133/udp`） | `25565:25565/tcp`（启用 Geyser 再加 `19132:19132/udp`） | `宿主:容器/协议`，一个对外端口一条；启用 Geyser 必须**显式发布 UDP**，仅写 TCP 时基岩通道在容器外不可达（见「端口映射与多实例分配」） |
-| 服务目录 | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置） |
+| 服务目录 | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置）；`$DATA_ROOT` 默认值见 usage §4.1 |
 | 挂载定义 | `.../InstanceData/<uuid>:/server` | `.../InstanceData/<uuid>:/server` | 核心数据挂载（`<uuid>` 由面板生成） |
 | Java 版本 | `25` | `25` | 根据目标 Paper 版本选择（同上一行） |
 | 最小内存 | `2G` | `4G` | 测试服保守，正式服更稳妥 |
 | 最大内存 | `2G` | `4G` | 建议与最小值一致，降低抖动 |
-| 启动命令 | `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui` | `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms4G -Xmx4G -jar paper.jar --nogui` | 面板里直接填固定字符串（内存与最小/最大值一致） |
+| 启动命令 | `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms<内存> -Xmx<内存> -jar paper.jar --nogui` | 同左 | 面板里直接填固定字符串，`<内存>` 与 `docker.memory` 一致 |
 | Minecraft 版本 | `1.21.1` | `1.21.1` | 业务版本 |
 | Jar 文件名 | `paper.jar` | `paper.jar` | 镜像内实际服务端文件名 |
 | 接受 EULA | `true` | `true` | 必须开启 |
@@ -54,9 +54,9 @@
 macOS + Docker Desktop + MCSManager Docker 实例实测：
 
 - 镜像 `eclipse-temurin:25-jre`（Paper 26.2；1.21.x 用 `21-jre`），工作目录 `/server`
-- 启动命令 `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui`
-  （正式服 `-Xms4G -Xmx4G`）
-- 端口 `25566:25566/tcp`（测试）/ `25565:25565/tcp`（正式）；Geyser 再加 `19132:19132/udp`
+- 启动命令 `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms<堆> -Xmx<堆> -jar paper.jar --nogui`
+  （`<堆>` 与 `docker.memory` 一致，小服 2G、常规 4G，按人数定）
+- 端口 `宿主:容器/tcp`（Java）与 `宿主:容器/udp`（Geyser，启用时）
 - 宿主机预置：`paper.jar`、`eula.txt`（`eula=true`）、`server.properties`；
   离线进服把 `online-mode` 设 `false`
 
@@ -115,12 +115,12 @@ macOS + Docker Desktop + MCSManager Docker 实例实测：
 
 | 实例 | Java（TCP） | 基岩（UDP） |
 |---|---|---|
-| #1（正式） | `25565:25565/tcp` | `19132:19132/udp` |
-| #2（测试） | `25566:25565/tcp` | `19133:19132/udp` |
+| #1 | `<端口1>:25565/tcp` | `<udp端口1>:19132/udp` |
+| #2 | `<端口2>:25565/tcp` | `<udp端口2>:19132/udp` |
 
 ```jsonc
 // InstanceConfig/<uuid>.json 中的 docker.ports（字符串数组）
-"ports": ["25565:25565/tcp", "19132:19132/udp"]   // #1；#2 改左值宿主端口
+"ports": ["<宿主端口>:25565/tcp", "<宿主udp端口>:19132/udp"]   // 左值是宿主端口，每个实例唯一
 ```
 
 ### 验证与边界

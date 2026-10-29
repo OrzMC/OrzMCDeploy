@@ -33,8 +33,14 @@ check() { # check <desc> <expected> <actual>
 section() { echo ""; echo "== $* =="; }
 
 # ---- 注入 mock：必须在 source common.sh 之前 ----
-# mock uname：MODE=windows|posix 控制 detect_os
-uname() { [ "${MODE:-posix}" = "windows" ] && printf '%s\n' "MINGW64_NT-10.0-22631" || printf '%s\n' "Linux"; }
+# mock uname：MODE=windows|darwin|posix 控制 detect_os / default_data_root
+uname() {
+    case "${MODE:-posix}" in
+        windows) printf '%s\n' "MINGW64_NT-10.0-22631" ;;
+        darwin)  printf '%s\n' "Darwin" ;;
+        *)       printf '%s\n' "Linux" ;;
+    esac
+}
 # mock cygpath：`cygpath -m <abs路径>` → 稳定转 C:/...（MSYS 的 /c/x→C:/x，
 # 其它绝对路径统一转 C:/<strip-first-slash>，使断言不依赖 checkout 位置——
 # CI 在 /home/runner 而本地在 /c/Users）
@@ -92,6 +98,7 @@ check "默认 DATA_ROOT（Windows）= E:/orzmc" "E:/orzmc" "$(MODE=windows defau
 MODE=posix
 check "detect_os=Linux 返回 posix" "posix" "$(detect_os)"
 check "默认 DATA_ROOT（Linux）= /srv/orzmc" "/srv/orzmc" "$(MODE=posix default_data_root)"
+check "默认 DATA_ROOT（macOS）= /Users/Shared/orzmc" "/Users/Shared/orzmc" "$(MODE=darwin default_data_root)"
 
 # ===========================================================================
 section "win_path（MSYS/原生路径 → Windows 原生正斜杠）"
