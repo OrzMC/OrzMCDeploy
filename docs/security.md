@@ -116,16 +116,21 @@ chunk 加载失败」，但 curl 正常（不走 h3）。最简单是在 Caddyfi
 而 **不要**把 `OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-*` 改成 `Any`。`./orzmc.sh firewall apply`
 会重建的 5 组规则均限 `LAN_CIDR`，与反代规则互不覆盖（只删重建 `OrzMC-*` 同名项）。
 
-**反代不要顺带暴露 EasyBot 开发文档**（`/docs`、`/swagger`）：容器内 `remote_ip` 已被
-Docker 改写成网桥网关，靠 IP 区分内外网不可靠 → 直接在反代里无条件挡掉：
+**EasyBot 是一个整体服务：公网入口与局域网入口功能一致**。反代该域名后，后台
+`/admin`、开发者文档 `/docs`、`/swagger`、插件 API `/api/v1/*` 与直连
+`http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>` 完全相同，不做路径级拦截——它们各自带登录 /
+API key 鉴权，文档本身不含密钥，只暴露接口清单。
+
+容器内 `remote_ip` 已被 Docker 改写成网桥网关，按来源 IP 区分内外网不可靠，因此也不存在
+"只对局域网开放某几个路径"的可靠做法：要挡就整站挡（不配公网域名），要开放就与局域网一致。
+
+如果站点确实只想公开后台、不公开文档，可在站点 Caddyfile 里显式挡掉——但要清楚这会破坏
+"公网 = 局域网"的一致性（后台页面的文档链接会 404）：
 
 ```text
 @devdocs path /docs* /swagger*
 respond @devdocs "404 page not found" 404
 ```
-
-EasyBot 的插件 API（`/api/v1/*`）与后台同端口，反代该域名即一并外露（有 API key 鉴权）。
-不需要公网管理 EasyBot 时，最省事是不给它配公网域名。
 
 验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer；证书由 Caddy 按
 ARI 自动续期。
