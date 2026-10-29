@@ -128,3 +128,15 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
   所以"只对局域网开放某路径"这类规则不能靠 IP 匹配实现。
 - **残留风险（已知可接受）**：EasyBot 插件 API 与管理后台同端口，公网可达但需 API key
   （未鉴权返回 401）。若不需要公网管理 EasyBot，建议不配该域名，只留面板一个公网入口。
+
+### 2026-10-29 修复「面板偶尔打不开」：关闭 HTTP/3 广告
+
+- **症状**：`mcs.jokerhub.cn` 时好时坏（易白屏/懒加载失败），而 `easybot` 正常；
+  `curl` 测 9/10 成功、偶发 12 s 超时。
+- **根因**：Caddy 默认启用 HTTP/3 并返回 `alt-svc: h3=":443"`，但路由器**只转发了
+  TCP 443**、未转发 UDP 443 → 浏览器尝试 QUIC 被静默丢包，回退缓慢/失败。
+  curl 不走 h3，所以测不出来。
+- **处理**：Caddy 全局加 `servers { protocols h1 h2 }`（不再广告 h3），reload 后
+  `alt-svc` 消失；公网 mcs / easybot 各 8/8 成功、30–55 ms。
+- **备注**：若日后在路由器转发 UDP 443，可移除该块启用 h3；浏览器需完全退出或以
+  `chrome://net-internals/#sockets` 清 socket 池才会丢掉缓存的 alt-svc。

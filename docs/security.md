@@ -103,6 +103,25 @@ mcs.example.com {
 | 防火墙 | 只额外放行 Caddy 的端口（80/443）；面板 23333、EasyBot 18091 仍限 `LAN_CIDR` |
 | 路由器 | `外部 443 → 宿主 443`；若 ISP 封 443，可改映射高位端口（如 18443 → 宿主 443），证书与端口无关 |
 
+**反代务必关掉 HTTP/3，或同时转发 UDP 443**：Caddy 默认启用 QUIC 并返回
+`alt-svc: h3=":443"`。家用路由器一般**只转发 TCP 443**，于是浏览器会先试 QUIC →
+UDP 被丢 → 再回退，表现为「偶尔打不开 / 白屏 / 懒加载 chunk 失败」，而用 curl 测又
+一切正常（curl 不走 h3）。两种解法取其一：
+
+```text
+# 方案 A（推荐，最简单）：只开 h1/h2，不再广告 h3
+{
+    servers {
+        protocols h1 h2
+    }
+}
+
+# 方案 B：路由器同时把 UDP 443 转发到宿主，保留 h3（QUIC 更快）
+```
+
+改完后浏览器可能仍缓存了旧的 alt-svc：需要**完全退出浏览器**，或在
+`chrome://net-internals/#sockets` 点 Flush socket pools、`#dns` 清 host cache。
+
 **反代不要顺带暴露开发文档**：EasyBot 的 `/docs`、`/swagger` 是开发调试页面，
 公网无必要。注意 **容器内 `remote_ip` 已被 Docker 改写成网桥网关**，靠 IP 匹配区分
 内外网并不可靠——直接在反代里无条件挡掉、局域网改走宿主端口即可：
