@@ -101,8 +101,8 @@ mkdir -p "$INSTALL_DIR"
 # 覆盖解压（幂等）；不删除无关文件，不触碰 DATA_ROOT（运行时/数据分离）
 tar -xzf "/tmp/${ASSET}" -C "$INSTALL_DIR"
 
-# 确保入口可执行（GitHub 打包保留可执行位，保险起见再设一次）
-chmod +x "$INSTALL_DIR/orzmc.sh" 2>/dev/null || true
+# 确保脚本可执行（tar 保留模式位，但 Windows 解压/手工打包可能丢，保险起见再设一次）
+chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/lib/*.sh 2>/dev/null || true
 
 echo ""
 echo "==> 安装完成：$INSTALL_DIR"

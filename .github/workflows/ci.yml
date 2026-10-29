@@ -5,7 +5,7 @@
 # 不拉取容器镜像（docker compose config 为纯解析，无需 daemon/镜像）。
 #
 # Jobs：
-#   lint           —— shell 语法（bash -n）+ shellcheck + 模板 YAML 解析 + 禁入路径守卫
+#   lint           —— bash -n + shellcheck + YAML 解析 + 可执行位/文档链接守卫 + 禁入路径守卫
 #   validate       —— init && validate（必需变量 + docker compose config -q）+ 可选服务开关
 #                     + LAN_*_PORT / LAN_BIND_ADDR 生效 + firewall --dry-run
 #   windows-branch —— Windows 分支逻辑单元测试（mock uname 强制 MINGW，
@@ -53,7 +53,7 @@ jobs:
       - name: Shellcheck
         run: shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
 
-      - name: YAML template parse check
+      - name: YAML parse check（templates + compose + CI）
         run: |
           python3 - <<'EOF'
           import glob
@@ -61,55 +61,33 @@ jobs:
           import yaml
 
           files = sorted(glob.glob("templates/*.yml") + glob.glob("templates/*.yaml"))
+          files += ["compose.yaml", ".github/workflows/ci.yml"]
           for f in files:
               with open(f) as fh:
                   yaml.safe_load(fh)
-          print(f"yaml parse OK: {len(files)} templates")
+          print(f"yaml parse OK: {len(files)} files")
           EOF
+
+      - name: Executable bits（入口脚本必须有 +x）
+        run: |
+          bad=0
+          for f in orzmc.sh deploy.sh backup.sh restore.sh install.sh \
+                   update-image-digests.sh lib/firewall.sh tests/docs_check.sh; do
+            mode="$(git ls-files -s "$f" | awk '{print $1}')"
+            if [ "$mode" != "100755" ]; then
+              echo "!! $f 模式为 ${mode:-缺失}（应为 100755）"
+              bad=1
+            fi
+          done
+          exit "$bad"
 
       - name: Markdown links & anchors
-        run: |
-          python3 - <<'EOF'
-          import pathlib, re, unicodedata
-
-          def slug(h):
-              out = []
-              for ch in h.strip().lower():
-                  c = unicodedata.category(ch)
-                  if c.startswith(("P", "S")):
-                      if ch in "-_":
-                          out.append(ch)
-                      continue
-                  out.append(ch)
-              return re.sub(r"\s+", "-", "".join(out))
-
-          files = list(pathlib.Path(".").glob("*.md")) + list(pathlib.Path("docs").glob("*.md"))
-          anchors = {}
-          for f in files:
-              anchors[f.resolve()] = {
-                  slug(m.group(2))
-                  for line in f.read_text().splitlines()
-                  if (m := re.match(r"^(#{1,4})\s+(.*)$", line))
-              }
-          bad = []
-          for f in files:
-              for link in re.findall(r"\]\(([^)\s]+)\)", f.read_text()):
-                  if link.startswith(("http", "mailto:")):
-                      continue
-                  target, _, frag = link.partition("#")
-                  tf = (f.parent / target).resolve() if target else f.resolve()
-                  if target and not tf.exists():
-                      bad.append(f"{f}: missing {link}")
-                  elif frag and tf.suffix == ".md" and frag not in anchors.get(tf, set()):
-                      bad.append(f"{f}: bad anchor {link}")
-          if bad:
-              print("\n".join(bad))
-              raise SystemExit(f"{len(bad)} 处链接/锚点失效")
-          print(f"markdown links OK: {len(files)} files")
-          EOF
+        run: bash tests/docs_check.sh
 
       - name: Forbidden paths guard (secrets/data must never be tracked)
         run: |
+          # 含旧版本遗留目录名（.env.local/.local-data-lan）：现在 .gitignore 不再列它们，
+          # 这里继续拦截，防止老 checkout 的残留被误提交。
           bad="$(git ls-files | grep -E '(^|/)(\.env|\.env\.local|\.local-data|\.local-data-lan|\.local-backups)(/|$)' || true)"
           if [ -n "$bad" ]; then
             echo "以下禁入路径被纳入版本控制："

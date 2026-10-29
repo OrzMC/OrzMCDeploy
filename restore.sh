@@ -93,5 +93,5 @@ info "还原完成。验证: ./orzmc.sh -d ${DATA_ROOT} validate"
 if [ "$START" = 1 ]; then
     # 注意：不能用 ${SCRIPT_DIR} —— source lib/common.sh 会把 SCRIPT_DIR 覆写为
     # lib/ 目录；REPO_ROOT 是 common.sh 按仓库根算出的正确路径。
-    "${REPO_ROOT}/orzmc.sh" -d "$DATA_ROOT" up
+    bash "${REPO_ROOT}/orzmc.sh" -d "$DATA_ROOT" up
 fi

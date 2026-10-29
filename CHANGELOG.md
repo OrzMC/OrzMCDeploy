@@ -13,6 +13,20 @@
 
 ## [Unreleased]
 
+### 修复（CI：可执行位缺失导致 firewall 用例一直失败）
+
+- **根因**：`lib/firewall.sh` 在 git 里是 `100644`（无执行位），而 `orzmc.sh` 直接执行它 →
+  CI 新检出报 `Permission denied`（本地因工作区有 `+x` 才通过），「防火墙 dry-run」用例
+  自加入起一直失败。
+- **修复**：`git` 中补执行位；`orzmc.sh` / `restore.sh` 内部调用改为 `bash <script>`，
+  不再依赖执行位（Windows 克隆 / ZIP 下载 / `core.fileMode=false` 都不会再踩）；
+  `install.sh` 解压后给 `*.sh` 与 `lib/*.sh` 补 `+x`。
+- **CI 清理与加固**：
+  - 新增 **可执行位守卫**（入口脚本必须 100755），防止回归；
+  - markdown 链接/锚点检查抽为 `tests/docs_check.sh`（本地可复用），CI 只调一行；
+  - YAML 解析扩展到 `compose.yaml` 与 `.github/workflows/ci.yml`（原来只查 templates）；
+  - 打包 job 去掉已不存在的 `.local-data-lan` 排除项；禁入守卫保留旧目录名并注明原因。
+
 ### 文档（统一重写：README + docs 结构与书写规范）
 
 - **README** 改为落地页三段式（是什么/怎么跑/去哪读）：能力表、快速开始（命令全部带

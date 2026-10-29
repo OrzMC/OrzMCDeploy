@@ -82,6 +82,7 @@ lib/firewall.sh         防火墙收敛（./orzmc.sh firewall show|apply，ADR-0
 update-image-digests.sh 刷新 compose.yaml 镜像 digest（easybot 用发布 tag：EASYBOT_TAG）
 .github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + init/validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
+tests/docs_check.sh    文档链接与锚点校验（README/docs 互链、CI lint 同款）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
 CHANGELOG.md            版本变更记录（Keep a Changelog；随 Release 打包，ADR-018）
@@ -127,11 +128,12 @@ docs/papermc-template.md PaperMC 实例字段参考（面板运行数据，不�
 ```bash
 for f in *.sh lib/*.sh tests/*.sh; do bash -n "$f"; done
 shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
-bash tests/windows_ci.sh
+bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义（49 项）
+bash tests/docs_check.sh      # 文档链接/锚点
 ./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate
 ```
 
-CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 · `LAN_BIND_ADDR` 生效 ·
+CI 另跑：compose/模板/CI YAML 解析 · **可执行位守卫** · `ENABLE_EASYBOT=false` 开关用例 · `LAN_BIND_ADDR` 生效 ·
 `firewall apply --dry-run` 来源限源 · 禁入路径守卫。打 `v*` tag 时打包 Release tarball
 （ADR-018）——`ci.yml` 的 tar 清单必须与仓库实际文件一致，删脚本时要同步删。
 
@@ -148,6 +150,9 @@ CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 ·
   另外 bash 3.2 **没有** `mapfile` / `readarray` / `declare -A` / `${var,,}`：批量读行用
   `while IFS= read -r x; do …; done < <(...)`；可能为空的数组一律用
   `${arr[@]+"${arr[@]}"}` 展开（bash <4.4 下裸 `"${arr[@]}"` 遇空数组会报 unbound）。
+- **脚本互相调用一律 `bash <path>`**，不要依赖文件执行位：Windows 克隆 / ZIP 下载 / 开启
+  `core.fileMode=false` 的仓库都可能丢 `+x`（CI 曾因 `lib/firewall.sh` 是 644 而 Permission denied）。
+  入口脚本本身仍需 100755（CI 有可执行位守卫）。
 - compose v2 `--env-file` 是**替换**而非叠加项目根 `.env`，必须显式传入且为真实普通文件。
 - 镜像一律用 **digest 锁定**（`image: xxx@sha256:...`），升级走
   `update-image-digests.sh` + git commit，回滚走 `git revert`。
@@ -176,7 +181,7 @@ CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 ·
   每篇开头一段 `> 定位 / 读者 / 相关文档` 引用块。
 - **篇幅**：单节 ≤ 40 行；重复内容合并到一处，其余位置只留一句 + 链接；
   历史背景与实测数字只写进 ADR / CHANGELOG，不进操作手册。
-- 改完跑本地门禁（见下节）；CI 的 lint job 会额外校验 markdown 链接与锚点。
+- 改完跑 `bash tests/docs_check.sh`（CI lint job 同款，另含可执行位守卫）。
 
 ## 安全约束（必须遵守）
 
@@ -206,8 +211,8 @@ CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 ·
    （新增 ADR 记录）、`AGENTS.md`（如规则变化）、`README.md`、相关 `docs/*.md`。
 4. 改动共享库 `lib/common.sh` 后，跑一遍本地回归：
    `./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate`
-   与 `bash tests/windows_ci.sh`（push/PR 后 CI 会自动跑 shellcheck + init/validate +
-   Windows 分支单测，见 `.github/workflows/ci.yml`）。
+   与 `bash tests/windows_ci.sh` / `bash tests/docs_check.sh`（push/PR 后 CI 自动跑
+   shellcheck + init/validate + Windows 分支单测 + 文档链接校验，见 `.github/workflows/ci.yml`）。
 5. 新增 `.env` 必需变量：同步更新 `lib/common.sh` 的 `required_env_list`
    与 `templates/env`（`ENABLE_EASYBOT` 开关也在此）。
 6. 需要用户输入密钥/凭据时，引导用户编辑 `$DATA_ROOT/.env`，不要把真实值写进仓库或

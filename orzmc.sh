@@ -75,14 +75,16 @@ done
 export DATA_ROOT
 CMD="$1"; shift
 
+# 内部脚本一律用 bash 显式调用：不依赖文件系统执行位（Windows 克隆 / ZIP 下载
+# 可能丢 +x，CI 曾因此 Permission denied 失败）。用户入口 ./orzmc.sh 自身需 +x。
 case "$CMD" in
-    init)       "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" init ;;
-    up)         "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" up ;;
-    stop)       "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" stop ;;
-    status)     "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" status ;;
-    validate)   "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" validate ;;
-    backup)     "${ORZMC_BIN_DIR}/backup.sh" -d "$DATA_ROOT" "$@" ;;
-    firewall)   "${ORZMC_BIN_DIR}/lib/firewall.sh" "$@" ;;
+    init)       bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" init ;;
+    up)         bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" up ;;
+    stop)       bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" stop ;;
+    status)     bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" status ;;
+    validate)   bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" validate ;;
+    backup)     bash "${ORZMC_BIN_DIR}/backup.sh" -d "$DATA_ROOT" "$@" ;;
+    firewall)   bash "${ORZMC_BIN_DIR}/lib/firewall.sh" "$@" ;;
     print-root) echo "$DATA_ROOT" ;;
     *) usage; exit 1 ;;
 esac
