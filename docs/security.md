@@ -116,16 +116,17 @@ chunk 加载失败」，但 curl 正常（不走 h3）。最简单是在 Caddyfi
 而 **不要**把 `OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-*` 改成 `Any`。`./orzmc.sh firewall apply`
 会重建的 5 组规则均限 `LAN_CIDR`，与反代规则互不覆盖（只删重建 `OrzMC-*` 同名项）。
 
-**EasyBot 是一个整体服务：公网入口与局域网入口功能一致**。反代该域名后，后台
-`/admin`、开发者文档 `/docs`、`/swagger`、插件 API `/api/v1/*` 与直连
-`http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>` 完全相同，不做路径级拦截——它们各自带登录 /
-API key 鉴权，文档本身不含密钥，只暴露接口清单。
+**反代一律整站透传**：站点 Caddyfile 里只写 `reverse_proxy <服务>:<端口>`（面板加
+`flush_interval -1` 保 WebSocket），不要加 `handle` / `respond` / `rewrite` / `@matcher`
+之类路径级规则——同一服务经公网与经局域网访问必须功能一致（路径、静态资源、WS、API 全同）。
+确需收窄暴露面时，做法是**整个服务不给公网域名**，而不是在反代里挑几条路径挡掉：容器内
+`remote_ip` 已被 Docker 改写成网桥网关，按来源 IP 分流本来就不可靠，拦几条路径只会让
+「后台页面里的下载/文档/回调链接」在公网 404，排查成本远大于收益。
 
-容器内 `remote_ip` 已被 Docker 改写成网桥网关，按来源 IP 区分内外网不可靠，因此也不存在
-"只对局域网开放某几个路径"的可靠做法：要挡就整站挡（不配公网域名），要开放就与局域网一致。
-
-如果站点确实只想公开后台、不公开文档，可在站点 Caddyfile 里显式挡掉——但要清楚这会破坏
-"公网 = 局域网"的一致性（后台页面的文档链接会 404）：
+EasyBot 属同一原则：反代 `easybot` 域名后，后台 `/admin`、开发者文档 `/docs`、`/swagger`、
+插件 API `/api/v1/*` 与直连 `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>` 逐项相同（均自带登录 /
+API key 鉴权，文档只暴露接口清单）。若站点确要隐藏文档，只能整站不给公网域名；强行路径拦截
+会让后台里的文档链接在公网 404，破坏一致性：
 
 ```text
 @devdocs path /docs* /swagger*
