@@ -80,3 +80,20 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
 - 面板/ EasyBot 对外暴露前：加 TLS 反代或改走 VPN（当前是 HTTP + 口令登录）。
 - `EDGE`/`CLOUDFLARE_*`/`DNS_*`/`DOMAIN_*` 已无消费者；旧 `.env` 残留行可清理。
 - 实例（PaperMC/Folia）按需在面板启动；进服端口 `25565/25566` 由实例自己发布。
+
+### 2026-10-29 默认限源：三层暴露面收敛（ADR-028）
+
+- **背景**：调试期间宿主机防火墙规则的来源被改成 `Any`；面板/EasyBot 是 HTTP + 口令登录，
+  `Any` 等于对同网段（乃至公网映射后）开放登录页。
+- **设计**：三层收敛 —— L1 daemon 不发布端口（ADR-026）；L2 `LAN_BIND_ADDR` 控制绑定地址；
+  L3 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS` 控制防火墙来源。单层误配不足以造成暴露。
+- **落地**：`compose.yaml` 端口改用 `${LAN_BIND_ADDR:-0.0.0.0}`；`templates/env` 新增
+  `LAN_BIND_ADDR` / `LAN_CIDR` / `ALLOW_EXTRA_CIDRS`（及可选 `MC_TCP_PORTS` /
+  `MC_UDP_PORTS` / `RCON_PORTS`）；新增 `lib/firewall.sh` 与 `./orzmc.sh firewall show|apply`；
+  `status` 打印暴露面摘要；新增 `docs/security.md`。
+- **本机执行**：`.env` 写入 `LAN_BIND_ADDR=0.0.0.0` / `LAN_CIDR=192.168.0.0/24`；
+  防火墙规则重建为 5 组 `OrzMC-*`，来源统一 `192.168.0.0/255.255.255.0`
+  （Panel 23333 / EasyBot 18091 / MC-TCP 25565,25566 / MC-UDP 19132 / RCON 25575,25576）。
+- **验证**：`init + validate` PASS；`compose config` 的 `host_ip` 随 `LAN_BIND_ADDR`
+  在 `0.0.0.0` ↔ `127.0.0.1` 间切换；`bash -n`/`shellcheck` 0 告警。
+- **对外暴露**：VPN（推荐）→ TLS 反代（后端绑 127.0.0.1）→ 路由器映射+限源，见 security.md。

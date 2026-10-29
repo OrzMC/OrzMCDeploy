@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1091  # source ./common.sh（同目录运行时文件）
+# shellcheck disable=SC2016  # 单引号内的 $ 为 PowerShell 变量，不需要 bash 展开
+# ===========================================================================
+# 宿主防火墙收敛（ADR-028）——把「项目端口」限制为只允许指定来源
+#
+# 目标：默认只信任局域网（LAN_CIDR），VPN 等额外来源用 ALLOW_EXTRA_CIDRS 显式追加；
+#       公网暴露必须由站点显式决定（改用 VPN / 反代 / 路由器映射），不由本脚本默认放开。
+#
+# 用法（一般通过 ./orzmc.sh firewall <动作> 调用）：
+#   firewall.sh show            # 列出当前与项目端口相关的规则
+#   firewall.sh apply           # 幂等应用：删掉旧的 OrzMC-* 规则后按 LAN_CIDR 重建
+#   firewall.sh apply --dry-run # 只打印将要执行的命令
+#
+# 规则命名：OrzMC-<用途>（Panel / EasyBot / MC-TCP / MC-UDP / RCON）
+# 端口来源：.env 的 LAN_MCS_WEB_PORT / LAN_EASYBOT_PORT / MC_TCP_PORTS / MC_UDP_PORTS /
+#           RCON_PORTS（后三者可选，缺省按本仓库常用值：25565,25566 / 19132 / 25575,25576）
+#
+# 平台：
+#   Windows（Git Bash / MSYS）→ 通过 powershell.exe 调 New-NetFirewallRule（**需要管理员**）
+#   Linux  → 优先 ufw，其次打印 iptables 命令
+#   macOS  → 打印 pf 建议（不自动改，避免误伤）
+# ===========================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
+
+ACTION="${1:-show}"
+shift || true
+DRY_RUN=0
+for a in "$@"; do
+    [ "$a" = "--dry-run" ] && DRY_RUN=1
+done
+
+env_val() { read_env_value "$1"; }
+
+lan_cidr()   { local v; v="$(env_val LAN_CIDR)";        printf '%s' "${v:-192.168.0.0/24}"; }
+extra_cidrs(){ local v; v="$(env_val ALLOW_EXTRA_CIDRS)"; printf '%s' "${v//,/ }"; }
+bind_addr()  { local v; v="$(env_val LAN_BIND_ADDR)";   printf '%s' "${v:-0.0.0.0}"; }
+
+# 端口清单：<规则名>:<协议>:<端口,端口>
+port_specs() {
+    local web eb tcp udp rcon
+    web="$(env_val LAN_MCS_WEB_PORT)";  [ -n "$web" ]  || web="18090"
+    eb="$(env_val LAN_EASYBOT_PORT)";   [ -n "$eb" ]   || eb="18091"
+    tcp="$(env_val MC_TCP_PORTS)";      [ -n "$tcp" ]  || tcp="25565,25566"
+    udp="$(env_val MC_UDP_PORTS)";      [ -n "$udp" ]  || udp="19132"
+    rcon="$(env_val RCON_PORTS)";       [ -n "$rcon" ] || rcon="25575,25576"
+    printf '%s\n' \
+        "OrzMC-Panel:TCP:${web}" \
+        "OrzMC-EasyBot:TCP:${eb}" \
+        "OrzMC-MC-TCP:TCP:${tcp}" \
+        "OrzMC-MC-UDP:UDP:${udp}" \
+        "OrzMC-RCON:TCP:${rcon}"
+}
+
+sources() { # 输出 RemoteAddress 的逗号列表
+    local out; out="$(lan_cidr)"
+    local e; e="$(extra_cidrs)"
+    for c in $e; do out="${out},${c}"; done
+    printf '%s' "$out"
+}
+
+# --------------------------- Windows ---------------------------
+win_show() {
+    local ps
+    ps='Get-NetFirewallRule -Direction Inbound | Where-Object { $_.DisplayName -like "OrzMC-*" } | ForEach-Object { $pf=$_|Get-NetFirewallPortFilter; $af=$_|Get-NetFirewallAddressFilter; "{0}|{1}|{2}|{3}" -f $_.DisplayName,$_.Enabled,($pf.LocalPort -join ","),($af.RemoteAddress -join ",") }'
+    powershell.exe -NoProfile -Command "$ps" 2>/dev/null | tr -d '\r' | while IFS='|' read -r name en ports remote; do
+        printf '  %-16s enabled=%-5s ports=%-14s remote=%s\n' "$name" "$en" "$ports" "$remote"
+    done
+}
+
+win_apply() {
+    local src; src="$(sources)"
+    local cmds=""
+    cmds+='$ErrorActionPreference = "Stop"; '
+    cmds+='Get-NetFirewallRule -Direction Inbound | Where-Object { $_.DisplayName -like "OrzMC-*" } | Remove-NetFirewallRule; '
+    while IFS=':' read -r name proto ports; do
+        cmds+="New-NetFirewallRule -DisplayName '${name}' -Direction Inbound -Action Allow -Protocol ${proto} -LocalPort ${ports//,/','} -RemoteAddress ${src} -Profile Any | Out-Null; "
+    done < <(port_specs)
+    cmds+='Write-Output "APPLIED"'
+    if [ "$DRY_RUN" = 1 ]; then
+        echo "  [dry-run] powershell -NoProfile -Command \"${cmds}\""
+        return 0
+    fi
+    # 需要管理员：写临时 .ps1 后通过 UAC 提权执行
+    local script="${TEMP:-/tmp}/orzmc-firewall.ps1"
+    printf '%s\n' "$cmds" > "$script"
+    local winpath; winpath="$(printf '%s' "$script" | sed 's#^/tmp#C:/Users/'"${USERNAME:-$(id -un)}"'/AppData/Local/Temp#')"
+    echo "  应用规则（来源: ${src}）—— 需要管理员，请在弹出窗口点 是（UAC 确认）"
+    powershell.exe -NoProfile -Command "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${winpath}'" >/dev/null 2>&1 || true
+    rm -f "$script"
+    win_show
+}
+
+# --------------------------- Linux -----------------------------
+linux_apply() {
+    local src; src="$(sources)"
+    if command -v ufw >/dev/null 2>&1; then
+        echo "  使用 ufw（来源: ${src}）"
+        while IFS=':' read -r name proto ports; do
+            for p in ${ports//,/ }; do
+                for s in ${src//,/ }; do
+                    if [ "$DRY_RUN" = 1 ]; then
+                        echo "  [dry-run] ufw allow proto $proto from $s to any port $p comment '$name'"
+                    else
+                        ufw allow proto "$(printf '%s' "$proto" | tr '[:upper:]' '[:lower:]')" from "$s" to any port "$p" comment "$name"
+                    fi
+                done
+            done
+        done < <(port_specs)
+    else
+        echo "  未找到 ufw；请手工应用以下 iptables 规则（来源: ${src}）"
+        while IFS=':' read -r name proto ports; do
+            for p in ${ports//,/ }; do
+                for s in ${src//,/ }; do
+                    echo "  iptables -A INPUT -p $(printf '%s' "$proto" | tr '[:upper:]' '[:lower:]') -s $s --dport $p -j ACCEPT  # $name"
+                done
+            done
+        done < <(port_specs)
+    fi
+}
+
+# --------------------------- 分发 -----------------------------
+echo "项目端口与来源策略："
+echo "  绑定地址 LAN_BIND_ADDR = $(bind_addr)"
+echo "  允许来源             = $(sources)"
+echo "  端口                 = $(port_specs | tr '\n' ' ')"
+echo
+
+case "$ACTION" in
+    show)
+        if is_windows; then echo "当前防火墙规则："; win_show; 
+        elif command -v ufw >/dev/null 2>&1; then echo "当前 ufw 规则（含端口）:"; ufw status | grep -E "$(port_specs | cut -d: -f3 | tr '\n' '|' | sed 's/,$//')" || true
+        else echo "（非 Windows 且无 ufw：请用系统防火墙工具核对）"; fi
+        ;;
+    apply)
+        if is_windows; then win_apply
+        else linux_apply; fi
+        ;;
+    *)
+        die "未知动作: ${ACTION}（可用 show|apply，apply 支持 --dry-run）"
+        ;;
+esac
+
+echo
+echo "提示：公网暴露不要靠放开 Any —— 优先 VPN（Tailscale/WireGuard），"
+echo "      其次 TLS 反代（后端绑 127.0.0.1），最后才是路由器端口映射。"

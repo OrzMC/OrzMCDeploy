@@ -22,6 +22,17 @@ LAN_HOST_IP=192.168.1.100
 LAN_MCS_WEB_PORT=18090
 LAN_EASYBOT_PORT=18091
 
+# ==================== 网络暴露面（ADR-028：默认只信任局域网）====================
+# LAN_BIND_ADDR 控制容器端口绑到哪个宿主地址：
+#   0.0.0.0      = 所有网卡可达（局域网可访问；默认）
+#   127.0.0.1    = 仅本机（最严格；配合反代 / Tailscale serve / WireGuard 使用）
+#   <具体 IP>    = 只绑该网卡（例如只绑局域网 IP，VPN 网卡不通）
+LAN_BIND_ADDR=0.0.0.0
+# 防火墙允许的来源网段（orzmc.sh firewall --apply 使用）：默认只放你的局域网
+LAN_CIDR=192.168.0.0/24
+# 额外放行的来源（逗号分隔，如 VPN 网段 100.64.0.0/10、另一台机器 IP）；留空=不放行
+ALLOW_EXTRA_CIDRS=
+
 # ==================== EasyBot 网关 ====================
 # 监听器仅 HTTP，局域网明文（可信内网假设；对公网暴露请自备 TLS 反代/VPN）；
 # 微信适配器默认自动启用，禁用见 docs/easybot.md（gateway.local.yaml）

@@ -39,6 +39,9 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 - **没有边缘层服务**：不跑 cloudflared / Caddy。对外访问由站点自备
   （DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**。
+- **默认限源（ADR-028）**：`LAN_BIND_ADDR` 控制端口绑定地址，`LAN_CIDR` /
+  `ALLOW_EXTRA_CIDRS` 控制防火墙放行来源；`./orzmc.sh firewall apply` 幂等应用。
+  默认只信任局域网，**禁止把规则来源改成 Any**（面板是 HTTP + 口令登录）。
 - 可选服务仅 easybot；平台层不含数据库/状态页（ADR-025）。
 - 历史 ADR（多边缘层时代）只在 `docs/architecture.md` 保留一行索引，正文在 git 历史。
 
@@ -76,6 +79,7 @@ orzmc.sh               唯一部署入口（三平台一致；局域网模式，
 install.sh             免克隆一键安装（ADR-018：下载 Release tarball + 校验 sha256 + 解压）
 deploy.sh               orzmc.sh 的内部实现（init/up/stop/status/validate 命令体）
 backup.sh / restore.sh  数据备份 / 还原迁移
+lib/firewall.sh         防火墙收敛（./orzmc.sh firewall show|apply，ADR-028）
 update-image-digests.sh 刷新 compose.yaml 镜像 digest（easybot 用发布 tag：EASYBOT_TAG）
 .github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + init/validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
@@ -88,6 +92,7 @@ docs/architecture.md    架构设计文档（拓扑/数据流 + 有效 ADR；已
 docs/easybot.md         EasyBot 网关与插件 easybot.yml 配置指南
 docs/papermc-template.md PaperMC 实例录入参数参考
 docs/windows-deployment.md Windows 平台要点（路径/compose 限制/防火墙/常见症状）
+docs/security.md        暴露面与访问控制设计（三层模型、三档配置、对外暴露清单）
 ```
 
 ## 命令速查（统一 orzmc.sh）
@@ -143,6 +148,8 @@ docs/windows-deployment.md Windows 平台要点（路径/compose 限制/防火�
   面板与 EasyBot 口令以**明文 HTTP** 暴露给局域网——仅限可信内网；接入不可信 Wi-Fi
   或需要对公网开放时，必须加 TLS 反代或改用 VPN。
 - daemon 端口**不发布**（ADR-026）；daemon key（可管理 docker.sock）仍属最高权限密钥。
+- **防火墙默认限源**（ADR-028）：`OrzMC-*` 入站规则的 `RemoteAddress` 应为 `LAN_CIDR`
+  （+ 显式追加的 VPN 网段），**不得为 `Any`**；改动后用 `./orzmc.sh firewall show` 复核。
 
 ## 修改守则（智能体改动前必读）
 

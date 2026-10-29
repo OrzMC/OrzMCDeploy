@@ -115,6 +115,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 状态与访问地址 | `./orzmc.sh status` |
 | 校验配置 | `./orzmc.sh validate` |
 | 备份数据 | `./orzmc.sh backup [--stop]` |
+| 防火墙收敛（默认限局域网） | `./orzmc.sh firewall show` / `./orzmc.sh firewall apply` |
 | 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 
@@ -150,6 +151,7 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 - [`docs/architecture.md`](docs/architecture.md) —— 架构设计文档（含 ADR 决策记录）
 - [`docs/easybot.md`](docs/easybot.md) —— EasyBot 网关与插件 `easybot.yml` 配置指南
 - [`docs/papermc-template.md`](docs/papermc-template.md) —— PaperMC 实例录入参数参考
+- [`docs/security.md`](docs/security.md) —— **暴露面与访问控制**（默认限源 / 对外暴露三档方案）
 - [`docs/windows-deployment.md`](docs/windows-deployment.md) —— **Windows 平台部署指南**（问题/根因/解法，含 ADR-015/016，三平台统一命令）
 - [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) —— AI 智能体守则
 - [`EXECUTION_PATH.md`](EXECUTION_PATH.md) —— 执行路径、门禁、checklist、状态记录

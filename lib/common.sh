@@ -479,11 +479,21 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip
+    local lan_ip bind cidr
     lan_ip="$(read_env_value LAN_HOST_IP)"
+    bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
+    cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
     echo "访问地址（局域网）："
     echo "  MCSManager Web: http://${lan_ip}:$(read_env_value LAN_MCS_WEB_PORT)"
     echo "  EasyBot 管理后台: http://${lan_ip}:$(read_env_value LAN_EASYBOT_PORT)"
-    echo "  外部访问: 由站点自备（DDNS + 端口映射 / 反代 / VPN），本仓库不管理"
+    if [ "$bind" = "127.0.0.1" ]; then
+        echo "  暴露面: 仅本机（LAN_BIND_ADDR=127.0.0.1，需经反代/VPN 访问）"
+    elif [ "$bind" = "0.0.0.0" ]; then
+        echo "  暴露面: 所有网卡（LAN_BIND_ADDR=0.0.0.0）—— 建议用防火墙限源："
+        echo "          ./orzmc.sh firewall apply   # 默认只放行 LAN_CIDR=${cidr}"
+    else
+        echo "  暴露面: 仅绑定 ${bind}"
+    fi
+    echo "  外部访问: 由站点自备（VPN / TLS 反代 / DDNS+端口映射），见 docs/security.md"
 }
 

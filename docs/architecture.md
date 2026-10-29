@@ -167,6 +167,34 @@ $DATA_ROOT/
 - 升级路径：`orzmc.sh stop` 后 `docker rm` daemon → `orzmc.sh up` 重建（去掉 instances 挂载），
   删除 `$DATA_ROOT/instances`；已有实例数据在 `InstanceData/`，不受影响。
 
+### ADR-028：默认限源（三层暴露面收敛）（2026-10-29）
+
+**背景**：站点在调试期间把所有宿主防火墙规则的来源改成了 `Any`。面板与 EasyBot 都是
+HTTP + 口令登录，`Any` 意味着同网段任何设备（含访客 Wi-Fi、被入侵的 IoT）都能访问登录页；
+一旦再做 DDNS 端口映射，就等于把登录页暴露到公网。
+
+**决策**：默认姿态改为「只信任局域网，暴露必须显式」，分三层：
+
+| 层 | 机制 | 默认值 |
+|---|---|---|
+| L1 容器网络 | daemon 不发布端口（ADR-026） | 已生效 |
+| L2 绑定地址 | `.env` 的 `LAN_BIND_ADDR` → compose `ports` 的 host_ip | `0.0.0.0`（可改 `127.0.0.1`） |
+| L3 宿主防火墙 | `./orzmc.sh firewall apply`，来源取 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS` | 仅 `192.168.0.0/24` |
+
+- 新增 `lib/firewall.sh` + `./orzmc.sh firewall show|apply [--dry-run]`：幂等重建
+  `OrzMC-*` 入站规则（Windows 走 PowerShell `New-NetFirewallRule`，Linux 走 ufw，
+  macOS 只打印建议）。
+- `status` 增加「暴露面」摘要（绑定地址 + 限源建议）。
+- 三层叠加的意义：单层误配（把规则改回 `Any`，或把绑定改成 `0.0.0.0`）不足以造成暴露，
+  必须两个误操作同时发生。
+
+**对外暴露的三条正规路径**（详见 `docs/security.md`）：VPN（推荐，零公网端口）→
+TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 尽量限源）。
+
+**影响**：`compose.yaml` 端口改用 `${LAN_BIND_ADDR:-0.0.0.0}`；`templates/env` 新增
+`LAN_BIND_ADDR` / `LAN_CIDR` / `ALLOW_EXTRA_CIDRS`（及可选的 `MC_TCP_PORTS` /
+`MC_UDP_PORTS` / `RCON_PORTS`）；新增 `docs/security.md`。
+
 ### 已归档 ADR 索引（正文见 git 历史）
 
 下列决策已废止或被取代，仅留索引避免后来者重复踩坑：

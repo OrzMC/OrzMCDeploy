@@ -613,6 +613,10 @@ platforms:
   **EasyBot 插件 API 仅内网**（`http://easybot:8080`）。
 - ⚠️ **对公网暴露前必须加保护**：面板与 EasyBot 都是 **HTTP + 口令登录**。做 DDNS
   端口映射前，请至少：换强口令 · 加 TLS 反代 · 或改用 VPN（推荐，无需开放公网端口）。
+- **默认限源三层模型（ADR-028）**：`LAN_BIND_ADDR`（绑定地址）+ `LAN_CIDR`
+  （防火墙来源）+ daemon 不发布端口。落地运行 `./orzmc.sh firewall apply`
+  （Windows 需 UAC），自检 `./orzmc.sh firewall show` 与 `./orzmc.sh status`。
+  详细设计与三档配置见 [security.md](security.md)。
 - **prod / local 不发布任何宿主机端口**（全部服务仅 `expose`）。**lan 例外**：2 个源站
   发布宿主 `LAN_*_PORT` 端口、纯 HTTP——**仅限可信局域网**（ADR-012）。
 - **daemon 端口不再发布**（ADR-026）：此前 lan 档会对局域网开放 `LAN_MCS_DAEMON_PORT`
@@ -697,6 +701,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
 | 打印 DATA_ROOT | `./orzmc.sh -d <DATA_ROOT> print-root` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
+| 防火墙收敛 | `./orzmc.sh firewall show` / `apply` |
 
 - `<DATA_ROOT>`：macOS 生产 `/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`。
 - 别名：`stop|down`、`status|ps`、`validate|config` 可互换。

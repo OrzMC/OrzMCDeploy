@@ -11,6 +11,9 @@
 # 可选服务（.env 里，缺省 true）: ENABLE_EASYBOT
 #   （核心 mcsmanager-web / mcsmanager-daemon 常驻，不随开关变化）
 #
+# 安全默认（ADR-028）：端口只绑 LAN_BIND_ADDR（缺省 0.0.0.0），防火墙默认只放行
+# LAN_CIDR（+ 可选 ALLOW_EXTRA_CIDRS）；`firewall apply` 幂等应用该策略。
+#
 # DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 平台默认
 #   （Windows: E:/orzmc；macOS/Linux: /srv/orzmc）
 # 全部 compose 调用统一走 lib/common.sh 的 compose_cmd。
@@ -35,6 +38,7 @@ usage() {
   orzmc.sh [-d DATA_ROOT] status        # 局域网访问地址 + compose ps
   orzmc.sh [-d DATA_ROOT] validate      # 必需变量检查 + compose config -q
   orzmc.sh [-d DATA_ROOT] backup        # 打包 $DATA_ROOT（可加 --stop/--keep）
+  orzmc.sh [-d DATA_ROOT] firewall show|apply   # 防火墙收敛（默认只信任局域网，ADR-028）
   orzmc.sh print-root                   # 打印解析后的 DATA_ROOT
 
 局域网入口：面板 LAN_MCS_WEB_PORT（缺省 18090）、EasyBot LAN_EASYBOT_PORT（缺省 18091）。
@@ -74,6 +78,7 @@ case "$CMD" in
     status)     "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" status ;;
     validate)   "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" validate ;;
     backup)     "${ORZMC_BIN_DIR}/backup.sh" -d "$DATA_ROOT" "$@" ;;
+    firewall)   "${ORZMC_BIN_DIR}/lib/firewall.sh" "$@" ;;
     print-root) echo "$DATA_ROOT" ;;
     *) usage; exit 1 ;;
 esac

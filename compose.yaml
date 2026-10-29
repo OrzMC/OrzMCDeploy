@@ -12,6 +12,8 @@
 #   - 可选服务：easybot（`profiles: ["easybot"]`，由 .env 的 ENABLE_EASYBOT 控制）
 #   - **daemon 不发布宿主端口**：ADR-026 起面板自己中转浏览器↔daemon 数据流
 #     （SystemConfig.dataPlane=proxy），节点地址固定内网名。
+#   - 端口绑定地址由 LAN_BIND_ADDR 控制（ADR-028）：0.0.0.0=局域网可达，
+#     127.0.0.1=仅本机（配合反代/VPN），单网卡 IP=只绑该网卡。
 #   - ADR-025 起平台层不再内置数据库与状态页。
 # 局域网暴露 2 个入口：mcs 面板（LAN_MCS_WEB_PORT）、easybot（LAN_EASYBOT_PORT）；
 # EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）。
@@ -35,7 +37,7 @@ services:
       - "${MCS_WEB_PORT}"
     ports:
       # 局域网直连（ADR-027）：宿主端口 → 容器端口，纯 HTTP、仅可信内网
-      - "${LAN_MCS_WEB_PORT:-18090}:${MCS_WEB_PORT}"
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${LAN_MCS_WEB_PORT:-18090}:${MCS_WEB_PORT}"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/web/data:/opt/mcsmanager/web/data"
@@ -121,6 +123,6 @@ services:
     expose:
       - "${EASYBOT_PORT}"
     ports:
-      - "${LAN_EASYBOT_PORT:-18091}:${EASYBOT_PORT}"
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${LAN_EASYBOT_PORT:-18091}:${EASYBOT_PORT}"
     volumes:
       - "${DATA_ROOT}/easybot/data:/var/lib/easybot"

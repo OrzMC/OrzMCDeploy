@@ -13,6 +13,21 @@
 
 ## [Unreleased]
 
+### 安全（ADR-028：默认限源）
+
+- **默认只信任局域网**：新增 `LAN_BIND_ADDR`（端口绑定地址，缺省 `0.0.0.0`；可改
+  `127.0.0.1` 仅本机）、`LAN_CIDR`（防火墙放行网段，缺省 `192.168.0.0/24`）、
+  `ALLOW_EXTRA_CIDRS`（额外来源，如 VPN 网段）。
+- 新增 `./orzmc.sh firewall show|apply [--dry-run]`（`lib/firewall.sh`）：幂等重建
+  `OrzMC-*` 入站规则并限定来源；Windows 走 PowerShell（UAC 提权），Linux 走 ufw，
+  macOS 只打印建议。
+- `status` 增加「暴露面」摘要（绑定地址 + 限源建议）。
+- 新增 `docs/security.md`：三层模型（容器网络 / 绑定地址 / 防火墙）、三档推荐配置
+  （仅本机 / 局域网 / 公网三选一）、自检清单与常见暴露错误。
+- ⚠️ 升级提示：若此前把防火墙规则来源设成 `Any`，请执行 `./orzmc.sh firewall apply`
+  收回为 `LAN_CIDR`。
+
+
 ### 移除（ADR-027，收敛为只有局域网模式）
 
 - **删除边缘层概念**：只保留局域网直连（面板/EasyBot 发布宿主端口，纯 HTTP）。
