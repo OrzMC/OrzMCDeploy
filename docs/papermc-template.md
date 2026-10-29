@@ -154,8 +154,8 @@
 
 - **改完重启实例**，宿主应出现 `0.0.0.0:25565->25565/tcp` 与 `0.0.0.0:19132->19132/udp`；
   宿主机 `127.0.0.1:25565` Java 握手 Ping、`127.0.0.1:19132` RakNet Ping 均应通。
-- **Cloudflare Tunnel 只承载 TCP**：**基岩 UDP 无法走 cloudflared**，远程基岩需 playit.gg
-  之类的 UDP 隧道或自建 UDP 中继；Java 通道不受影响。
+- **基岩 UDP 需要 UDP 通道**：端口转发/路由器映射要放行 UDP（`19132/udp` 等）；
+  HTTP 反代只承载 TCP，基岩请用 UDP 端口映射或 UDP 中继。
 - **无停机改端口（进阶，实测）**：面板 HTTP API `PUT /api/instance` 需 `ROLE.ADMIN`
   （普通用户 `403`）；可改用 daemon 自身 socket.io 协议——连 `http://<daemon>:24444`
   （`path=/socket.io`，key 取 `daemon/data/Config/global.json` 的 `key`），依次
@@ -196,7 +196,8 @@ LuckPerms 用 `storage-method: h2`，AuthMe / EzShops / GriefPrevention / CorePr
 
 **确需 MySQL/MariaDB 时**（多实例共享数据、Dynmap 大存档等），两步：
 
-1. 在 `$DATA_ROOT/compose.site.yaml` 加回数据库服务（站点增量，升级换包不丢）：
+1. 在 `$DATA_ROOT/compose.site.yaml` 加回数据库服务（站点增量，升级换包不丢；
+   注意 ADR-027 后 `compose.yaml` 只有 3 个服务，该增量不会被覆盖）：
 
    ```yaml
    services:

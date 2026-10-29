@@ -9,8 +9,7 @@ OrzMC 的最小容器化落地方案。平台层包括：
 - `MCSManager Web` + `MCSManager Daemon` 管理实例
 - `EasyBot` 统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
 
-> ADR-025（v0.1.0）起平台层**不再内置** MariaDB 应用数据库与 Gatus 状态页；
-> 需要时按站点增量（`compose.site.yaml`）自行加回。
+> 需要数据库 / 状态页时，按站点增量（`compose.site.yaml`）自行加回（ADR-025/027）。
 
 `PaperMC` 不直接写在 `compose.yaml` 中，而是由 `MCSManager` 创建和管理。
 
@@ -28,8 +27,8 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 **仓库只承载"运行时"**——compose 编排、镜像 digest、部署脚本、配置模板；
 **全部配置与数据通过卷映射落在宿主机统一目录 `$DATA_ROOT`**（生产 macOS
-`/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，Windows `windows.sh` 默认 `E:/orzmc`，
-本地 `.local-data/`）。由此获得：运行时独立演进、数据独立备份/还原/迁移、密钥不进入仓库。
+`/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，Windows 建议 `E:/orzmc`）。由此获得：
+运行时独立演进、数据独立备份/还原/迁移、密钥不进入仓库。
 
 **三平台统一命令**（macOS / Linux / Windows）：同一套 `init|up|stop|status|validate|backup`
 在任意平台行为一致。Windows（Docker Desktop/WSL2）下脚本自动完成 MSYS→原生路径转换；
@@ -92,14 +91,17 @@ cd <安装目录>
 > 也可以直接 `git clone` 部署（等价，只是多了 `.git` 目录）。两种方式最终都得到
 > 同一套 `orzmc.sh` 与配置文件，行为一致。
 
-## 快速上手（本地体验）
+## 快速上手
 
 ```bash
 git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
-./orzmc.sh init               # 生成 .local-data/.env（改 LAN_HOST_IP 为你的局域网 IP）
-./orzmc.sh up                 # 启动平台层（可选服务默认全开）
-./orzmc.sh status             # 查看状态与局域网访问地址
+./orzmc.sh -d /srv/orzmc init   # 生成 .env（改 LAN_HOST_IP / 口令 / QQ 凭据）
+./orzmc.sh -d /srv/orzmc up     # 启动平台层
+./orzmc.sh -d /srv/orzmc status # 打印局域网访问地址 + 容器状态
 ```
+
+默认 `DATA_ROOT`：Linux `/srv/orzmc`、macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`
+（也可用 `-d` 或 `ORZMC_DATA_ROOT` 指定）。
 
 完整流程与每步预期输出见 [`docs/usage.md`](docs/usage.md) 第 3 章。
 
@@ -122,8 +124,8 @@ Windows 下 daemon 自动走脚本生成的 docker run（`lib/common.sh` detect_
 `orzmc.sh stop && orzmc.sh up` 即完成 daemon 重建。可选服务开关
 `ENABLE_EASYBOT` 也在 `.env` 里配。
 
-> 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 仍可用（兼容，
-> `-p prod`→`cloudflare` 自动映射），但新部署统一用 `orzmc.sh`。
+> 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 已随 ADR-027 删除；
+> 现在只有 `./orzmc.sh` 一个入口。
 
 ## 质量门禁（CI）
 
@@ -155,8 +157,8 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 
 ## 安全
 
-- `$DATA_ROOT/.env`、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、
-  daemon key（`global.json`）均属密钥：权限收紧、随数据备份、**永不入库**。
+- `$DATA_ROOT/.env`、daemon key（`global.json`）均属密钥：权限收紧、随数据备份、
+  **永不入库**。
 - 公网仅暴露 2 个入口（`mcs` / `easybot`）；daemon 端口不发布（面板中转，ADR-026）；
   `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为可信环境。
   **lan 无边缘层**：面板口令与 daemon 端口以明文 HTTP 暴露给局域网（daemon key 鉴权，

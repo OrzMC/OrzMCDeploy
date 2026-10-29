@@ -16,9 +16,9 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 - **仓库只承载"运行时"**：compose 编排、镜像 digest、部署脚本、配置模板、文档。
 - **全部配置与数据通过卷映射落在宿主机统一目录 `$DATA_ROOT`**（生产
-  `/Users/Shared/orzmc`，本地 `.local-data/`）。
-- 运行数据包括：`.env`（全部环境变量 + 密钥）、Caddyfile、EasyBot 数据、
-  MCSManager 数据、cloudflared 隧道凭据、PaperMC 实例目录。
+  `/Users/Shared/orzmc`；Windows 建议 `E:/orzmc`）。
+- 运行数据包括：`.env`（全部环境变量 + 密钥）、`compose.site.yaml`、EasyBot 数据、
+  MCSManager 数据、PaperMC 实例目录。
 - 由此获得的能力：运行时独立演进（升级镜像/改编排不触碰数据）、数据独立
   备份/还原/迁移（备份即打包 `$DATA_ROOT`）、密钥不进入仓库。
 
@@ -39,9 +39,8 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 - **没有边缘层服务**：不跑 cloudflared / Caddy。对外访问由站点自备
   （DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**。
-- 历史沿革：ADR-003（Caddy→Tunnel）/ ADR-012（lan 直连）/ ADR-017（EDGE 可插拔）
-  都是"多边缘层"时代的记录，ADR-027 起收敛为局域网单一模式，保留为历史。
-- 可选服务仅 easybot（ADR-025 移除了 mariadb/status）。
+- 可选服务仅 easybot；平台层不含数据库/状态页（ADR-025）。
+- 历史 ADR（多边缘层时代）只在 `docs/architecture.md` 保留一行索引，正文在 git 历史。
 
 ### 4. 网络拓扑：3 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
 
@@ -51,19 +50,16 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 - 对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN）；直接映射到公网前必须加 TLS 反代/VPN。
 - **daemon 不对外暴露任何入口**（ADR-026）：MCSManager 10.22 起面板自身中转浏览器↔daemon
   的数据流（`SystemConfig.dataPlane=proxy`，新装默认），因此：
-  - 节点地址**固定** `ws://mcsmanager-daemon:24444`（内网名），与 EDGE/平台无关；
-  - 浏览器终端/控制台/文件管理经面板端口中转，daemon 端口不发布、无边缘入口；
-  - `.env` 不再需要 `DOMAIN_MCS_NODE` / `LAN_MCS_DAEMON_PORT`。
-  ADR-005/011/013/014/020 的"浏览器怎么连 daemon"决策已由本条统一收敛，保留为历史。
+  - 节点地址**固定** `ws://mcsmanager-daemon:24444`（内网名）；
+  - 浏览器终端/控制台/文件管理经面板端口中转，daemon 端口不发布；
+  - `.env` 里不需要任何 daemon 地址变量。
 - **EasyBot 的插件 API 不外露**：PaperMC 插件跑在 `orzmc_default` 网络内，
   直连 `http://easybot:8080`（REST + WebSocket 同端口，内网无 TLS）。
-- **应用数据库 / 状态页已不在平台层（ADR-025）**：v0.1.0 起移除 mariadb 与 Gatus
-  （实测无插件使用；状态页还会自我轮询占用隧道）。需要时用 `compose.site.yaml`
+- **平台层不含数据库 / 状态页（ADR-025）**：需要时用 `compose.site.yaml`
   站点增量自行加回，不影响包内文件升级。
-- 服务端口**默认只 `expose`，不发布宿主机端口**（cloudflare/local；PaperMC 实例端口 `25565`
-  由 MCSManager 按实例配置映射，供玩家局域网直连）。**lan 直连模式例外**：经
-  `compose.edge.lan.yaml` 把 2 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网
-  （ADR-012）。
+- 只有面板与 EasyBot 发布宿主端口（`LAN_*_PORT`，纯 HTTP，仅限可信局域网）；
+  其余端口只 `expose`。PaperMC 实例端口（`25565` 等）由 MCSManager 按实例配置映射，
+  供玩家局域网直连。
 
 ## 目录地图
 
@@ -80,9 +76,7 @@ orzmc.sh               唯一部署入口（三平台一致；局域网模式，
 install.sh             免克隆一键安装（ADR-018：下载 Release tarball + 校验 sha256 + 解压）
 deploy.sh               orzmc.sh 的内部实现（init/up/stop/status/validate 命令体）
 backup.sh / restore.sh  数据备份 / 还原迁移
-update-image-digests.sh 刷新镜像 digest（按服务自动定位所在文件：compose.yaml /
-                         compose.edge.cloudflare.yaml / compose.edge.local.yaml；
-                         easybot 用发布 tag：EASYBOT_TAG=0.0.43）
+update-image-digests.sh 刷新 compose.yaml 镜像 digest（easybot 用发布 tag：EASYBOT_TAG）
 .github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + init/validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
@@ -90,10 +84,10 @@ README.md               用户入口（介绍 + 快速上手 + 命令速查 + �
 CHANGELOG.md            版本变更记录（Keep a Changelog；随 Release 打包，ADR-018）
 EXECUTION_PATH.md       执行路径、门禁、checklist、状态记录
 docs/usage.md           用户使用指南（全生命周期分步操作）
-docs/architecture.md    架构设计文档（含 ADR 决策记录，长期演进）
+docs/architecture.md    架构设计文档（拓扑/数据流 + 有效 ADR；已废止 ADR 仅留索引）
 docs/easybot.md         EasyBot 网关与插件 easybot.yml 配置指南
 docs/papermc-template.md PaperMC 实例录入参数参考
-docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，含 ADR-015/016，三平台统一命令）
+docs/windows-deployment.md Windows 平台要点（路径/compose 限制/防火墙/常见症状）
 ```
 
 ## 命令速查（统一 orzmc.sh）
@@ -129,7 +123,7 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 - 镜像一律用 **digest 锁定**（`image: xxx@sha256:...`），升级走
   `update-image-digests.sh` + git commit，回滚走 `git revert`。
 - `ensure_*` 引导函数**绝不覆盖已有文件**（`ensure_env_file`、`ensure_caddyfile`）；
-  模板同步用 `deploy.sh templates --diff|--force`。
+  想用新模板重建引导文件：删旧文件后重新 `./orzmc.sh init`。
 - **macOS / Docker Desktop 写盘走宿主用户**：容器内 uid 检查通过后，实际磁盘写入由
   macOS 侧文件共享进程（宿主用户）执行；`runAs 1000:1000` 的容器在宿主目录属主非该
   用户时仍会写盘失败（Operation not permitted / AccessDenied）。生产 macOS 将实例目录
@@ -140,20 +134,15 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 
 - `$DATA_ROOT/.env` 含 `QQBOT_APP_ID/CLIENT_SECRET`、`EASYBOT_ADMIN_PASSWORD`
   等密钥，权限收紧为 600，**永不入库**。
-- `$DATA_ROOT/cloudflared/` 含账号级 `cert.pem` 与隧道凭据 `<id>.json`（可控制该
-  Cloudflare 账号下的隧道）——按密钥对待：只存在于 DATA_ROOT 内、随数据备份、
-  权限收紧。
 - `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` 含 **daemon key**——daemon
   控制 docker.sock（可管理宿主机 Docker），该 key 等同最高权限密钥：权限 600、
   只存在于 DATA_ROOT 内、随数据备份、**永不入库**。
 - `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，拥有管理宿主机 Docker 的能力，
   **宿主机必须视为可信环境**。
-- EasyBot 监听器仅 HTTP，`EASYBOT_ALLOW_PLAINTEXT=true` 为有意为之；TLS 由
-  local=Caddy / prod=Cloudflare 边缘承担，插件 API 走内网不需 TLS。**lan 无边缘层**：
-  EasyBot 面板口令与 daemon 端口均以**明文 HTTP** 暴露给局域网——仅限可信局域网
-  （ADR-012），接入不可信 Wi-Fi 时应改用 prod/local。
-- **lan 对局域网开放 daemon 端口**（`LAN_MCS_DAEMON_PORT`）：daemon key 鉴权（可管理
-  docker.sock），等同对局域网开放最高权限密钥的探测面——仅限可信局域网。
+- EasyBot 监听器仅 HTTP，`EASYBOT_ALLOW_PLAINTEXT=true` 为有意为之（ADR-027 局域网模式）。
+  面板与 EasyBot 口令以**明文 HTTP** 暴露给局域网——仅限可信内网；接入不可信 Wi-Fi
+  或需要对公网开放时，必须加 TLS 反代或改用 VPN。
+- daemon 端口**不发布**（ADR-026）；daemon key（可管理 docker.sock）仍属最高权限密钥。
 
 ## 修改守则（智能体改动前必读）
 

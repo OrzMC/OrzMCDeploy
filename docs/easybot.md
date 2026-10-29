@@ -6,35 +6,32 @@ PaperMC 插件 `easybot.yml` 如何对接。
 ## 架构位置
 
 ```text
-公网（Cloudflare 边缘终止 TLS，prod profile）
-  https://DOMAIN_EASY_ADMIN  （EasyBot 管理后台）
+局域网（ADR-027：项目只有局域网模式，纯 HTTP）
+  http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>   （EasyBot 管理后台）
         ▼
-cloudflared（出站隧道）─> easybot:8080（compose 内网，仅 expose 不发布宿主机端口）
+easybot:8080（容器内；宿主端口由 LAN_EASYBOT_PORT 发布）
         ▼
 EasyBot 网关  ——  QQ / Telegram / Discord / 飞书 / 微信
 
-内网（插件 API，不暴露公网）
+内网（插件 API，不对外）
 PaperMC 实例（MCSManager 管理，挂 orzmc_default 网络，插件 easybot.yml）
         │  http://easybot:8080  (REST + WebSocket，服务内网直连)
         ▼
 EasyBot 网关
 ```
 
-- EasyBot 监听器**仅支持 HTTP**，TLS 由边缘层承担：prod=Cloudflare 边缘，
-  local=Caddy；**lan 无边缘层**（`compose.lan.yaml` 把 easybot 发布宿主
-  `LAN_EASYBOT_PORT`，纯 HTTP，仅限可信局域网，见 ADR-012）。故端口默认只 `expose`、
-  不发布到宿主机（prod/local；lan 例外发布）。
+- EasyBot 监听器**仅支持 HTTP**（发布镜像硬性要求 `EASYBOT_ALLOW_PLAINTEXT=true`）。
+  本项目只做局域网部署：宿主端口 `LAN_EASYBOT_PORT`（缺省 18091）直接发布，纯 HTTP、
+  仅限可信内网。要对外访问请自备 TLS 反代或 VPN（ADR-027）。
 - **插件 API 仅内网**：插件跑在 `orzmc_default` 网络内，直连 `http://easybot:8080`
   （REST 与 WS 同端口，内网无需 TLS）。不存在 `easybot-api` 公网域名。
   - 先决条件：MCSManager 创建 PaperMC 实例时，把实例网络挂到 `orzmc_default`，
     否则插件容器解析不到 `easybot` 服务名。
-- 管理后台走公网 `DOMAIN_EASY_ADMIN`（prod 即 `easybot.<domain>`）。
+- 管理后台入口：`http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`。
 
 ## 管理后台（首次配置）
 
-1. 打开 `https://DOMAIN_EASY_ADMIN`（生产模板中的 `DOMAIN_EASY_ADMIN`，即
-   `easybot.<domain>`；lan 下为 `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`，纯 HTTP，
-   仅限可信局域网）。
+1. 打开 `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`（纯 HTTP，仅限可信内网）。
 2. 使用 `EASYBOT_ADMIN_PASSWORD` 登录/初始化管理后台。
 3. **API 密钥**：后台 → API 密钥 → 创建「客服类」密钥，得到 `sk-xxxxxxxx`，填入插件 `api_key`。
 4. **会话**：后台 → 会话管理 → 为各平台创建会话，复制**会话 key**（如 `qq:conv_xxxxxxxx`），
@@ -76,8 +73,8 @@ platforms:
 
 ## 本地验证注意事项
 
-本地模板 `env.local` 使用 `easybot.localhost`：
-- EasyBot 管理后台（`https://easybot.localhost:18443`）经 Caddy 反代可正常访问。
+局域网模式下：
+- EasyBot 管理后台（`http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`）可正常访问。
 - 插件若跑在 PaperMC 容器内并挂到 `orzmc_default`，同样可直连
   `http://easybot:8080`；否则本地验证可跳过机器人连接验证，只验证平台层可达。
 
@@ -105,7 +102,7 @@ adapters:
 改后重启生效：`docker restart orzmc-easybot`，日志应出现
 `Skipping adapter 'wechat' ... explicitly disabled in config`，且 `Started adapters` 不再
 包含 `wechat`。该覆盖文件由 EasyBot 从 `EASYBOT_HOME`（容器 `/var/lib/easybot`）读取，
-仿 Caddyfile 模式由 init 生成、**绝不覆盖已有文件**。
+由 init 生成、**绝不覆盖已有文件**。
 
 > 注：无需在覆盖文件里写 `server.host` —— 本地覆盖仅按文件显式写出的键合并
 > （EasyBot ≥0.0.35，本仓库镜像 digest 已锁定该版本以上）。
