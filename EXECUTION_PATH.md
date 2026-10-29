@@ -1103,3 +1103,37 @@
   `orzmc-mariadb`/`orzmc-status` 容器需 `./orzmc.sh stop`（`down --remove-orphans`）清理，
   目录可手工删除；`.env` 中 `MARIADB_*`/`DOMAIN_STATUS`/`STATUS_PORT` 变为无消费者的普通行。
 - **待办**：打 tag `v0.1.0`（不兼容变更）→ CI `package` 产出 tarball；父仓库 bump 指针。
+
+### 2026-10-29 镜像全量升级 + 修 update-image-digests.sh
+
+- **升级结果**（本机实测，digest 重新锁定）：
+
+  | 服务 | 旧 | 新 | 备注 |
+  |---|---|---|---|
+  | `mcsmanager-web` / `daemon` | v10.18.0 / daemon 4.18.x | **v10.22.0 / daemon 4.19.3** | 10.19.0 起上游明确警告「旧版有潜在安全问题，10.20.0+ 已修」；本仓库原钉 10.18.0 受影响 |
+  | `easybot` | 0.0.41 | **0.0.43** | 0.0.42 QQ intent 自动降级探测 + Telegram `sendMediaGroup`；0.0.43 修进程外插件双重 init |
+  | `cloudflared` | 2026.08.14 构建 | **2026.10.5** | |
+  | `caddy`（`EDGE=local`） | v2.11.2 | **v2.11.7** | |
+
+- **脚本修复**（`update-image-digests.sh`，ADR-017 拆边缘层后的遗留缺陷）：
+  1. `cloudflared` 已移入 `compose.edge.cloudflare.yaml`，脚本仍去 `compose.yaml` 找 →
+     默认全量升级必然中断；
+  2. `caddy` 完全未覆盖，且它在 `compose.edge.local.yaml` 的服务键是 `reverse-proxy`；
+  3. `easybot` 改用**发布 tag**（`EASYBOT_TAG`，缺省 `0.0.43`）：上游 `latest` 的 label 是
+     `main`（跟踪 main 分支，非发布构建）。
+  现在按服务自动定位 compose 文件与服务键，默认覆盖 5 个服务。
+- **应用方式**（本机）：Windows 侧 compose 重建（`docker.exe compose ... up -d`）。WSL 侧
+  compose 会报 `invalid volume specification: 'E:/orzmc/...'`（短语法盘符冒号），与
+  ADR-016 记录一致。
+- **验证**：4 容器全 Up（daemon/easybot healthy，easybot restarts=0）；隧道 2 条连接
+  Registered；3 个入口 http=200；面板 `package.json` 10.22.0、daemon 4.19.3；
+  四档 `init && validate` PASS；`bash -n`/`shellcheck` 0 告警；`windows_ci` 38 项 PASS。
+- **升级前备份**：`E:/orzmc-backups/pre-upgrade-20261029-124255/`（.env / site override /
+  cloudflared config / web-data / daemon Config / easybot-data）。
+- **新发现（待评估）**：本次 daemon 由 **Windows 侧 compose 直接创建成功**
+  （`com.docker.compose.project=orzmc`），未用 `win_daemon_run` 的 `docker run`。
+  若能稳定复现，ADR-016 的 Windows daemon 旁路（`lib` 137 行 + `tests/windows_ci.sh`
+  302 行）可整体删除——需在 `orzmc.sh up`（MINGW 分支）下复测后再动。
+- **后续可评估**：MCSManager 10.22.0 新增「面板中转数据模式」——面板经自身中转 daemon
+  流量，可不再开放 daemon 端口。若启用，可取消 `mcs-node` 入口（3 → 2）并把节点地址
+  固定为内网名，同时消除「面板 RPC 经隧道 ~1 s」的延迟（见本文件 2026-10-29 服务精简条）。

@@ -116,7 +116,9 @@ local.sh                本地验证入口（固定 EDGE=local + .local-data，�
 lan.sh                  局域网直连入口（固定 EDGE=lan + .local-data-lan，兼容保留）
 windows.sh              Windows 部署入口（默认 DATA_ROOT=E:/orzmc；兼容保留，ADR-016）
 backup.sh / restore.sh  数据备份 / 还原迁移
-update-image-digests.sh 刷新 compose.yaml 镜像 digest
+update-image-digests.sh 刷新镜像 digest（按服务自动定位所在文件：compose.yaml /
+                         compose.edge.cloudflare.yaml / compose.edge.local.yaml；
+                         easybot 用发布 tag：EASYBOT_TAG=0.0.43）
 .github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + EDGE×ENABLE_EASYBOT validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）

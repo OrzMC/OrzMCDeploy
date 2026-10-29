@@ -458,19 +458,25 @@ services:
 
 ### 5.3 平台层升级与回滚
 
-`compose.yaml` 镜像一律 **digest 锁定**（`image:xxx@sha256:...`）。升级分两步：
+`compose.yaml` / `compose.edge.*.yaml` 镜像一律 **digest 锁定**（`image:xxx@sha256:...`）。
+升级分两步（ADR-017 起镜像分布在 3 个文件：核心服务在 `compose.yaml`，
+`cloudflared` 在 `compose.edge.cloudflare.yaml`，`caddy` 在 `compose.edge.local.yaml`）：
 
 ```bash
-# 1. 拉取并刷新 digest（可指定服务：./update-image-digests.sh easybot；默认全部 6 个）
+# 1. 拉取并刷新 digest（默认全部 5 个服务：cloudflared/mcsmanager-web/daemon/easybot/caddy）
 ./update-image-digests.sh
+#    指定服务：./update-image-digests.sh easybot
+#    easybot 用**发布 tag**（非 latest）：EASYBOT_TAG=0.0.43 ./update-image-digests.sh easybot
+#    （上游 `latest` 跟踪 main 分支，不是发布构建）
 
 # 2. 审查改动并提交（回到仓库根目录）
-git diff -- compose.yaml
-git add compose.yaml && git commit -m "chore: update docker image digests"
+git diff -- '*.yaml'
+git add compose.yaml compose.edge.cloudflare.yaml compose.edge.local.yaml
+git commit -m "chore: update docker image digests"
 git push
 
-# 3. 重新拉起
-deploy.sh -d <DATA_ROOT> up
+# 3. 重新拉起（digest 变了必须重建容器，up -d 会识别并重建）
+./orzmc.sh stop && ./orzmc.sh up
 ```
 
 **回滚**：`git revert <commit>` 后重新 `up`。升级/回滚**不触碰 `$DATA_ROOT`**，数据不变。
@@ -897,7 +903,8 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 常驻 | `githubyumao/mcsmanager-daemon` |
 | `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`） | `ghcr.io/easyindie/easybot` |
 
-镜像版本以 `compose.yaml` 中 `image:xxx@sha256:...` 为准；刷新用 `update-image-digests.sh`。
+镜像版本以 `compose.yaml` 与 `compose.edge.*.yaml` 中的 `image:xxx@sha256:...` 为准；
+刷新用 `update-image-digests.sh`（自动定位每个服务所在的 compose 文件）。
 
 ## 附录 E 术语表
 

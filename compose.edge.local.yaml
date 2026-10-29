@@ -11,7 +11,7 @@
 services:
   # ---- Caddy 反代（.localhost + 本地 CA）----------------------------------
   reverse-proxy:
-    image: caddy@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
+    image: caddy@sha256:5e5286cb37d44086d651a5363f05f43a692ce4d649d88fb1bd844579f45fa9e8
     container_name: orzmc-caddy
     restart: unless-stopped
     ports:

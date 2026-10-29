@@ -32,7 +32,7 @@ services:
       resources:
         limits:
           memory: 512M
-    image: githubyumao/mcsmanager-web@sha256:4df0d86b59f7da423b838516e20c024b56352a0b5e54fb6c77f6f0a31f618555
+    image: githubyumao/mcsmanager-web@sha256:c3de64da162927a2386f9b036791f2eaeb610129d8742395fed4baad24678c64
     container_name: orzmc-mcsmanager-web
     restart: unless-stopped
     environment:
@@ -57,7 +57,7 @@ services:
       resources:
         limits:
           memory: "${DAEMON_MEMORY_LIMIT:-512M}"
-    image: githubyumao/mcsmanager-daemon@sha256:70c69471142047e1670e85858cd0ca64d2ff396566f63c4d2abb489ea37d65cf
+    image: githubyumao/mcsmanager-daemon@sha256:f6fd2facb03029a12b86c6c836d37f57b1608c68d8dc8abbc8e1539e5d12fae3
     container_name: orzmc-mcsmanager-daemon
     restart: unless-stopped
     # issue #10：镜像默认 CMD 是 `node app.js --max-old-space-size=8192`（8G），在 512M
@@ -106,11 +106,13 @@ services:
         limits:
           memory: "${EASYBOT_MEMORY_LIMIT:-512M}"
     # 依赖 EasyBot ≥0.0.35（镜像 digest 锁定，勿回退到更低版本；升级见 update-image-digests.sh）
-    # 钉 v0.0.41：含 SQLite 权限加固降级 / 存储降级显式上报（上游 #121/#122/#123）与近空载
-    # 匿名内存泄漏修复（上游 #139），对应本仓库 issue #14/#16。
+    # 钉 v0.0.43（发布 tag 0.0.43 的 digest，非 latest——上游 latest 跟踪 main 分支）：
+    #   0.0.41 SQLite 权限加固降级 / 存储降级上报（#121/#122/#123）+ 空载内存泄漏（#139）
+    #   0.0.42 QQ 公私域 intent 自动降级探测、Telegram 相册多图（sendMediaGroup）
+    #   0.0.43 进程外插件双重 init 导致握手失败（IPC adapter init 幂等化）
     # ENABLE_EASYBOT=true 时启用（compose_cmd 追加 --profile easybot）
     profiles: ["easybot"]
-    image: ghcr.io/easyindie/easybot@sha256:23a6eace475131c1349e8363b9734a91a5841938caf535d8b97af256130004d8
+    image: ghcr.io/easyindie/easybot@sha256:85e9e3fa2faafd3861c998b57be30c8cdafa3b8eac1e214ad9209026ae3506bc
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:

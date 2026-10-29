@@ -13,8 +13,33 @@
 
 ## [Unreleased]
 
+### 变更（镜像升级）
+
+- **全部服务升级到当前最新发布版**（digest 重新锁定）：
+
+  | 服务 | 旧版 | 新版 |
+  |---|---|---|
+  | `mcsmanager-web` / `mcsmanager-daemon` | v10.18.0 | **v10.22.0** |
+  | `easybot` | 0.0.41 | **0.0.43** |
+  | `cloudflared` | 2026.08.14 构建 | **2026.10.5** |
+  | `caddy`（`EDGE=local`） | v2.11.2 | **v2.11.7** |
+
+  - **MCSManager 10.18 → 10.22 含安全修复**：上游 10.19.0 明确警告“旧版存在潜在安全问题，
+    已在 10.20.0 修复”；本仓库此前钉的 10.18.0 落在受影响区间。
+  - 10.22.0 新增「面板中转数据模式」：可不再开放 daemon 端口，仅靠面板一个端口运行
+    分布式面板（后续可用于取消 `mcs-node` 入口，待评估）。
+  - EasyBot 0.0.42/0.0.43：QQ 公/私域 intent 自动降级探测、Telegram 相册多图
+    （`sendMediaGroup`）、进程外插件双重 `init` 导致握手失败修复。
+
 ### 修复
 
+- **`update-image-digests.sh` 无法刷新全部服务**（ADR-017 拆边缘层后遗留）：
+  - `cloudflared` 已移入 `compose.edge.cloudflare.yaml`，脚本仍去 `compose.yaml` 找 → 报
+    “未找到服务”并中断（默认全量升级必失败）；
+  - `caddy` 完全未覆盖，且它在 `compose.edge.local.yaml` 里的服务键是 `reverse-proxy`；
+  - `easybot` 改用**发布 tag**（`EASYBOT_TAG`，缺省 `0.0.43`）：上游 `latest` 的
+    label 是 `main`（跟踪 main 分支），直接钉 `latest` 会引入未发布构建。
+  - 现在脚本按服务自动定位所在 compose 文件与服务键，默认覆盖 5 个服务。
 
 ### 移除（⚠️ 不兼容变更，计划 v0.1.0）
 
