@@ -13,6 +13,24 @@
 
 ## [Unreleased]
 
+### 移除（ADR-027，收敛为只有局域网模式）
+
+- **删除边缘层概念**：只保留局域网直连（面板/EasyBot 发布宿主端口，纯 HTTP）。
+  - 删除 `compose.edge.{cloudflare,local,lan}.yaml`、`templates/Caddyfile`、
+    `templates/cloudflared-config.yml`、`templates/env.{prod,local}`（三份 env 模板
+    合并为单份 `templates/env`）。
+  - 删除 `lib/common.sh` 的 `normalize_edge` / `edge_override_file` / `ensure_caddyfile` /
+    `ensure_cloudflared_config`；`orzmc.sh -e` 与 `deploy.sh -p/-e/-t` 参数、
+    `COMPOSE_PROFILE` 兼容层一并移除。
+  - 删除旧入口脚本 `local.sh` / `lan.sh` / `windows.sh`（它们只是已失效参数的包装）。
+  - 端口发布内联进 `compose.yaml`：`${LAN_MCS_WEB_PORT:-18090}` / `${LAN_EASYBOT_PORT:-18091}`。
+- **对外访问改为站点自备**（DDNS + 端口映射 / 反向代理 / VPN）。⚠️ 面板是 HTTP +
+  口令登录：公网暴露前必须加 TLS 反代或改用 VPN（文档已写入安全章节）。
+- 运行时：容器 **4 → 3**（无 cloudflared/caddy）；`.env` 必备项 `EDGE` / `CLOUDFLARE_TUNNEL_ID` /
+  `DNS_*` / `DOMAIN_*` 不再需要（旧值残留不报错，可删）。
+- CI：4 档 `EDGE × ENABLE` 矩阵 → 单档 `init && validate` + `ENABLE_EASYBOT=false`
+  最小集 + `LAN_*_PORT` 覆盖用例。
+
 ### 移除（ADR-026，daemon 不再对外暴露）
 
 - **新增：面板中转数据模式成为标准拓扑**（MCSManager 10.22 的 `dataPlane=proxy`，
@@ -50,8 +68,8 @@
   |---|---|---|
   | `mcsmanager-web` / `mcsmanager-daemon` | v10.18.0 | **v10.22.0** |
   | `easybot` | 0.0.41 | **0.0.43** |
-  | `cloudflared` | 2026.08.14 构建 | **2026.10.5** |
-  | `caddy`（`EDGE=local`） | v2.11.2 | **v2.11.7** |
+  | ~~`cloudflared`~~ | 2026.08.14 构建 | 2026.10.5（后随 ADR-027 移除） |
+  | ~~`caddy`~~ | — | 已随 ADR-027 从项目中移除（不再有本地 TLS 边缘层） |
 
   - **MCSManager 10.18 → 10.22 含安全修复**：上游 10.19.0 明确警告“旧版存在潜在安全问题，
     已在 10.20.0 修复”；本仓库此前钉的 10.18.0 落在受影响区间。

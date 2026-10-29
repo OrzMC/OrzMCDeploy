@@ -1,47 +1,37 @@
 # ===========================================================================
-# 生产环境模板（deploy.sh init 默认，prod profile：Cloudflare Tunnel）
+# OrzMC 运行配置模板（`./orzmc.sh init` 使用）
 #
-# init 会把它生成到 $DATA_ROOT/.env（DATA_ROOT 行按生效值改写），
-# 该文件随数据目录一起迁移与备份，属运行数据的一部分，不入 Git。
+# 生成目标为 $DATA_ROOT/.env（DATA_ROOT 行按生效值改写），属运行数据，不入 Git。
 #
-# 生产网络拓扑：
-#   - 公网暴露 2 个入口：mcs.<domain>（MCSManager 面板）、easybot.<domain>
-#     （EasyBot 管理后台），经 Cloudflare Tunnel（cloudflared 出站隧道）转发；
-#     宿主机无需开放任何端口、无需 ACME。
-#   - EasyBot 插件 API 仅内网：插件挂 orzmc_default 网络直连
-#     http://easybot:8080（REST + WS），无需公网域名。
+# 运行模型（ADR-027）：**只有局域网模式**。
+#   面板与 EasyBot 直接发布宿主端口，局域网设备用 http://<LAN_HOST_IP>:<端口> 访问。
+#   纯 HTTP、仅限可信内网；对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN），
+#   不在本仓库管理范围内。daemon 不对宿主发布端口（面板中转，ADR-026）。
 # ===========================================================================
 
 # ==================== 基础 ====================
 TZ=Asia/Shanghai
-DATA_ROOT=/srv/orzmc
+DATA_ROOT=<DATA_ROOT>
 
-# ==================== 边缘层：Cloudflare Tunnel ====================
-# 由 `cloudflared tunnel create` 取得（一次性初始化，见 EXECUTION_PATH.md）
-CLOUDFLARE_TUNNEL_ID=<tunnel-uuid>
-
-# 说明：compose.edge.cloudflare.yaml 里给 cloudflared 指定了公网 DNS（缺省
-# 223.5.5.5 + 1.1.1.1），用于绕开宿主 DNS 被 fake-ip 代理劫持。**该设置在宿主开启
-# Clash/Surge 类 TUN（透明劫持 UDP:53）时无效**（实测容器仍解析到 198.18.x），
-# 仅在无 DNS 劫持的宿主上起作用；需要时自行在 .env 写 DNS_PRIMARY / DNS_SECONDARY。
-
-# ==================== 公网入口域名 ====================
-# 命名约定：子域名 = 产品代号；mcs / easybot 为管理后台。
-# daemon 不单独暴露域名（面板中转，ADR-026）
-DOMAIN_MCS_WEB=mcs.example.com
-DOMAIN_EASY_ADMIN=easybot.example.com
+# ==================== 局域网入口：宿主发布端口 ====================
+# LAN_HOST_IP 为宿主局域网 IP：局域网设备访问入口，同时被 init 打印访问地址使用。
+# DHCP 变更需同步更新并重新 init（建议宿主用静态 IP / DHCP 保留地址）。
+# 宿主发布端口默认 18090/18091，避开实例端口 25565/25566；按需覆盖。
+# daemon 端口不发布（面板中转，ADR-026）。
+LAN_HOST_IP=192.168.1.100
+LAN_MCS_WEB_PORT=18090
+LAN_EASYBOT_PORT=18091
 
 # ==================== EasyBot 网关 ====================
-# 监听器仅 HTTP，TLS 由 Cloudflare 边缘承担；微信适配器默认自动启用，
-# 禁用见 docs/easybot.md（gateway.local.yaml）
-# 可选服务开关：置 false 则 easybot 容器不启动（`compose_cmd` 不再追加 --profile easybot）；
-# 核心 mcsmanager-web / mcsmanager-daemon 常驻，不受此开关影响。
+# 监听器仅 HTTP，局域网明文（可信内网假设；对公网暴露请自备 TLS 反代/VPN）；
+# 微信适配器默认自动启用，禁用见 docs/easybot.md（gateway.local.yaml）
+# 可选服务开关：置 false 则 easybot 容器不启动；核心 web/daemon 常驻。
 ENABLE_EASYBOT=true
 EASYBOT_PORT=8080
-EASYBOT_ADMIN_PASSWORD=change_me_strong_password
+EASYBOT_ADMIN_PASSWORD=lan_strong_password_change_me
 
 # ==================== MCSManager 平台 ====================
-# 容器内端口，仅 expose 不发布宿主机
+# 容器内端口（宿主发布端口见上方 LAN_*_PORT）
 MCS_WEB_PORT=23333
 MCS_DAEMON_PORT=24444
 
@@ -61,16 +51,21 @@ MCS_DAEMON_PORT=24444
 # ==================== 进程模式实例进服端口（Windows daemon） ====================
 # 仅 Windows 生效（ADR-016）：进程模式 PaperMC 实例（cwd 在 daemon 内部）的进服端口
 # 须由 daemon 容器 -p 暴露。逗号分隔 host:container/proto。Java 版 25565/tcp、基岩版
-# 19132/udp。macOS/Linux 的 daemon 走 compose 实例端口由 MCSManager 配置，不消费本变量。
+# 19132/udp。发布到宿主后局域网玩家可直连 <LAN_HOST_IP>:25565（Java）。
+# macOS/Linux 的 daemon 走 compose 实例端口由 MCSManager 配置，不消费本变量。
 # ⚠️ 只服务**进程模式**实例：**默认置空**。用进程模式实例（Windows）且需玩家经 daemon
 #    端口进服时，取消下一行注释；用 **docker 型实例**（各自发布宿主端口）保持置空。
 #    daemon 创建时若检测到 docker 型实例会**自动忽略**本变量（issue #6/#9）。
 # DAEMON_PORTS=25565:25565/tcp,19132:19132/udp
 
+# 节点地址固定为内网名 ws://mcsmanager-daemon:24444（面板服务端用它连 daemon）；
+# 浏览器终端/控制台/文件管理经面板中转（dataPlane=proxy，ADR-026），
+# 因此 daemon 端口无需对宿主发布。
+
 # ==================== QQ 开放平台 ====================
-# EasyBot QQ 适配器凭据（官方 bot，非个人账号扫码登录）
-QQBOT_APP_ID=your_app_id_here
-QQBOT_CLIENT_SECRET=your_client_secret_here
+# EasyBot QQ 适配器凭据（本地验证无真实账号可先保留占位）
+QQBOT_APP_ID=lan_app_id
+QQBOT_CLIENT_SECRET=lan_client_secret
 
 # ==================== 站点增量 override（issue #11） ====================
 # 站点特有增量（飞书等适配器凭据、额外环境变量/挂载）统一写入 $DATA_ROOT/compose.site.yaml

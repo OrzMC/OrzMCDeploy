@@ -1,5 +1,5 @@
 # EasyBot 本地覆盖配置（gateway.local.yaml）
-# init 自动生成到 $DATA_ROOT/easybot/data/（仿 Caddyfile，绝不覆盖已有文件）。
+# init 自动生成到 $DATA_ROOT/easybot/data/（与 compose.site.yaml 一样，绝不覆盖已有文件）。
 # EasyBot 从 EASYBOT_HOME（容器 /var/lib/easybot）解析本文件，作为 gateway.yaml
 # 的覆盖层合并（官方文档称 gateway.local.yaml，未纳入 Git 属运行数据）。
 #

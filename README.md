@@ -4,10 +4,8 @@
 
 OrzMC 的最小容器化落地方案。平台层包括：
 
-- `cloudflared`（`EDGE=cloudflare`，生产）作为公网入口——Cloudflare Tunnel 出站隧道，
-  Cloudflare 边缘终止真实 HTTPS
-- `Caddy`（`EDGE=local`，本地验证）作为 `.localhost` 反代 + 本地 CA
-- `EDGE=lan`（无边缘层）：3 个源站直接发布宿主端口，纯 HTTP，局域网设备直连
+- **局域网直连**：面板与 EasyBot 直接发布宿主端口（纯 HTTP），局域网设备访问
+- 对外访问由站点自备（DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**
 - `MCSManager Web` + `MCSManager Daemon` 管理实例
 - `EasyBot` 统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
 
@@ -33,36 +31,30 @@ OrzMC 的最小容器化落地方案。平台层包括：
 `/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，Windows `windows.sh` 默认 `E:/orzmc`，
 本地 `.local-data/`）。由此获得：运行时独立演进、数据独立备份/还原/迁移、密钥不进入仓库。
 
-**三平台统一命令**（macOS / Linux / Windows）：同一套 `init|start|stop|status|validate|backup`
-在任意平台行为一致。Windows（Docker Desktop/WSL2）下脚本自动完成 daemon 的
-`docker run --mount` 创建、服务名别名补丁与 MSYS→原生路径转换（ADR-016）；仅 daemon
-一个容器脱离 compose 管理（其实例自挂载卷 target 含驱动器冒号，compose 无法创建，
-结构性必然）。详见 [`docs/windows-deployment.md`](docs/windows-deployment.md)。
+**三平台统一命令**（macOS / Linux / Windows）：同一套 `init|up|stop|status|validate|backup`
+在任意平台行为一致。Windows（Docker Desktop/WSL2）下脚本自动完成 MSYS→原生路径转换；
+daemon 默认由 compose 管理，仅进程模式实例需要注入 `DAEMON_PORTS` 时才走 `docker run`
+（ADR-029）。详见 [`docs/windows-deployment.md`](docs/windows-deployment.md)。
 
-## 单 Profile：EDGE 边缘层 + ENABLE_* 可选服务（ADR-017）
+## 运行模型：只有局域网模式（ADR-027）
 
-去掉了原 prod/local/lan 三 profile，改为**一个运行集 + 可插拔边缘层 + 可插拔服务**，全部在 `$DATA_ROOT/.env` 里配置，唯一入口 `./orzmc.sh`：
+一个运行集、零边缘层，全部在 `$DATA_ROOT/.env` 里配置，唯一入口 `./orzmc.sh`：
 
 | 维度 | 配置（`.env`） | 说明 |
 |---|---|---|
-| 边缘层 | `EDGE=cloudflare\|local\|lan\|none` | 决定 3 个源站对外如何可达，见下 |
+| 局域网入口 | `LAN_HOST_IP` / `LAN_MCS_WEB_PORT`(18090) / `LAN_EASYBOT_PORT`(18091) | 面板与 EasyBot 发布到宿主端口，纯 HTTP |
 | 可选服务 | `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即停用 EasyBot；核心 web/daemon 常驻 |
 
-**EDGE 边缘层**（`compose_cmd` 按值追加 `compose.edge.<edge>.yaml` override）：
+**2 个局域网入口**：`http://<LAN_HOST_IP>:18090`（MCSManager 面板）、
+`http://<LAN_HOST_IP>:18091`（EasyBot 管理后台）。
 
-| EDGE | 边缘层 | 用途 | 入口 |
-|---|---|---|---|
-| `cloudflare` | cloudflared（Cloudflare Tunnel，出站隧道免开端口） | 生产 | `mcs.<domain>` / `easybot.<domain>` |
-| `local` | Caddy（`.localhost` 本地 CA + 非特权端口 18080/18443） | 本地验证 / 回归 | `mcs.localhost:18443` 等 |
-| `lan` | 无边缘层（`compose.edge.lan.yaml` 发布 2 源站宿主端口，纯 HTTP） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>` |
-| `none` | 不追加 override | 仅内网 `orzmc_default` | 内网服务名 |
-
-公网/本地暴露 **2 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）。
-**daemon 不对外暴露**（ADR-026）：10.22 起面板自身中转浏览器↔daemon 数据流，节点地址固定
-内网名，终端/控制台/文件管理经面板端口。lan 无边缘层，同 2 个源站改为发布宿主
-`LAN_*_PORT` 端口、纯 HTTP（ADR-012）。
-**EasyBot 插件 API 仅内网**——插件挂 `orzmc_default` 网络直连 `http://easybot:8080`，
-无 `easybot-api` 子域名。
+- **daemon 不发布任何端口**（ADR-026）：MCSManager 10.22 的面板中转数据面
+  （`dataPlane=proxy`）让浏览器↔daemon 流量经面板端口，节点地址固定内网名
+  `ws://mcsmanager-daemon:24444`。终端/控制台/文件管理照常可用。
+- **EasyBot 插件 API 仅内网**：插件挂 `orzmc_default` 网络直连 `http://easybot:8080`。
+- **对外访问**：在路由器做 DDNS + 端口映射，或在前面加反向代理/VPN——暴露哪个端口、
+  是否加 TLS 都由你决定。⚠️ 面板默认口令登录、无 TLS，直接映射到公网前请务必加
+  TLS 反代（或用 VPN 而非公网映射），并换成强口令。
 
 **站点增量与升级不丢**（ADR-022）：站点特有配置（如飞书 `FEISHU_*`、额外 env/挂载）
 写入 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），升级换包不丢；
@@ -86,7 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/OrzMC/OrzMCDeploy/main/install.sh \
 
 # 装好后与 git clone 部署完全一致：
 cd <安装目录>
-./orzmc.sh -e cloudflare init   # 建目录树 + 生成 .env + 边缘层配置
+./orzmc.sh init                # 建目录树 + 生成 .env
 ./orzmc.sh validate             # 校验配置
 ./orzmc.sh up                   # 启动
 ```
@@ -104,13 +96,12 @@ cd <安装目录>
 
 ```bash
 git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
-./orzmc.sh -e local init      # 生成 .local-data/.env（EDGE=local，Caddy）
-./orzmc.sh -e local up        # 启动平台层（可选服务默认全开）
-./orzmc.sh status             # 查看状态与访问地址（mcs.localhost:18443 等）
+./orzmc.sh init               # 生成 .local-data/.env（改 LAN_HOST_IP 为你的局域网 IP）
+./orzmc.sh up                 # 启动平台层（可选服务默认全开）
+./orzmc.sh status             # 查看状态与局域网访问地址
 ```
 
-生产上线（`-e cloudflare`，Cloudflare Tunnel）、局域网直连（`-e lan`）、完整命令与
-每步预期输出，见 [`docs/usage.md`](docs/usage.md) 第 3 章。
+完整流程与每步预期输出见 [`docs/usage.md`](docs/usage.md) 第 3 章。
 
 ## 命令速查（唯一入口 orzmc.sh）
 
@@ -126,8 +117,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 
 `<DATA_ROOT>` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 平台默认
-（macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`）。EDGE 在
-`.env` 里配（`EDGE=cloudflare` 等），`-e` 参数可临时覆盖。三平台命令完全一致；
+（macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`）。三平台命令完全一致；
 Windows 下 daemon 自动走脚本生成的 docker run（`lib/common.sh` detect_os / ADR-016），
 `orzmc.sh stop && orzmc.sh up` 即完成 daemon 重建。可选服务开关
 `ENABLE_EASYBOT` 也在 `.env` 里配。
@@ -141,15 +131,15 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 
 - **lint**：shell 语法（`bash -n`）+ `shellcheck`（含 `tests/`）+ 模板 YAML 解析 + 禁入路径守卫
   （`.env` / `.local-data*` / `.local-backups*` 永不入库）
-- **validate**：`EDGE × ENABLE_EASYBOT` 组合 `init && validate`（`orzmc.sh -e <edge>`），
-  覆盖 cloudflare/local/lan/none 四档 + `ENABLE_EASYBOT=false` 最小集（必需环境变量检查 +
-  `docker compose config -q`，纯解析不拉镜像、不触碰 `$DATA_ROOT`）
+- **validate**：`init && validate`（模板全量）+ `ENABLE_EASYBOT=false` 最小集 +
+  `LAN_*_PORT` 覆盖生效（必需环境变量检查 + `docker compose config -q`，
+  纯解析不拉镜像、不触碰 `$DATA_ROOT`）
 - **windows-branch**：Windows 分支逻辑（ADR-016）单元测试——mock `uname` 强制 MINGW，
   校验 `win_path` / `win_daemon_*` / `compose_cmd` Windows 分支的命令构造（`tests/windows_ci.sh`）。
   覆盖主 job 在 Linux 上走不到的 Windows 特有代码路径。
 
-本地想先自查同一套检查，跑 `./orzmc.sh -e local init && ./orzmc.sh validate` 覆盖 env 与
-compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck *.sh lib/*.sh tests/*.sh`
+本地想先自查同一套检查，跑 `./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate`
+覆盖 env 与 compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck *.sh lib/*.sh tests/*.sh`
 覆盖静态检查。
 
 ## 文档导航

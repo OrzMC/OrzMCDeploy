@@ -2,15 +2,14 @@
 # ===========================================================================
 # OrzMC 数据备份
 #
-# 用法: backup.sh [-d DATA_ROOT] [-o BACKUP_DIR] [-p PROFILE] [--stop] [--keep N]
+# 用法: backup.sh [-d DATA_ROOT] [-o BACKUP_DIR] [--stop] [--keep N]
 #
-# 打包整个 $DATA_ROOT（含 .env 与 Caddyfile / cloudflared 凭据），归档默认放在
+# 打包整个 $DATA_ROOT（含 .env 等密钥），归档默认放在
 # DATA_ROOT 之外的 $(dirname $DATA_ROOT)/orzmc-backups，避免自我包含。
 #
 # 默认在线打包（best-effort，可能产生不一致快照）；
 # --stop 会先停 compose 服务再打包再拉起，但 MCSManager 管理的 PaperMC 实例
 # 不属于 compose，如需完全一致的快照请先在 MCSManager 面板停止实例。
-# PROFILE（默认 prod）：--stop 的 compose 操作按 profile 选择边缘层。
 # ===========================================================================
 
 set -euo pipefail
@@ -33,8 +32,6 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         -d|--data-root) [ "$#" -ge 2 ] || usage; DATA_ROOT="$(norm_path "$2")"; shift 2 ;;
         -o|--output-dir) [ "$#" -ge 2 ] || usage; BACKUP_DIR="$(norm_path "$2")"; shift 2 ;;
-        -p|--profile) [ "$#" -ge 2 ] || usage; COMPOSE_PROFILE="$2"; shift 2 ;;
-        -e|--edge) [ "$#" -ge 2 ] || usage; EDGE="$2"; shift 2 ;;
         --stop) STOP=1; shift ;;
         --keep) [ "$#" -ge 2 ] || usage; KEEP="$2"; shift 2 ;;
         *) usage ;;
@@ -42,13 +39,6 @@ while [ "$#" -gt 0 ]; do
 done
 
 export DATA_ROOT
-if [ -n "${COMPOSE_PROFILE:-}" ] && [ -z "${EDGE:-}" ]; then
-    EDGE="$COMPOSE_PROFILE"
-fi
-case "$(normalize_edge)" in
-    cloudflare|local|lan|none) ;;
-    *) die "未知 EDGE: $(normalize_edge)（可选 cloudflare|local|lan|none）" ;;
-esac
 [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$(norm_path "${DATA_ROOT%/*}/orzmc-backups")"
 
 # 安全断言

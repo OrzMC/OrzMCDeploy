@@ -128,170 +128,66 @@ flowchart TB
 
 ---
 
-## 3 快速开始（三路径）
+## 3 快速开始（单一路径）
 
-### 3.1 先做决定：local、prod 还是 lan？
+### 3.1 先做决定：入口只要局域网
 
-| 你的情况 | 走哪条路径 |
-|---|---|
-| 只想本机跑起来看看 / 开发验证 / 没有域名 | **路径 A 本地体验**（15 分钟） |
-| 局域网部署（无公网域名、无 TLS 需求，可信内网） | **路径 C 局域网直连**（15 分钟） |
-| 想让公网玩家访问，且已有 Cloudflare 账号 + 域名 | **路径 B 生产上线**（约 30 分钟） |
-| 已有生产部署，想升级/备份/迁移 | 直接看 [第 5 章](#5-日常运维) 与 [第 10 章](#10-迁移到新主机) |
+本项目自 ADR-027 起**只提供局域网模式**：面板与 EasyBot 发布到宿主端口，纯 HTTP，
+局域网设备直连。**对外访问由你自备**——DDNS + 端口映射、反向代理、或 VPN（Tailscale 等），
+本仓库不参与。
 
-三条路径共用同一份 `compose.yaml` 和同一套命令入口，区别只是边缘层（Caddy vs cloudflared
-vs 无边缘层）与 `$DATA_ROOT` 位置。
+- 只在自己电脑上用 → 直接用 `http://127.0.0.1:<端口>`
+- 家里手机/平板/其它电脑都要用 → 把 `LAN_HOST_IP` 设成宿主局域网 IP
+- 要从外网访问 → 路由器做 DDNS + 端口映射（⚠️ 面板无 TLS，公网暴露前请加 TLS 反代或改用 VPN）
 
-> **获取"运行时"两种方式（等价，二选一）**：
-> 1. **git clone**（开发/需看 git 历史）：
->    `git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy`
-> 2. **免克隆安装**（生产机/内网/无 git 环境，ADR-018）：
->    ```bash
->    curl -fsSL <一键脚本URL> | bash   # 装到 ~/.local/share/orzmc-deploy
->    cd ~/.local/share/orzmc-deploy
->    ```
->    脚本会校验 Release tarball 的 sha256 并解压，之后命令与 git clone 完全一致。
->    指定版本/目录：`curl -fsSL <URL> | bash -s -- -v v1.2.3 -d /opt/orzmc-deploy`。
->    （一键脚本 URL = `https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh`。）
-
-### 3.2 路径 A：本地体验（15 分钟）
-
-在终端执行（以下均在**仓库根目录**）：
-
-```bash
-# 1. 拉取仓库
-git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
-
-# 2. 初始化本地数据目录（生成 .local-data/.env）
-./local.sh init
-
-# 3. 启动平台层
-./local.sh start
-
-# 4. 查看状态与访问地址
-./local.sh status
-```
-
-**预期看到**：
-
-- `init`：生成 `.local-data/.env`（从 `templates/env.local`，权限 600）与数据目录。
-- `start`：compose 按 `local` profile 拉起 `mcsmanager-web`、`mcsmanager-daemon`、`easybot`
-  与 `reverse-proxy`（Caddy），无报错。
-- `status`：打印两个访问地址（Caddy 本地证书，首次访问有自签警告，放行即可）：
-
-  | 地址 | 用途 |
-  |---|---|
-  | `https://mcs.localhost:18443` | MCSManager 面板 |
-  | `https://easybot.localhost:18443` | EasyBot 管理后台 |
-
-浏览器打开 MCSManager 面板，按[第 6 章](#6-管理-papermc-实例)建管理员并创建一个测试
-PaperMC 实例。启动成功后，玩家可用 `Mac 局域网 IP:25566` 进服（测试服端口，见附录 B）。
-
-停止：
-
-```bash
-./local.sh stop
-```
-
-> 本地数据在仓库 `.local-data/`，已 `.gitignore` 排除，不会进 git。
-
-### 3.3 路径 B：生产上线（约 30 分钟）
-
-生产主机在 NAT 内网、公网 80/443 不可达时，用 **Cloudflare Tunnel**（出站连接），
-**无需开放任何端口、无需 ACME**。下面 `$DATA_ROOT` 用 `<DATA_ROOT>` 占位：
-macOS 生产填 `/Users/Shared/orzmc`，Linux 可省（默认 `/srv/orzmc`）。
-
-```bash
-# 0. 前置：数据目录可写（macOS 建议 /Users/Shared/orzmc，Linux 用 /srv/orzmc）
-
-# 1. 隧道一次性初始化（交互；需浏览器授权；把 orzmc 换成你的隧道名）
-docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
-  cloudflare/cloudflared tunnel login
-docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
-  cloudflare/cloudflared tunnel create orzmc
-docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
-  cloudflare/cloudflared tunnel route dns orzmc mcs.<domain>
-docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
-  cloudflare/cloudflared tunnel route dns orzmc easybot.<domain>
-```
-
-- `login`：浏览器里给 Cloudflare 账号授权，`cert.pem` 落到 `<DATA_ROOT>/cloudflared/`。
-- `create orzmc`：生成隧道凭据 `<tunnel-id>.json` 与隧道 UUID。
-- `route dns`：在 Cloudflare 建两条 CNAME（`mcs` / `easybot`），
-
-```bash
-# 2. 初始化生产数据目录与 .env（生成 .env 与 cloudflared/config.yml）
-deploy.sh -d <DATA_ROOT> init
-
-# 3. 编辑 .env，至少修改以下项（用编辑器打开 <DATA_ROOT>/.env）
-#    - CLOUDFLARE_TUNNEL_ID   ← create 输出的隧道 UUID
-#    - DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN  ← 你的两个真实子域名
-#    - EASYBOT_ADMIN_PASSWORD ← 设一个强密码
-#    - QQBOT_APP_ID / QQBOT_CLIENT_SECRET ← 需要 QQ bot 时填写
-
-# 4. 校验配置（预期：校验通过，无缺失变量）
-deploy.sh -d <DATA_ROOT> validate
-
-# 5. 启动平台层
-deploy.sh -d <DATA_ROOT> up
-```
-
-**预期看到**：
-
-- `validate`：提示必需环境变量齐全、compose 配置合法。
-- `up` 后：`docker logs orzmc-cloudflared` 出现"隧道已注册 / Registered tunnel"；
-  公网 `curl -I https://mcs.<domain>` 返回 200。
-- 两个公网入口：
-
-  | 地址 | 用途 |
-  |---|---|
-  | `https://mcs.<domain>` | MCSManager 面板 |
-  | `https://easybot.<domain>` | EasyBot 管理后台 |
-
-之后按[第 6 章](#6-管理-papermc-实例)建管理员、加节点、建实例；正式服端口 `25565`
-供玩家局域网直连。
-
-> 生产 `DATA_ROOT` 的 `.env`、cloudflared 凭据等含密钥，权限 600，**永不入库**。
-
-### 3.4 路径 C：局域网直连（lan，15 分钟）
-
-适合**可信局域网**内多人直连：不配置公网域名、不做 TLS 终止，2 个源站直接发布
-宿主端口、纯 HTTP（ADR-012）。无需 Cloudflare 账号、无任何域名/DNS 配置。
+### 3.2 初始化与启动（15 分钟）
 
 ```bash
 # 在仓库根目录
-# 1. 初始化局域网数据目录（生成 .local-data-lan/.env）
-./lan.sh init
-
-# 2. 编辑 .local-data-lan/.env，把 LAN_HOST_IP 改成宿主机局域网 IP（局域网设备入口）
-#    （也可同时覆盖 LAN_*_PORT 宿主发布端口，默认 18090/18091/24444）
-
-# 3. 启动平台层（lan profile：无 Caddy/cloudflared 边缘层）
-./lan.sh start
-
-# 4. 查看状态与访问地址
-./lan.sh status
+./orzmc.sh -d /path/to/orzmc init     # 生成 .env（DATA_ROOT 按实际路径改写）
+# 编辑 /path/to/orzmc/.env：
+#   - LAN_HOST_IP        ← 宿主机局域网 IP（局域网设备访问入口）
+#   - EASYBOT_ADMIN_PASSWORD / QQBOT_*  ← 改强口令 / 填 QQ 凭据
+./orzmc.sh -d /path/to/orzmc validate # 必需变量 + compose 解析校验
+./orzmc.sh -d /path/to/orzmc up       # 启动平台层
+./orzmc.sh -d /path/to/orzmc status   # 打印访问地址 + 容器状态
 ```
+
+省略 `-d` 时用平台默认 DATA_ROOT（Linux `/srv/orzmc`、macOS `/Users/Shared/orzmc`、
+Windows `E:/orzmc`）。
 
 **预期看到**：
 
-- `start`：compose 拉起 `mcsmanager-web`、`mcsmanager-daemon`、`easybot`
-  （**无** `reverse-proxy`/`cloudflared` 边缘层服务）。
-- 局域网设备（同一网段）访问：
+- `up`：compose 拉起 `mcsmanager-web`、`mcsmanager-daemon`、`easybot`
+  （`ENABLE_EASYBOT=false` 时只有前两个）。
+- `status` 打印：
 
   | 地址 | 用途 |
   |---|---|
-  | `http://<LAN_HOST_IP>:18090` | MCSManager 面板 |
-  | `http://<LAN_HOST_IP>:18091` | EasyBot 管理后台 |
+  | `http://<LAN_HOST_IP>:18090` | MCSManager 面板（`LAN_MCS_WEB_PORT`） |
+  | `http://<LAN_HOST_IP>:18091` | EasyBot 管理后台（`LAN_EASYBOT_PORT`） |
 
-- 登录面板建管理员、加节点（**任何 EDGE 都填同一个地址**：`ws://mcsmanager-daemon` /
-  `24444`，见 §6.3）、创建实例，玩家用 `IP:25565` 进服——三档仅入口形态不同。
+- 端口发布核对：`docker compose --env-file <DATA_ROOT>/.env -f compose.yaml --profile easybot config`
+  应只看到 `published: "18090"` 与 `"18091"`（**没有** 24444——daemon 不发布）。
 
-> **安全前提**：lan 为局域网明文 HTTP（面板/EasyBot 登录口令走局域网）。**仅限可信局域网**；
-> 接入不可信 Wi-Fi 时应改用 prod/local。daemon 端口不发布（ADR-026）。`LAN_HOST_IP`
-> 变化（DHCP 重新分配）需同步改 `.env` 并重新 init。
->
-> 本地数据在仓库 `.local-data-lan/`，已 `.gitignore` 排除，不会进 git。
+### 3.3 建管理员、加节点、建实例
+
+1. 浏览器打开面板 → 首次访问创建管理员账号。
+2. 节点管理 → 添加节点：`ip = ws://mcsmanager-daemon`，`port = 24444`，key 见 §6.3。
+3. 创建实例（字段参考 [`docs/papermc-template.md`](papermc-template.md)），玩家用
+   `<LAN_HOST_IP>:25565` 进服。
+
+### 3.4 对外访问（由你自备）
+
+| 方式 | 做法 | 注意 |
+|---|---|---|
+| DDNS + 端口映射 | 路由器把公网端口映射到 `<宿主IP>:18090` | ⚠️ 面板是 HTTP + 口令登录：**必须**在前面加 TLS 反代（Caddy/Nginx/域名证书），并换强口令 |
+| VPN（推荐） | Tailscale / WireGuard 组网，手机直接访问 `<宿主IP>:18090` | 无需开公网端口，链路加密，最省心 |
+| 反向代理 | 任意带 TLS 的反代放在本机/旁路设备 | 注意 WebSocket 要放行（面板与终端都用 WS） |
+
+> **安全前提**：局域网明文 HTTP，仅限可信内网。`LAN_HOST_IP` 变化（DHCP 重新分配）需
+> 同步改 `.env` 并重新 `init`；建议给宿主做 DHCP 保留或静态 IP。
+> daemon 端口不发布（ADR-026），外部无法直连 daemon。
 
 ---
 
@@ -341,28 +237,21 @@ UDP:53）时该设置无效**——实测容器仍解析到 `198.18.x` 假地址
 > ⚠️ **存量部署**：旧 `.env` 里的 `MARIADB_*` / `DOMAIN_STATUS` / `STATUS_PORT` /
 > `ENABLE_MARIADB` / `ENABLE_STATUS` 变为无消费者的普通行，**不报错**，可随手删除。
 
-### 4.2 单 Profile：EDGE 边缘层 + ENABLE_* 可选服务（ADR-017）
+### 4.2 运行模型：局域网单一边缘（ADR-027）
 
-不再区分 local/prod/lan 三 profile，改为**一个运行集 + 可插拔边缘层 + 可插拔服务**，
-全部在 `$DATA_ROOT/.env` 配置，唯一入口 `orzmc.sh`：
+只有一个运行集：面板与 EasyBot 发布宿主端口，纯 HTTP。全部配置在 `$DATA_ROOT/.env`，
+唯一入口 `orzmc.sh`：
 
 | 维度 | 配置（`.env`） | 说明 |
 |---|---|---|
-| 边缘层 | `EDGE=`（`cloudflare`/`local`/`lan`/`none`） | `compose_cmd` 按 EDGE 追加 `compose.edge.<edge>.yaml` override |
+| 局域网入口 | `LAN_HOST_IP` / `LAN_MCS_WEB_PORT`(18090) / `LAN_EASYBOT_PORT`(18091) | `compose.yaml` 直接把这两个端口发布到宿主 |
 | 可选服务 | `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
-| 入口 | `./orzmc.sh`（唯一，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
+| 入口命令 | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status\|validate\|backup` | 三平台一致 |
 
-- **EDGE 边缘层**决定 2 个源站（`mcs`/`easybot`）对外如何可达：
-  - `cloudflare` → cloudflared 隧道（生产，真实 HTTPS，免开端口）
-  - `local` → Caddy（`.localhost` + 本地 CA + 非特权端口 18080/18443）
-  - `lan` → 无边缘层，2 源站发宿主端口，纯 HTTP（`http://<LAN_HOST_IP>:<LAN_*_PORT>`）
-  - `none` → 仅内网 `orzmc_default`（不对外）
-- **ENABLE_EASYBOT** 可选服务：easybot 带 `profiles: ["easybot"]` 标签，缺省启用，
-  置 `false` 即从 `--profile` 移除（`docker compose config --services` 不再包含它）。
-- 脚本通过 `EDGE`（或兼容旧值 `COMPOSE_PROFILE`，`prod`→`cloudflare` 自动映射）选择边缘层：
-  `./orzmc.sh -e cloudflare`、`-e local`、`-e lan`。旧入口 `deploy.sh -p ...`/`local.sh`/
-  `lan.sh`/`windows.sh` 兼容保留（deprecated）。`lan` 无边缘层：不追加任何 edge override，
-  2 源站端口由 `compose.edge.lan.yaml` 发布（ADR-012）。
+- **没有边缘层服务**：不跑 cloudflared / Caddy，也没有 `compose.edge.*.yaml`。
+  历史上按 `EDGE=cloudflare|local|lan|none` 切换的四档已随 ADR-027 移除。
+- **daemon 不发布端口**（ADR-026）：面板中转浏览器↔daemon 数据流，节点地址固定内网名。
+- **对外访问**：DDNS + 端口映射 / 反代 / VPN，均由站点自备（见 §3.4）。
 
 ### 4.3 域名约定
 
@@ -391,7 +280,7 @@ deploy.sh -d <DATA_ROOT> templates --force    # 备份旧文件后覆盖
 
 ### 4.5 站点增量 override：`compose.site.yaml`（升级不丢）
 
-`compose.yaml` / `compose.edge.*.yaml` 是**包内运行时文件**，升级换包（`git pull` 或重下
+`compose.yaml` 是**包内运行时文件**，升级换包（`git pull` 或重下
 Release tarball）会整体替换。站点特有增量（如飞书 `FEISHU_*`、额外环境变量、额外挂载）
 直接写进包内文件，升级后必丢（表现为「升级后机器人不工作了」）。
 
@@ -425,20 +314,22 @@ services:
 
 ### 5.1 启停与状态
 
-| 场景 | 本地 | 局域网（lan） | 生产 |
-|---|---|---|---|
-| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh -d <DATA_ROOT> up` |
-| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh -d <DATA_ROOT> stop` |
-| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh -d <DATA_ROOT> status` |
-| 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh -d ./.local-data-lan -p lan validate` | `deploy.sh -d <DATA_ROOT> validate` |
+| 场景 | 命令 |
+|---|---|
+| 启动平台层 | `./orzmc.sh -d <DATA_ROOT> up` |
+| 停止 | `./orzmc.sh -d <DATA_ROOT> stop` |
+| 状态与访问地址 | `./orzmc.sh -d <DATA_ROOT> status` |
+| 校验配置 | `./orzmc.sh -d <DATA_ROOT> validate` |
+| 备份 | `./orzmc.sh -d <DATA_ROOT> backup [--stop]` |
 
 `stop` 等价于 `down --remove-orphans`，`status` 等价于 `ps`，`validate` 等价于 `config`
 （别名可互换）。看服务日志：`docker logs -f orzmc-<服务名>`（如 `orzmc-mcsmanager-daemon`）。
 
 ### 5.2 改配置
 
-1. 编辑 `.env`（或改仓库 `templates/` 后同步）。
-2. `deploy.sh -d <DATA_ROOT> validate` 校验。
+1. 编辑 `$DATA_ROOT/.env`。
+2. `./orzmc.sh -d <DATA_ROOT> validate` 校验。
+3. 让改动生效：`./orzmc.sh -d <DATA_ROOT> up`（端口类改动会重建容器）。
 3. `deploy.sh -d <DATA_ROOT> up` 生效（compose 会重建变更的服务）。
 
 > 边缘层改配置需重启生效：Caddy 不热加载 bind 挂载的 Caddyfile，cloudflared 启动时读
@@ -446,21 +337,18 @@ services:
 
 ### 5.3 平台层升级与回滚
 
-`compose.yaml` / `compose.edge.*.yaml` 镜像一律 **digest 锁定**（`image:xxx@sha256:...`）。
-升级分两步（ADR-017 起镜像分布在 3 个文件：核心服务在 `compose.yaml`，
-`cloudflared` 在 `compose.edge.cloudflare.yaml`，`caddy` 在 `compose.edge.local.yaml`）：
+`compose.yaml` 里的镜像一律 **digest 锁定**（`image:xxx@sha256:...`）。升级分两步：
 
 ```bash
-# 1. 拉取并刷新 digest（默认全部 5 个服务：cloudflared/mcsmanager-web/daemon/easybot/caddy）
+# 1. 拉取并刷新 digest（默认 3 个服务：mcsmanager-web / daemon / easybot）
 ./update-image-digests.sh
 #    指定服务：./update-image-digests.sh easybot
 #    easybot 用**发布 tag**（非 latest）：EASYBOT_TAG=0.0.43 ./update-image-digests.sh easybot
 #    （上游 `latest` 跟踪 main 分支，不是发布构建）
 
 # 2. 审查改动并提交（回到仓库根目录）
-git diff -- '*.yaml'
-git add compose.yaml compose.edge.cloudflare.yaml compose.edge.local.yaml
-git commit -m "chore: update docker image digests"
+git diff -- compose.yaml
+git add compose.yaml && git commit -m "chore: update docker image digests"
 git push
 
 # 3. 重新拉起（digest 变了必须重建容器，up -d 会识别并重建）
@@ -827,13 +715,13 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 | 场景 | 本地 | 局域网（lan） | 生产 |
 |---|---|---|---|
-| 初始化目录/env/边缘配置 | `./local.sh init` | `./lan.sh init` | `deploy.sh -d <DATA_ROOT> init` |
-| 启动平台层 | `./local.sh start` | `./lan.sh start` | `deploy.sh -d <DATA_ROOT> up` |
-| 停止 | `./local.sh stop` | `./lan.sh stop` | `deploy.sh -d <DATA_ROOT> stop` |
-| 状态与访问地址 | `./local.sh status` | `./lan.sh status` | `deploy.sh -d <DATA_ROOT> status` |
+| 初始化目录/env | `./orzmc.sh -d <DATA_ROOT> init` |
+| 启动平台层 | `./orzmc.sh -d <DATA_ROOT> up` |
+| 停止 | `./orzmc.sh -d <DATA_ROOT> stop` |
+| 状态与访问地址 | `./orzmc.sh -d <DATA_ROOT> status` |
 | 校验配置 | `deploy.sh -d ./.local-data validate` | `deploy.sh -d ./.local-data-lan -p lan validate` | `deploy.sh -d <DATA_ROOT> validate` |
 | 模板同步 | `deploy.sh -d ./.local-data -p local templates --diff` | `deploy.sh -d ./.local-data-lan -p lan templates --diff`（无边缘层模板） | `deploy.sh -d <DATA_ROOT> templates --diff` |
-| 备份数据 | `./local.sh backup` | `./lan.sh backup` | `backup.sh -d <DATA_ROOT> --stop` |
+| 备份数据 | `./orzmc.sh -d <DATA_ROOT> backup [--stop]` |
 | 还原/迁移 | `./restore.sh -d <目标> <归档>` | `restore.sh -d <目标> -p lan <归档>` | `restore.sh -d <目标> <归档> --force` |
 | 打印 DATA_ROOT | `deploy.sh -p local print-root` | `deploy.sh -p lan print-root` | `deploy.sh -d <DATA_ROOT> print-root` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` | 同左 | 同左 |
@@ -848,7 +736,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 |---|---|---|
 | `18080` / `18443` | local Caddy HTTP / HTTPS | 宿主机映射，仅本地 |
 | `80` / `443` | Caddy 容器内监听 | local profile |
-| `18090` / `18091` | lan 宿主发布端口：面板 / EasyBot | `LAN_*_PORT` 可覆盖，仅 `EDGE=lan` |
+| `18090` / `18091` | 宿主发布端口：面板 / EasyBot | `LAN_*_PORT` 可覆盖 |
 | `24444` | MCSManager Daemon | 容器内仅 `expose`；面板服务端经内网名 `mcsmanager-daemon` 连接，浏览器数据面走面板中转（ADR-026） |
 | `23333` | MCSManager Web | 容器内仅 `expose` |
 | `8080` | EasyBot | 容器内仅 `expose`；插件内网直连 |
@@ -888,13 +776,11 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 
 | 服务 | 容器名 | profile | 镜像（digest 锁定） |
 |---|---|---|---|
-| `reverse-proxy` | `orzmc-caddy` | `EDGE=local` | `caddy` |
-| `cloudflared` | `orzmc-cloudflared` | `EDGE=cloudflare` | `cloudflare/cloudflared` |
-| `mcsmanager-web` | `orzmc-mcsmanager-web` | 常驻 | `githubyumao/mcsmanager-web` |
+| `mcsmanager-web` | `orzmc-mcsmanager-web` | 常驻（宿主 18090） | `githubyumao/mcsmanager-web` |
 | `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 常驻 | `githubyumao/mcsmanager-daemon` |
-| `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`） | `ghcr.io/easyindie/easybot` |
+| `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`，宿主 18091） | `ghcr.io/easyindie/easybot` |
 
-镜像版本以 `compose.yaml` 与 `compose.edge.*.yaml` 中的 `image:xxx@sha256:...` 为准；
+镜像版本以 `compose.yaml` 中的 `image:xxx@sha256:...` 为准；
 刷新用 `update-image-digests.sh`（自动定位每个服务所在的 compose 文件）。
 
 ## 附录 E 术语表

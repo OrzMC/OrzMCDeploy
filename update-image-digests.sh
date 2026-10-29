@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# 刷新 compose 编排中锁定的镜像 digest（ADR-017 起镜像分散在 3 个文件）
+# 刷新 compose.yaml 中锁定的镜像 digest
 #
 # 用法: ./update-image-digests.sh [服务...]      # 省略则全部
-#   服务: cloudflared mcsmanager-web mcsmanager-daemon easybot caddy
+#   服务: mcsmanager-web mcsmanager-daemon easybot
 #
 # 为什么要 digest 锁定：升级 = 改仓库里的 digest + git commit，回滚 = git revert
 # （见 AGENTS.md「镜像一律用 digest 锁定」）。
 #
-# 服务分布（ADR-017 把边缘层拆成 override 文件后，镜像不再都在 compose.yaml）：
-#   compose.yaml                  → mcsmanager-web / mcsmanager-daemon / easybot
-#   compose.edge.cloudflare.yaml  → cloudflared
-#   compose.edge.local.yaml       → caddy
+# 全部镜像都在 compose.yaml（ADR-027 去掉边缘层后不再有 override 文件）：
+#   mcsmanager-web / mcsmanager-daemon / easybot
 #
 # EasyBot 用**发布 tag**（非 latest）：上游 `latest` 跟踪 main 分支（label
 # `org.opencontainers.image.version=main`），直接钉 latest 会引入未发布构建。
@@ -22,45 +20,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yaml"
-EDGE_CLOUDFLARE_FILE="${SCRIPT_DIR}/compose.edge.cloudflare.yaml"
-EDGE_LOCAL_FILE="${SCRIPT_DIR}/compose.edge.local.yaml"
 
 EASYBOT_TAG="${EASYBOT_TAG:-0.0.43}"
 
-for f in "$COMPOSE_FILE" "$EDGE_CLOUDFLARE_FILE" "$EDGE_LOCAL_FILE"; do
-    [ -f "$f" ] || { echo "未找到 compose 文件: $f" >&2; exit 1; }
-done
+if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "未找到 compose 文件: $COMPOSE_FILE" >&2
+    exit 1
+fi
 
 # 服务 → 上游源镜像（用于 docker pull / 取 digest）
 source_image_for_service() {
     case "$1" in
-        cloudflared)       echo "cloudflare/cloudflared:latest" ;;
         mcsmanager-web)    echo "githubyumao/mcsmanager-web:latest" ;;
         mcsmanager-daemon) echo "githubyumao/mcsmanager-daemon:latest" ;;
         easybot)           echo "ghcr.io/easyindie/easybot:${EASYBOT_TAG}" ;;
-        caddy)             echo "caddy:latest" ;;
         *) return 1 ;;
     esac
 }
 
-# 服务 → 声明它的 compose 文件
-compose_file_for_service() {
-    case "$1" in
-        cloudflared) echo "$EDGE_CLOUDFLARE_FILE" ;;
-        caddy)       echo "$EDGE_LOCAL_FILE" ;;
-        *)           echo "$COMPOSE_FILE" ;;
-    esac
-}
-
-# 逻辑服务名 → compose 中的服务键（caddy 在 edge.local 里叫 reverse-proxy）
-compose_key_for_service() {
-    case "$1" in
-        caddy) echo "reverse-proxy" ;;
-        *)     echo "$1" ;;
-    esac
-}
-
-ALL_SERVICES=(cloudflared mcsmanager-web mcsmanager-daemon easybot caddy)
+ALL_SERVICES=(mcsmanager-web mcsmanager-daemon easybot)
 
 if [ "$#" -eq 0 ]; then
     SERVICES=("${ALL_SERVICES[@]}")
@@ -85,7 +63,7 @@ done
 # 传参：service=compose文件 对，python 负责取 digest 并原地替换
 pairs=()
 for service in "${SERVICES[@]}"; do
-    pairs+=("${service}=$(compose_file_for_service "$service"):$(compose_key_for_service "$service")")
+    pairs+=("${service}=${COMPOSE_FILE}:${service}")
 done
 
 python3 - "${pairs[@]}" <<'PY'
@@ -96,11 +74,9 @@ from pathlib import Path
 
 EASYBOT_TAG = __import__("os").environ.get("EASYBOT_TAG", "0.0.43")
 source_images = {
-    "cloudflared": "cloudflare/cloudflared:latest",
     "mcsmanager-web": "githubyumao/mcsmanager-web:latest",
     "mcsmanager-daemon": "githubyumao/mcsmanager-daemon:latest",
     "easybot": f"ghcr.io/easyindie/easybot:{EASYBOT_TAG}",
-    "caddy": "caddy:latest",
 }
 
 changes = []
@@ -142,6 +118,6 @@ PY
 echo
 echo "摘要更新完成。建议下一步执行："
 echo "  git diff -- '*.yaml'"
-echo "  git add compose.yaml compose.edge.cloudflare.yaml compose.edge.local.yaml"
+echo "  git add compose.yaml"
 echo "  git commit -m 'chore: update docker image digests'"
 echo "  ./orzmc.sh validate && ./orzmc.sh stop && ./orzmc.sh up   # 重建容器加载新镜像"

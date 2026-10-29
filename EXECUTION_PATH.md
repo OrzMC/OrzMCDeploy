@@ -1191,3 +1191,22 @@
 - **运行数据**：本机 `SystemConfig.dataPlane=proxy` 与节点内网名已在上一轮生效；
   `.env` 中 `DOMAIN_MCS_NODE` 待清理（已无消费者），`cloudflared/config.yml` 会在下次
   `init/up` 时自动重新生成为 2 条 ingress（旧文件备份为 `.bak.<时间戳>`）。
+
+### 2026-10-29 收敛为「只有局域网模式」（ADR-027）
+
+- **决策**：删除多边缘层（cloudflare/local/lan/none）与全部边缘层服务，只保留局域网直连；
+  对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN）。
+- **删除面**：3 个 compose override、`templates/{Caddyfile,cloudflared-config.yml,env.prod,env.local}`
+  （env 三份合一）、`local.sh`/`lan.sh`/`windows.sh` 三个旧入口、`lib/common.sh` 的
+  `normalize_edge`/`edge_override_file`/`ensure_caddyfile`/`ensure_cloudflared_config`、
+  `orzmc.sh -e` / `deploy.sh -p|-e|-t` 参数与 `COMPOSE_PROFILE` 兼容层。
+- **端口内联**：`compose.yaml` 直接把 `${LAN_MCS_WEB_PORT:-18090}` / `${LAN_EASYBOT_PORT:-18091}`
+  发布到宿主；`validate` 只需 env + compose 解析。
+- **CI**：4 档矩阵 → 单档 `init && validate` + `ENABLE_EASYBOT=false` + `LAN_*_PORT` 覆盖用例；
+  打包清单去掉 edge 文件。
+- **验证**：`bash -n` 全过；`shellcheck` 0 告警；`init && validate` PASS；端口默认
+  18090/18091、自定义 19090/19091 生效；`ENABLE_EASYBOT=false` 时服务只剩
+  `mcsmanager-web`/`daemon`；`tests/windows_ci.sh` 40 项全过。
+- **运行数据迁移**：`.env` 去掉 `EDGE`/`CLOUDFLARE_TUNNEL_ID`/`DNS_*`/`DOMAIN_*`，
+  新增 `LAN_MCS_WEB_PORT`（沿用站点现有 23333）/`LAN_EASYBOT_PORT=18091`；
+  `cloudflared` 容器与配置目录归档待删（含隧道凭据，属密钥）。

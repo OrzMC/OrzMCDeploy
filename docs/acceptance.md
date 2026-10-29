@@ -7,6 +7,7 @@
 > ⚠️ **本文是 2026-08-15 的历史验收记录**：其中「6 容器 / 4 入口 / MariaDB / Gatus」
 > 均为已废止形态。当前基线为 **4 容器（web/daemon/cloudflared/easybot）、2 入口
 > （mcs/easybot；daemon 不暴露）**，以 `docs/architecture.md` ADR-025/ADR-026 为准。
+> ADR-027 起更进一步：只有局域网模式（无 cloudflared/Caddy 边缘层）。
 
 ## 1. 前置条件与总览
 

@@ -2,13 +2,12 @@
 # ===========================================================================
 # OrzMC 数据还原 / 迁移
 #
-# 用法: restore.sh [-d DATA_ROOT] [-p PROFILE] <archive.tar.gz> [--force] [--start]
+# 用法: restore.sh [-d DATA_ROOT] <archive.tar.gz> [--force] [--start]
 #
 # 安全规则:
 #   - 目标目录非空时默认拒绝，--force 会把旧目录移为 .old-<时间>（不删除）
 #   - 归档顶层目录名与目标名不一致时默认拒绝，--force 解压后改名
 #   - 还原到新路径时自动改写 .env 内的 DATA_ROOT（迁移核心），留 .env.bak-restore
-#   - PROFILE（默认 prod）：--start 拉起时按 profile 选择边缘层
 # ===========================================================================
 
 set -euo pipefail
@@ -30,7 +29,6 @@ usage() {
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -d|--data-root) [ "$#" -ge 2 ] || usage; DATA_ROOT="$(norm_path "$2")"; shift 2 ;;
-        -p|--profile) [ "$#" -ge 2 ] || usage; COMPOSE_PROFILE="$2"; shift 2 ;;
         --force) FORCE=1; shift ;;
         --start) START=1; shift ;;
         -h|--help) usage ;;
@@ -43,13 +41,6 @@ while [ "$#" -gt 0 ]; do
 done
 
 export DATA_ROOT
-if [ -n "${COMPOSE_PROFILE:-}" ] && [ -z "${EDGE:-}" ]; then
-    EDGE="$COMPOSE_PROFILE"
-fi
-case "$(normalize_edge)" in
-    cloudflare|local|lan|none) ;;
-    *) die "未知 EDGE: $(normalize_edge)（可选 cloudflare|local|lan|none）" ;;
-esac
 [ -f "$ARCHIVE" ] || die "备份文件不存在: $ARCHIVE"
 
 # 顶层目录名
@@ -97,22 +88,9 @@ if [ -f "$(env_file)" ]; then
     fi
 fi
 
-# 完整性检查按 EDGE 选择边缘层配置：local 需 Caddyfile，cloudflare 需 cloudflared config
-case "$(normalize_edge)" in
-    local)
-        [ -f "$DATA_ROOT/caddy/Caddyfile" ] || die "还原内容缺少 caddy/Caddyfile，备份可能不完整"
-        ;;
-    cloudflare)
-        [ -f "$DATA_ROOT/cloudflared/config.yml" ] || die "还原内容缺少 cloudflared/config.yml，备份可能不完整"
-        ;;
-    lan|none)
-        :  # lan/none 无边缘层，无 Caddyfile / cloudflared config 可校验；.env 已在上方校验
-        ;;
-esac
-
-info "还原完成。验证: deploy.sh -d ${DATA_ROOT} -p $(normalize_edge) validate"
+info "还原完成。验证: ./orzmc.sh -d ${DATA_ROOT} validate"
 if [ "$START" = 1 ]; then
     # 注意：不能用 ${SCRIPT_DIR} —— source lib/common.sh 会把 SCRIPT_DIR 覆写为
     # lib/ 目录；REPO_ROOT 是 common.sh 按仓库根算出的正确路径。
-    "${REPO_ROOT}/deploy.sh" -d "$DATA_ROOT" -p "$(normalize_edge)" up
+    "${REPO_ROOT}/orzmc.sh" -d "$DATA_ROOT" up
 fi

@@ -29,33 +29,26 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   `git add -f` 强制加入。
 - 智能体改代码时，只改仓库内的运行时文件；不要为"跑通"而把测试数据写进仓库。
 
-### 3. 单 Profile（EDGE 边缘层 + ENABLE_* 可选服务），同一份 compose
-
-**Profile 模型（ADR-017）**：去掉 prod/local/lan 三 profile，改为**一个运行集 + 可插拔边缘层 + 可插拔服务**：
+### 3. 单一边缘：只有局域网模式（ADR-027）
 
 | 维度 | 配置 | 说明 |
 |---|---|---|
-| 边缘层 | `.env` 里 `EDGE=`（`cloudflare`/`local`/`lan`/`none`） | `compose_cmd` 按 EDGE 追加 `compose.edge.<edge>.yaml` override |
-| 可选服务 | `.env` 里 `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
-| 入口 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
+| 局域网入口 | `.env` 的 `LAN_HOST_IP` / `LAN_MCS_WEB_PORT` / `LAN_EASYBOT_PORT` | 面板与 EasyBot 发布到宿主端口，纯 HTTP |
+| 可选服务 | `.env` 的 `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即停用；核心 web/daemon 常驻 |
+| 入口脚本 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status\|validate\|backup` |
 
-- **EDGE 边缘层**（决定 2 个源站对外如何可达）：
-  - `cloudflare` → `compose.edge.cloudflare.yaml`（cloudflared 出站隧道，生产，真实 HTTPS，免开端口）
-  - `local` → `compose.edge.local.yaml`（Caddy `.localhost` 本地 CA + 非特权端口 18080/18443）
-  - `lan` → `compose.edge.lan.yaml`（无边缘层，2 源站发宿主端口，纯 HTTP，局域网）
-  - `none` → 不追加 override（仅内网 `orzmc_default`，不对外）
-- **ENABLE_EASYBOT 可选服务**：easybot 带 `profiles: ["easybot"]` 标签，
-  缺省启用；置 `false` 即从 `--profile` 移除。ADR-025 起不再有 mariadb / status。
-- 脚本通过 `EDGE`（或兼容的旧 `COMPOSE_PROFILE`，`prod`→`cloudflare` 自动映射）选择：
-  `./orzmc.sh -e cloudflare`、`./orzmc.sh -e local`、`./orzmc.sh -e lan`。
-  旧入口 `deploy.sh -p ...`/`local.sh`/`lan.sh`/`windows.sh` 保留兼容（deprecated）。
+- **没有边缘层服务**：不跑 cloudflared / Caddy。对外访问由站点自备
+  （DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**。
+- 历史沿革：ADR-003（Caddy→Tunnel）/ ADR-012（lan 直连）/ ADR-017（EDGE 可插拔）
+  都是"多边缘层"时代的记录，ADR-027 起收敛为局域网单一模式，保留为历史。
+- 可选服务仅 easybot（ADR-025 移除了 mariadb/status）。
 
 ### 4. 网络拓扑：3 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
 
-- 公网/局域网暴露 **2 个入口**（prod/local 走边缘层域名；**lan 无边缘层**，走宿主发布端口
-  `http://<LAN_HOST_IP>:<LAN_*_PORT>`，见 ADR-012）：
-  - `mcs.<domain>` → MCSManager 面板（Web 登录鉴权）
-  - `easybot.<domain>` → EasyBot 管理后台（登录鉴权）
+局域网暴露 **2 个入口**（宿主发布端口，纯 HTTP）：
+- `http://<LAN_HOST_IP>:<LAN_MCS_WEB_PORT>`（缺省 18090）→ MCSManager 面板（登录鉴权）
+- `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`（缺省 18091）→ EasyBot 管理后台（登录鉴权）
+- 对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN）；直接映射到公网前必须加 TLS 反代/VPN。
 - **daemon 不对外暴露任何入口**（ADR-026）：MCSManager 10.22 起面板自身中转浏览器↔daemon
   的数据流（`SystemConfig.dataPlane=proxy`，新装默认），因此：
   - 节点地址**固定** `ws://mcsmanager-daemon:24444`（内网名），与 EDGE/平台无关；
@@ -76,31 +69,21 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 ```
 compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，核心 web/daemon 常驻 + 可选服务带 profiles 标签）
-compose.edge.cloudflare.yaml  EDGE=cloudflare 边缘层 override（cloudflared 出站隧道）
-compose.edge.local.yaml       EDGE=local 边缘层 override（Caddy，.localhost）
-compose.edge.lan.yaml         EDGE=lan 边缘层 override（无边缘层：给 2 个源站发布宿主端口，纯 HTTP）
 templates/              首次 init 的配置模板
-  env.prod              生产 .env 模板（含 CLOUDFLARE_TUNNEL_ID）
-  env.local             本地 .env 模板（.localhost）
-  env.lan               局域网 .env 模板（LAN_HOST_IP + LAN_*_PORT，无 DOMAIN_*/CLOUDFLARE）
-  cloudflared-config.yml cloudflared 隧道配置模板（__PLACEHOLDER__ 由 init 替换）
-  Caddyfile             local profile 反代模板（仅本地使用）
+  env                   唯一 .env 模板（LAN_HOST_IP + LAN_*_PORT + EasyBot 凭据）
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   compose.site.yaml     站点增量 override 模板（init 生成到 DATA_ROOT/compose.site.yaml，
                          升级/换包不丢；compose_cmd 检测到即 -f 追加，ADR-022）
   env.papermc           PaperMC 参数参考（compose 不消费）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导、平台层 detect_os/win_path/win_daemon_*）
-orzmc.sh               统一部署入口（ADR-017 起唯一入口；EDGE/ENABLE_* 从 .env 读，三平台一致）
+orzmc.sh               唯一部署入口（三平台一致；局域网模式，见 ADR-027）
 install.sh             免克隆一键安装（ADR-018：下载 Release tarball + 校验 sha256 + 解压）
-deploy.sh               生产部署统一入口（默认 EDGE=cloudflare，兼容保留）
-local.sh                本地验证入口（固定 EDGE=local + .local-data，兼容保留）
-lan.sh                  局域网直连入口（固定 EDGE=lan + .local-data-lan，兼容保留）
-windows.sh              Windows 部署入口（默认 DATA_ROOT=E:/orzmc；兼容保留，ADR-016）
+deploy.sh               orzmc.sh 的内部实现（init/up/stop/status/validate 命令体）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新镜像 digest（按服务自动定位所在文件：compose.yaml /
                          compose.edge.cloudflare.yaml / compose.edge.local.yaml；
                          easybot 用发布 tag：EASYBOT_TAG=0.0.43）
-.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + EDGE×ENABLE_EASYBOT validate + windows-branch 单测）
+.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + init/validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
@@ -125,17 +108,16 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 | 备份数据 | `./orzmc.sh backup [--stop]` |
 | 还原/迁移 | `./restore.sh -d <root> <归档> [--force]` |
 
-- `EDGE`（`cloudflare`/`local`/`lan`/`none`）在 `$DATA_ROOT/.env` 里配（`EDGE=`），
-  `-e` 参数临时覆盖；可选服务开关 `ENABLE_EASYBOT` 也在 `.env` 里（缺省 `true`）。
+- 局域网入口在 `$DATA_ROOT/.env` 里配：`LAN_HOST_IP` + `LAN_MCS_WEB_PORT`(18090) +
+  `LAN_EASYBOT_PORT`(18091)；可选服务开关 `ENABLE_EASYBOT` 也在 `.env` 里（缺省 `true`）。
+  `-e/--edge` 参数与 `local.sh`/`lan.sh`/`windows.sh` 入口已随 ADR-027 移除。
 - 生产默认 `DATA_ROOT=/srv/orzmc`（macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。
 - `DATA_ROOT` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
 - 所有 compose 调用统一走 `lib/common.sh` 的 `compose_cmd`（显式
-  `--env-file $DATA_ROOT/.env` + 按 EDGE/ENABLE_EASYBOT 追加 `-f` override 与 `--profile`）。
+  `--env-file $DATA_ROOT/.env` + 站点 override + `--profile easybot`）。
 - **站点增量**放 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），
   或 `.env` 的 `COMPOSE_FILE_EXTRA`（空格/逗号分隔，任意路径）。站点特有 env/挂载
   **不改包内 `compose.yaml`**——升级换包会丢（ADR-022，issue #11）。
-- 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 兼容保留（deprecated），
-  `-p prod` 自动映射 `EDGE=cloudflare`。
 
 ## 代码约定
 
@@ -181,7 +163,7 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 3. 涉及架构（服务增减、入口变更、卷/网络调整）：**同步更新** `docs/architecture.md`
    （新增 ADR 记录）、`AGENTS.md`（如规则变化）、`README.md`、相关 `docs/*.md`。
 4. 改动共享库 `lib/common.sh` 后，跑一遍本地回归：`./orzmc.sh -e local init && ./orzmc.sh up`
-   与 `./orzmc.sh validate`（push/PR 后 CI 会自动跑 shellcheck + EDGE×ENABLE_EASYBOT validate，
+   与 `./orzmc.sh validate`（push/PR 后 CI 会自动跑 shellcheck + init/validate，
    见 `.github/workflows/ci.yml`）。
 5. 新增 `.env` 必需变量：同步更新 `lib/common.sh` 的 `required_env_list`
    与 `templates/env.*`（`ENABLE_EASYBOT` 开关也在此）。

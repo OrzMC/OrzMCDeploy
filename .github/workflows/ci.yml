@@ -78,52 +78,33 @@ jobs:
           echo "forbidden paths guard OK"
 
   validate:
-    name: Compose config (EDGE×ENABLE 组合)
+    name: Compose config (init + validate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: EDGE=cloudflare 全服务 init + validate
+      - name: init + validate（模板全量）
         run: |
-          # 全部为 env.prod 模板占位值（CLOUDFLARE_TUNNEL_ID=<tunnel-uuid> 等），
-          # 非真实密钥；跑在 $RUNNER_TEMP 避免污染 checkout。
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-cf" -e cloudflare init
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-cf" -e cloudflare validate
+          # 模板占位值，非真实密钥；跑在 $RUNNER_TEMP 避免污染 checkout。
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc" init
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc" validate
 
-      - name: EDGE=local 全服务 init + validate
+      - name: ENABLE_EASYBOT 关闭（仅核心服务）
         run: |
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-local" -e local init
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-local" -e local validate
-
-      - name: EDGE=lan 全服务 init + validate
-        run: |
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-lan" -e lan init
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-lan" -e lan validate
-
-      - name: EDGE=none init + validate
-        run: |
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-none" -e none init
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-none" -e none validate
-
-      - name: EDGE=cloudflare + ENABLE_EASYBOT 关闭（仅核心服务）
-        run: |
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare init
-          # 关闭可选服务：仅核心 web/daemon + 边缘层，验证最小集配置
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" init
           printf '\nENABLE_EASYBOT=false\n' >> "$RUNNER_TEMP/orzmc-core/.env"
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare validate
-          # 断言最小集：compose config 不应含 easybot
-          if ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare validate >/dev/null 2>&1; then
-            svcs="$(docker compose --env-file "$RUNNER_TEMP/orzmc-core/.env" \
-              -f compose.yaml -f compose.edge.cloudflare.yaml config --services 2>/dev/null)"
-            echo "services: $svcs"
-            echo "$svcs" | grep -q 'easybot' && { echo "easybot 应被禁用"; exit 1; } || true
-            echo "可选服务按 ENABLE_EASYBOT 正确禁用"
-          fi
+          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" validate
+          svcs="$(docker compose --env-file "$RUNNER_TEMP/orzmc-core/.env" \
+            -f compose.yaml config --services 2>/dev/null)"
+          echo "services: $svcs"
+          echo "$svcs" | grep -q 'easybot' && { echo "easybot 应被禁用"; exit 1; } || true
+          echo "可选服务按 ENABLE_EASYBOT 正确禁用"
 
-      - name: 旧入口兼容（deploy.sh -p prod→cloudflare；local.sh/lan.sh 仍可用）
+      - name: 局域网端口随 LAN_*_PORT 生效
         run: |
-          ./deploy.sh -d "$RUNNER_TEMP/orzmc-oldprod" -p prod init
-          ./deploy.sh -d "$RUNNER_TEMP/orzmc-oldprod" -p prod validate
+          printf 'LAN_MCS_WEB_PORT=19090\nLAN_EASYBOT_PORT=19091\n' >> "$RUNNER_TEMP/orzmc/.env"
+          docker compose --env-file "$RUNNER_TEMP/orzmc/.env" -f compose.yaml \
+            --profile easybot config 2>/dev/null | grep -E 'published: "1909[01]"' | sort -u
 
   windows-branch:
     name: Windows branch logic (ADR-016)
@@ -162,8 +143,7 @@ jobs:
               AGENTS.md CLAUDE.md README.md CHANGELOG.md .gitignore \
               orzmc.sh deploy.sh local.sh lan.sh windows.sh \
               backup.sh restore.sh update-image-digests.sh install.sh \
-              lib templates compose.yaml compose.edge.cloudflare.yaml \
-              compose.edge.local.yaml compose.edge.lan.yaml docs
+              lib templates compose.yaml docs
           sha256sum "orzmc-${VERSION}.tar.gz" > "orzmc-${VERSION}.tar.gz.sha256"
           echo "=== 打包内容 ==="
           tar -tzf "orzmc-${VERSION}.tar.gz" | head -20

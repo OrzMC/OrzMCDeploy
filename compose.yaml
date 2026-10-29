@@ -4,23 +4,17 @@
 # 架构原则：本文件与仓库只描述运行时；全部配置与数据通过卷映射落在宿主机
 # 统一目录 $DATA_ROOT（生产默认 /srv/orzmc）。详见 README"运行时/数据分离"。
 #
-# 统一通过 orzmc.sh / deploy.sh 启动，保证 --env-file $DATA_ROOT/.env 与
-# 边缘层配置前置就绪（见 lib/common.sh）。
+# 统一通过 orzmc.sh 启动，保证 --env-file $DATA_ROOT/.env 前置就绪（见 lib/common.sh）。
 #
-# Profile 模型（ADR-017 起）：单 profile + 可插拔服务 + 可插拔边缘层。
-#   - 本文件含核心服务（mcsmanager-web / mcsmanager-daemon，无 profile 常驻）
-#     与可选服务（easybot，带 profiles: ["easybot"] 标签，由 .env 的
-#     ENABLE_EASYBOT 决定是否启用，compose_cmd 按需追加 --profile）。
-#     ADR-025 起平台层不再内置数据库与状态页（见 docs/architecture.md）。
-#   - 边缘层独立成 override 文件，由 .env 的 EDGE 选择：
-#       EDGE=local      → compose.edge.local.yaml      （Caddy，.localhost）
-#       EDGE=cloudflare → compose.edge.cloudflare.yaml  （cloudflared 隧道）
-#       EDGE=lan        → compose.edge.lan.yaml         （4 源站发宿主端口，纯 HTTP）
-#       EDGE=none       → 不追加（仅内网 orzmc_default，不对外）
-#   compose_cmd 负责按 EDGE + ENABLE_* 拼出完整的 -f / --profile 集合。
-# 公网/本地暴露 2 个入口：mcs 面板、easybot 后台；**daemon 不对外暴露**（ADR-026：
-# 面板中转浏览器↔daemon 数据流，节点地址固定内网名）。EasyBot 插件 API 仅内网
-# （插件挂 orzmc_default 直连 http://easybot:8080）。
+# 运行模型（ADR-027）：**只有局域网模式**——面板与 EasyBot 发布到宿主端口，
+# 纯 HTTP，局域网设备直连；对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN）。
+#   - 核心服务：mcsmanager-web / mcsmanager-daemon（常驻，无 profile）
+#   - 可选服务：easybot（`profiles: ["easybot"]`，由 .env 的 ENABLE_EASYBOT 控制）
+#   - **daemon 不发布宿主端口**：ADR-026 起面板自己中转浏览器↔daemon 数据流
+#     （SystemConfig.dataPlane=proxy），节点地址固定内网名。
+#   - ADR-025 起平台层不再内置数据库与状态页。
+# 局域网暴露 2 个入口：mcs 面板（LAN_MCS_WEB_PORT）、easybot（LAN_EASYBOT_PORT）；
+# EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）。
 # ===========================================================================
 
 name: orzmc
@@ -39,6 +33,9 @@ services:
       TZ: "${TZ}"
     expose:
       - "${MCS_WEB_PORT}"
+    ports:
+      # 局域网直连（ADR-027）：宿主端口 → 容器端口，纯 HTTP、仅可信内网
+      - "${LAN_MCS_WEB_PORT:-18090}:${MCS_WEB_PORT}"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/web/data:/opt/mcsmanager/web/data"
@@ -112,10 +109,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-      # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP，TLS 由
-      # 边缘层承担（EDGE=local=Caddy / cloudflare=Cloudflare 边缘；EDGE=lan 无边缘层，
-      # 纯 HTTP，仅限可信局域网）。端口只 expose 不发布到宿主机（EDGE=local/cloudflare；
-      # EDGE=lan 经 compose.edge.lan.yaml 发布宿主端口）；插件（挂 orzmc_default）
+      # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP（ADR-027 局域网模式，
+      # 无边缘层 TLS；要对公网暴露请自行前置反代/VPN）。插件（挂 orzmc_default）
       # 内网直连 http://easybot:8080。
       EASYBOT_ALLOW_PLAINTEXT: "true"
       EASYBOT_HOME: "/var/lib/easybot"
@@ -125,5 +120,7 @@ services:
       QQ_CLIENT_SECRET: "${QQBOT_CLIENT_SECRET}"
     expose:
       - "${EASYBOT_PORT}"
+    ports:
+      - "${LAN_EASYBOT_PORT:-18091}:${EASYBOT_PORT}"
     volumes:
       - "${DATA_ROOT}/easybot/data:/var/lib/easybot"

@@ -83,7 +83,6 @@ echo "来源: $LIB"
 # 需在 source 后确保这些导出有值（common.sh 可能定义默认）
 DATA_ROOT="${DATA_ROOT:-E:/orzmc}"
 COMPOSE_PROFILE="${COMPOSE_PROFILE:-prod}"
-EDGE="${EDGE:-cloudflare}"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/compose.yaml}"
 
 # ===========================================================================
@@ -129,7 +128,6 @@ EOF
 env_file() { printf '%s/.env' "$TMP"; }
 # 强制走创建分支：mock docker 让 inspect(容器) 失败（不存在）
 MODE=windows
-EDGE=cloudflare
 # 需要让 docker inspect $(daemon_container) 返回"不存在"——用包装：
 # win_daemon_run 里 docker inspect 容器 -> 我们 mock 返回 0（存在）会走"跳过创建"。
 # 这里直接调用 win_daemon_run 并断言走的是跳过分支（幂等），再单独测 run 构造。
@@ -187,12 +185,11 @@ mkdir -p "$TMP/inst-empty/mcsmanager/daemon/data/InstanceConfig"
 check "无 docker 型实例时原样输出" "25565:25565/tcp,19132:19132/udp" "$(win_effective_daemon_ports "$TMP/inst-empty" 2>/dev/null)"
 
 # ===========================================================================
-section "win_daemon_run —— lan 档不再发布 daemon 端口（ADR-026）"
-EDGE=lan
+section "win_daemon_run —— 不再发布 daemon 端口（ADR-026）"
 DOCKER_RUN_LOGLINE=""
 win_daemon_run >/dev/null 2>&1
 echo "  docker run 捕获: $DOCKER_RUN_LOGLINE"
-check "lan 下不再补 -p 24444" "0" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-p 24444')"
+check "不再补 -p 24444" "0" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-p 24444')"
 
 # ===========================================================================
 section "win_daemon_alias —— 别名缺失时 disconnect+connect --alias"
@@ -244,7 +241,7 @@ docker() {
         compose)
             # 模拟 `config --services`
             if printf '%s' "$*" | grep -q 'config --services'; then
-                printf '%s\n' "mcsmanager-daemon" "mcsmanager-web" "easybot" "cloudflared"
+                printf '%s\n' "mcsmanager-daemon" "mcsmanager-web" "easybot"
                 return 0
             fi
             return 0 ;;
@@ -253,11 +250,9 @@ docker() {
 }
 DOCKER_CALLS=()
 MODE=windows
-EDGE=cloudflare
-# compose_cmd 需要 env_file 存在 + cloudflared/config.yml 存在
+# compose_cmd 只需 env_file 存在（ADR-027 起无边缘层配置）
 DATA_ROOT="$TMP/orzmc"
-mkdir -p "$DATA_ROOT/cloudflared"
-touch "$DATA_ROOT/cloudflared/config.yml"
+mkdir -p "$DATA_ROOT"
 # issue #11：站点增量 override（存在即自动 -f 追加）
 printf 'services: {}\n' > "$DATA_ROOT/compose.site.yaml"
 # env_file 指向 DATA_ROOT/.env（已有）
