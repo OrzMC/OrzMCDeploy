@@ -13,6 +13,13 @@
 
 ## [Unreleased]
 
+### 文档
+
+- `docs/security.md`：明确**反代一律整站透传**（`reverse_proxy` + 面板 `flush_interval -1`，
+  不加 `handle`/`respond`/`rewrite`/`@matcher`）：同一服务经公网与局域网访问必须功能一致
+  （路径、静态资源、WebSocket、API 全同）；要收窄暴露面就整站不给公网域名，不在反代里挑路径挡。
+  同时把原「反代挡掉 EasyBot `/docs`、`/swagger`」的建议改为一致性原则 + 可选片段。
+
 ## [0.1.0] - 2026-10-29
 
 ### ⚠️ 破坏性变更（升级前必读）
