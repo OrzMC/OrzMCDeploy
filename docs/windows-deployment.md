@@ -191,6 +191,20 @@ Docker Compose（v5.x，Linux/WSL2 后端）在**把 bind mount 序列化为 `so
 > 但 daemon 仍按 ADR-016 走 `docker run`（见上注），保持三平台一致，且 Windows 下
 > `win_daemon_run` 自动生成等价命令。下表保留历史排障记录。
 
+> **2026-10-29 实测复核（Docker Desktop 4.95 / compose 29.8.2）**：ADR-019 去掉
+> `instances` 自挂载后，**Windows 原生 compose 已能直接创建 daemon**——本次升级全量
+> `docker.exe compose ... up -d` 成功拉起 `mcsmanager-daemon`，容器带
+> `com.docker.compose.project=orzmc` 标签，无需 `docker run`。但两条边界仍然成立：
+>
+> 1. **WSL 侧 compose 仍不行**：同一份 compose 在 WSL 里创建容器报
+>    `invalid volume specification: 'E:/orzmc/mcsmanager/daemon/data:/opt/...:rw'`
+>    （短语法盘符冒号）；所以 `DATA_ROOT=E:/...` 时不要从 WSL 跑 compose。
+> 2. **`win_daemon_run` 仍然保留**，理由已从"compose 建不出来"变为：
+>    (a) 进程模式实例需要给 daemon 注入 `DAEMON_PORTS` 的 `-p`（compose 无法按
+>    `.env` 动态生成端口列表）；(b) 兼容旧版 Compose 的驱动冒号缺陷。
+>    即：**这不是硬性限制，而是选择**；未来若把 `DAEMON_PORTS` 改为站点 override
+>    或用 `ports:` 静态声明，可整体删除 Windows daemon 旁路（见 EXECUTION_PATH 待办）。
+
 ### 排查结论（已验证）
 
 | 方式 | source=`E:/orzmc/instances` | target 含 `E:` 冒号 | 结果 |

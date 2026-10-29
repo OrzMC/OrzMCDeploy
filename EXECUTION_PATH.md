@@ -1137,3 +1137,36 @@
 - **后续可评估**：MCSManager 10.22.0 新增「面板中转数据模式」——面板经自身中转 daemon
   流量，可不再开放 daemon 端口。若启用，可取消 `mcs-node` 入口（3 → 2）并把节点地址
   固定为内网名，同时消除「面板 RPC 经隧道 ~1 s」的延迟（见本文件 2026-10-29 服务精简条）。
+
+### 2026-10-29 跟进：面板中转数据面（10.22）+ Windows daemon 旁路复核
+
+**① MCSManager 10.22「面板中转数据模式」已在本机启用（`dataPlane=proxy`）**
+
+- 机制（读 `web/app.js` 实现确认）：`SystemConfig.dataPlane ∈ {direct, proxy}`；
+  升级的旧装保留 `direct`（新装默认 `proxy`）。`proxy` 下：
+  - Koa 早于 `koa-body` 的网关拦截 daemon 数据面路由
+    （`/download/:a/:b`、`/upload-new/:id`、`/upload-piece/:id`、`/upload/:token`），
+    面板持 daemon passport、给浏览器发**面板自签 HMAC token**，全程流式无缓冲；
+  - `POST /stream_channel` 在 proxy 下返回 `{addr: browserFacingAddr(ctx), password: <proxyToken>}`
+    ——即**浏览器终端流也经面板中转**，浏览器永远拿不到 daemon 地址。
+- 落地：`SystemConfig/config.json` 加 `"dataPlane": "proxy"`；节点地址由
+  `wss://mcs-node.<domain>:443` 改为 **`ws://mcsmanager-daemon:24444`**（内网名）。
+- 验证：面板启动日志 `ws://mcsmanager-daemon:24444 已连接 / 密钥验证通过`；
+  面板域上 `/download/x/y` 返回 403（token 校验）而非 404（网关生效）；
+  三个公网入口仍 200。
+- **收益**：面板↔daemon RPC 不再经隧道（此前 ~1.19 s/次 → 内网 ~ms 级）；
+  浏览器终端改由面板中转，`mcs-node` 入口在验证通过后即可删除（3 → 2 入口，
+  `DOMAIN_MCS_NODE` / `LAN_MCS_DAEMON_PORT` 随之消失）。
+- **待验证（需浏览器 30 秒）**：面板 → 实例 → 控制台/终端是否正常（代码路径已确认，
+  但无浏览器无法端到端断言）。确认后再动仓库：删 `mcs-node` ingress + 模板变量 +
+  修订 ADR-011/013/014/020 与 usage §6.3（新增 ADR-026 记录该模式）。
+
+**② Windows daemon 旁路（ADR-016）复核结论：保留，但不是硬性限制**
+
+- 本次全量升级中 `docker.exe compose up -d` **成功创建 daemon**（带 compose 项目标签），
+  证实 ADR-019 移除 `instances` 自挂载后，"compose 建不出 daemon"已不成立。
+- 仍保留 `win_daemon_run` 的两个真实理由：进程模式实例需要 `DAEMON_PORTS` 的 `-p`
+  注入（compose 无法按 `.env` 动态生成端口列表）；兼容旧版 Compose 的盘符冒号缺陷。
+- 另确认：**WSL 侧 compose 不能创建** `E:/orzmc/...` 绑定（`invalid volume specification`），
+  与 ADR-016 描述一致 → `DATA_ROOT=E:/...` 时必须在 Windows 侧执行 compose。
+- 已写入 `docs/windows-deployment.md` §3「2026-10-29 实测复核」。
