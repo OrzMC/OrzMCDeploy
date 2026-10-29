@@ -9,10 +9,10 @@
 
 - **运行时与数据分离**：仓库只承载运行时，全部配置与数据落宿主机统一目录 `$DATA_ROOT`，
   使运行时与数据可独立演进、独立备份/还原/迁移，密钥不进入仓库。
-- **NAT 内网免开端口**：生产主机位于 NAT 内网、公网 80/443 不可达，采用 Cloudflare Tunnel
-  （出站连接）获得公网真实 HTTPS，无需开放任何端口、无需 ACME、无需自签。
+- **局域网内闭环**：平台层只服务可信局域网（纯 HTTP，ADR-027）；**对外访问由站点自备**
+  （DDNS + 端口映射 / TLS 反代 / VPN），本仓库不提供也不管理边缘层。
 - **单一控制面**：MCSManager 作为 PaperMC 实例唯一控制入口；本仓库 compose 只管平台层。
-- **可验证、可回滚**：镜像 digest 锁定 + git commit；`deploy.sh validate` 做配置门禁。
+- **可验证、可回滚**：镜像 digest 锁定 + git commit；`./orzmc.sh validate` 做配置门禁。
 
 ## 2. 拓扑（局域网单一模式，ADR-027）
 
@@ -42,7 +42,7 @@
 - **EasyBot 插件 API 仅内网**：插件挂 `orzmc_default` 网络直连 `http://easybot:8080`。
 - **对外访问由站点自备**（ADR-027）：DDNS + 端口映射、反向代理或 VPN。
   ⚠️ 面板是 HTTP + 口令登录，公网暴露前**必须**加 TLS 反代或改用 VPN。
-- 服务端口除上述两个外一律只 `expose`；PaperMC 实例端口（`25565` 等）由 MCSManager
+- 服务端口除上述两个外一律不发布到宿主（仅 `orzmc_default` 内网可达）；PaperMC 实例端口（`25565` 等）由 MCSManager
   按实例配置发布，供局域网玩家直连。
 
 ## 3. 网络与数据流
@@ -86,7 +86,11 @@ $DATA_ROOT/
   # 可安全删除（或按站点增量自行加回 mariadb/gatus）。
 ```
 
-## 6. ADR 决策记录（长期有效）
+## 6. ADR 决策记录
+
+> 长期有效的决策，按编号升序排列。已废止 / 被取代的决策只在文末索引保留一行，
+> 正文用 `git log -p -- docs/architecture.md` 查。新增决策按编号续写，勿再拆分成
+> “本轮精简”之类按时间切分的子节（那会保证漂移）。
 
 ### ADR-001：EasyBot 统一 IM 网关（2026-08-13）
 
@@ -94,7 +98,8 @@ $DATA_ROOT/
 - **背景**：需要一个统一 IM 网关承载 QQ / Telegram / Discord / 飞书 / 微信多平台消息。
 - **决策**：采用 EasyBot 作为统一 IM 网关；QQ 适配器使用 QQ 开放平台官方 bot 凭据
   （AppID + ClientSecret）。
-- **影响**：`docs/easybot.md` 记录了接入模型；监听器仅 HTTP，TLS 由边缘层承担。
+- **影响**：`docs/easybot.md` 记录了接入模型；监听器仅 HTTP（ADR-027 后只在局域网暴露，
+  对公网暴露须站点自备 TLS 反代或 VPN）。
 
 ### ADR-002：运行时与数据分离（2026-08-13）
 
@@ -141,104 +146,7 @@ $DATA_ROOT/
 - **ADR-019 取代（2026-08-16）**：改为不设 `instances/` 目录，实例数据统一由 MCSManager
   面板写入默认的 `data/InstanceData/<uuid>/`（已通过 `daemon/data` bind 落到宿主
   `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，随整包备份），不再需要独立的
-  `instances/` 自挂载与 `MCSM_DOCKER_WORKSPACE_PATH`。见 `docs/architecture.md` §7 ADR-019。
-
-### ADR-019：移除 instances/ 目录，实例数据统一由面板管理（2026-08-16）
-
-**背景**：MCSManager 面板创建的实例默认把数据（`cwd`）写入 daemon 的
-`data/InstanceData/<uuid>/`（容器内 `/opt/mcsmanager/daemon/data/InstanceData/<uuid>`）。
-原 ADR-007 的 `instances/` 自挂载（`${DATA_ROOT}/instances:${DATA_ROOT}/instances` +
-`MCSM_DOCKER_WORKSPACE_PATH`）是为「实例 `cwd` 直接指向宿主 `instances/` 路径」设计的
-另一条路径。实际部署中实例走面板默认布局，`instances/` 只是 init 建出的空壳，既不承载
-数据、也造成「实例数据在哪」的困惑（见 §5 数据树）。
-
-**决策**：
-1. 移除 daemon 的 `instances/` 自挂载卷（compose.yaml 与 Windows `win_daemon_run` 的
-   `--mount`/`--env MCSM_DOCKER_WORKSPACE_PATH` 一并删除）。
-2. 实例数据统一由 MCSManager 面板管理，落 `data/InstanceData/<uuid>/`；该目录经
-   `daemon/data` 的 bind 挂载天然落宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，
-   随 `backup.sh` 整包打包自动覆盖，无需额外备份逻辑。
-3. `ensure_data_dirs` 不再创建 `instances/papermc-{main,test}`；删除 `$DATA_ROOT/instances`。
-4. `templates/env.papermc` 参考路径改为 `.../data/InstanceData/<uuid>/`。
-
-**影响**：
-- compose.yaml / lib/common.sh / tests/windows_ci.sh 同步移除相关挂载与断言。
-- 备份/恢复**无变化**（本就整包打包 `$DATA_ROOT`，InstanceData 已含）。
-- 升级路径：`orzmc.sh stop` 后 `docker rm` daemon → `orzmc.sh up` 重建（去掉 instances 挂载），
-  删除 `$DATA_ROOT/instances`；已有实例数据在 `InstanceData/`，不受影响。
-
-### ADR-028：默认限源（三层暴露面收敛）（2026-10-29）
-
-**背景**：站点在调试期间把所有宿主防火墙规则的来源改成了 `Any`。面板与 EasyBot 都是
-HTTP + 口令登录，`Any` 意味着同网段任何设备（含访客 Wi-Fi、被入侵的 IoT）都能访问登录页；
-一旦再做 DDNS 端口映射，就等于把登录页暴露到公网。
-
-**决策**：默认姿态改为「只信任局域网，暴露必须显式」，分三层：
-
-| 层 | 机制 | 默认值 |
-|---|---|---|
-| L1 容器网络 | daemon 不发布端口（ADR-026） | 已生效 |
-| L2 绑定地址 | `.env` 的 `LAN_BIND_ADDR` → compose `ports` 的 host_ip | `0.0.0.0`（可改 `127.0.0.1`） |
-| L3 宿主防火墙 | `./orzmc.sh firewall apply`，来源取 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS` | 仅 `192.168.0.0/24` |
-
-- 新增 `lib/firewall.sh` + `./orzmc.sh firewall show|apply [--dry-run]`：幂等重建
-  `OrzMC-*` 入站规则（Windows 走 PowerShell `New-NetFirewallRule`，Linux 走 ufw，
-  macOS 只打印建议）。
-- `status` 增加「暴露面」摘要（绑定地址 + 限源建议）。
-- 三层叠加的意义：单层误配（把规则改回 `Any`，或把绑定改成 `0.0.0.0`）不足以造成暴露，
-  必须两个误操作同时发生。
-
-**对外暴露的三条正规路径**（详见 `docs/security.md`）：VPN（推荐，零公网端口）→
-TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 尽量限源）。
-
-**影响**：`compose.yaml` 端口改用 `${LAN_BIND_ADDR:-0.0.0.0}`；`templates/env` 新增
-`LAN_BIND_ADDR` / `LAN_CIDR` / `ALLOW_EXTRA_CIDRS`（及可选的 `MC_TCP_PORTS` /
-`MC_UDP_PORTS` / `RCON_PORTS`）；新增 `docs/security.md`。
-
-### 已归档 ADR 索引（正文见 git 历史）
-
-下列决策已废止或被取代，仅留索引避免后来者重复踩坑：
-
-- **ADR-003** Caddy → Cloudflare Tunnel（2026-08-13，Phase 2）
-- **ADR-005** daemon 经边缘层入口暴露（mcs-node，密钥鉴权）（2026-08-13，Phase 2）
-- **ADR-008** 平台层常驻 MariaDB 数据库服务（2026-08-14）
-- **ADR-009** 统一首页/状态页（Gatus，第 4 入口）（2026-08-14）
-- **ADR-010** 统一状态页域名改为 orzmcs（2026-08-14）
-- **ADR-011** 面板↔daemon 改 Docker 内网直连（隧道 socket.io 被 daemon koa 拦截）（2026-08-14）
-- **ADR-012** lan 直连模式（无 TLS 终止边缘层，局域网）（2026-08-14）
-- **ADR-013** prod 面板节点地址回改隧道 URL（浏览器直连恢复可用）（2026-08-15）
-- **ADR-014** local/lan 面板节点地址改为浏览器可达地址（三档浏览器直连全部可用）（2026-08-15）
-- **ADR-015** Windows(Docker Desktop/WSL2) 平台支持与适配（2026-08-16，Windows 实测）
-- **ADR-016** Windows 平台支持脚本化（三平台统一命令，仅 daemon 走 docker run）（2026-08-16）
-- **ADR-017** 单 profile + 可插拔边缘层 + 可插拔服务（2026-08-16，Windows 迁移演练后）
-- **ADR-020** Windows mirrored 下 lan 档节点地址改内网名，浏览器直连不可用（2026-08-18，Windows 三档实机验收）
-- **ADR-021** Mac→Windows 迁移四问题修复（#4–#7）（2026-09-09）
-- **ADR-023** EasyBot 镜像升级 v0.0.41 / easybot 内存上限可调 / 端口映射文档（#14–#16）（2026-10-01）
-
-## 7. 演进路径
-
-- **未来候选**（尚未排期）：
-  - Phase 3：环境自检脚本 / 自动化校验 / 升级回滚标准化（见 `EXECUTION_PATH.md`）。
-  - PaperMC 插件端到端消息验证（依赖 monorepo 侧 OrzMC plugin）。
-  - 备份保留策略与异地备份。
-- **如何改动架构**：新增一条 ADR，说明背景/决策/影响；同步 `AGENTS.md`（如铁律变化）、
-  `README.md`、`templates/*`、`docs/*`；跑 `./orzmc.sh -d /tmp/xx init && ./orzmc.sh -d /tmp/xx validate`。
-
-## 8. 改动时需同步的位置清单
-
-| 架构改动类型 | 必同步文件 |
-|---|---|
-| 服务增减 / 端口变更 | `compose.yaml`、`templates/env`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
-| `.env` 必需变量增减 | `templates/env`、`lib/common.sh`(required_env_list / ENABLE_*) |
-| 卷 / 网络调整 | `compose.yaml`、`lib/common.sh`(ensure_data_dirs) |
-| 站点增量/站点特有配置 | `templates/compose.site.yaml`、`lib/common.sh`(collect_site_override_files)、`docs/usage.md` §4.5 |
-| 镜像升级/回滚 | `compose.yaml`(digest)、`update-image-digests.sh`(映射) |
-| 安全边界变化 | `docs/architecture.md`(ADR)、`AGENTS.md`(安全约束) |
-| 文档索引 / 命令变化 | `README.md`、`AGENTS.md` |
-
----
-
-## 9. ADR 决策记录（本轮精简）
+  `instances/` 自挂载与 `MCSM_DOCKER_WORKSPACE_PATH`。见本页 ADR-019。
 
 ### ADR-018：免克隆部署（GitHub Release tarball + install.sh）（2026-08-16）
 
@@ -262,6 +170,31 @@ TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 
 - 新增 `install.sh`、`ci.yml` 的 `package` job、README「免克隆安装」章节。
 - 部署等价性：`git clone` 与 tarball 得到同一套 `orzmc.sh` 与模板，行为一致。
 - 安全：sha256 校验防篡改/下载损坏；包内无密钥（CLOUDFLARE 凭据/密码仍只落 `$DATA_ROOT`）。
+
+### ADR-019：移除 instances/ 目录，实例数据统一由面板管理（2026-08-16）
+
+**背景**：MCSManager 面板创建的实例默认把数据（`cwd`）写入 daemon 的
+`data/InstanceData/<uuid>/`（容器内 `/opt/mcsmanager/daemon/data/InstanceData/<uuid>`）。
+原 ADR-007 的 `instances/` 自挂载（`${DATA_ROOT}/instances:${DATA_ROOT}/instances` +
+`MCSM_DOCKER_WORKSPACE_PATH`）是为「实例 `cwd` 直接指向宿主 `instances/` 路径」设计的
+另一条路径。实际部署中实例走面板默认布局，`instances/` 只是 init 建出的空壳，既不承载
+数据、也造成「实例数据在哪」的困惑（见 §5 数据树）。
+
+**决策**：
+1. 移除 daemon 的 `instances/` 自挂载卷（compose.yaml 与 Windows `win_daemon_run` 的
+   `--mount`/`--env MCSM_DOCKER_WORKSPACE_PATH` 一并删除）。
+2. 实例数据统一由 MCSManager 面板管理，落 `data/InstanceData/<uuid>/`；该目录经
+   `daemon/data` 的 bind 挂载天然落宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，
+   随 `backup.sh` 整包打包自动覆盖，无需额外备份逻辑。
+3. `ensure_data_dirs` 不再创建 `instances/papermc-{main,test}`；删除 `$DATA_ROOT/instances`。
+4. `templates/env.papermc` 参考路径改为 `.../data/InstanceData/<uuid>/`
+   （该文件已于 ADR-031 删除，字段参考统一看 `docs/papermc-template.md`）。
+
+**影响**：
+- compose.yaml / lib/common.sh / tests/windows_ci.sh 同步移除相关挂载与断言。
+- 备份/恢复**无变化**（本就整包打包 `$DATA_ROOT`，InstanceData 已含）。
+- 升级路径：`orzmc.sh stop` 后 `docker rm` daemon → `orzmc.sh up` 重建（去掉 instances 挂载），
+  删除 `$DATA_ROOT/instances`；已有实例数据在 `InstanceData/`，不受影响。
 
 ### ADR-022：站点增量挂载点 / DAEMON_PORTS 自动忽略 / daemon 堆-限额对齐（#9–#12）（2026-09-10）
 
@@ -290,7 +223,7 @@ TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 
 2. **`DAEMON_PORTS` 自动忽略 + 模板默认置空**（issue #9）：新增 `find_docker_instance` /
    `win_effective_daemon_ports`，Windows daemon 创建时扫描 `InstanceConfig/*.json`，检测到
    `processType: docker` 即**忽略** `DAEMON_PORTS`（info 说明；存量 daemon 额外提示重建）；
-   三个 `templates/env.*` 把 `DAEMON_PORTS` 默认**注释置空**，消除「daemon 先创建抢端口」
+   `templates/env`（当时为三份 `env.*`）把 `DAEMON_PORTS` 默认**注释置空**，消除「daemon 先创建抢端口」
    窗口。macOS/Linux daemon 走 compose 不消费该变量，无影响。
 3. **daemon 内存/堆对齐 + healthcheck**（issue #10）：内存上限与 Node 堆上限收敛到 `.env`
    的 `DAEMON_MEMORY_LIMIT`（默认 `512M`）/ `DAEMON_NODE_HEAP_MB`（默认 `384`），compose 与
@@ -305,10 +238,10 @@ TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 
 **影响**：
 - 代码：`lib/common.sh`（site override + `win_effective_daemon_ports` + `win_daemon_run`
   内存/堆/健康检查）、`deploy.sh`（init 生成 site 模板）、`compose.yaml`（daemon
-  command/healthcheck/limits）、`templates/compose.site.yaml`（新增）、`templates/env.*`。
+  command/healthcheck/limits）、`templates/compose.site.yaml`（新增）、`templates/env`。
 - 测试：`tests/windows_ci.sh` 新增 #9/#10/#11 断言（Windows 分支命令构造）。
 - 文档：`README.md`、`docs/usage.md` §4.5/§6.5、`docs/architecture.md`（本 ADR + §5/§8）、
-  `docs/windows-deployment.md` §9.4/§10 P4/P9/P12/P13、`AGENTS.md`、`CHANGELOG.md`、
+  `docs/windows-deployment.md` §4/§7、`AGENTS.md`、`CHANGELOG.md`、
   `EXECUTION_PATH.md`。
 - **兼容性**：新增 `.env` 变量均**可选带默认值**（不入 `required_env_list`）；site override
   为新增可选文件；`DAEMON_PORTS` 仅在用户显式启用且无 docker 型实例时生效。旧 `.env`
@@ -325,7 +258,7 @@ TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 
 内存再次异常增长时应尽快由 OOM/重启暴露，而不是被 1G 余量吞掉。确有更重负载的站点可按需上调。
 
 **影响**：
-- 运行时：`compose.yaml`（`${EASYBOT_MEMORY_LIMIT:-512M}`）、`templates/env.*` 注释。
+- 运行时：`compose.yaml`（`${EASYBOT_MEMORY_LIMIT:-512M}`）、`templates/env` 注释。
 - 文档：`docs/usage.md` 附录 F 表格与说明；ADR-023 保留为历史决策（本条为其修正）。
 - **兼容性**：变量仍可选、旧 `.env` 无需改动；行为相对 v0.0.4（512M）无变化，相对 v0.0.5（1G）为收紧。
 
@@ -417,7 +350,7 @@ prod 回改隧道 URL（ADR-013）→ local 用 Caddy `.localhost`、lan 用 LAN
 - 运行时：入口 3 → 2；`.env` 每个 EDGE 少 1–2 个必需变量；隧道 ingress 少 1 条；
   Caddy vhost 少 1 个。
 - 文档：`AGENTS.md` §4、`README.md`、`docs/usage.md` §6.3（整节由"三档地址表"改为
-  "固定内网名 + 面板中转"）、`docs/windows-deployment.md` §3/§4、本文件 §2.1/§2.3/§2.4/§3；
+  "固定内网名 + 面板中转"）、`docs/windows-deployment.md` §3/§4、本文件 §2/§3；
   ADR-005/011/013/014/020 标注为历史。
 - **收益**：浏览器终端在任何 EDGE 档、任何平台都可用（不再有 Windows 例外）；面板↔daemon
   走内网（此前 prod 档每次 RPC 要经隧道 ~1 s）；daemon 端口彻底不暴露，攻击面缩小。
@@ -466,6 +399,38 @@ prod 回改隧道 URL（ADR-013）→ local 用 Caddy `.localhost`、lan 用 LAN
   `caddy/` 目录可手工归档或删除。**隧道凭据属密钥，删除前请确认不再需要该隧道。**
 - **回滚**：`git revert` 到 ADR-026 版本的 commit 即可恢复四档；数据布局未变。
 
+### ADR-028：默认限源（三层暴露面收敛）（2026-10-29）
+
+**背景**：站点在调试期间把所有宿主防火墙规则的来源改成了 `Any`。面板与 EasyBot 都是
+HTTP + 口令登录，`Any` 意味着同网段任何设备（含访客 Wi-Fi、被入侵的 IoT）都能访问登录页；
+一旦再做 DDNS 端口映射，就等于把登录页暴露到公网。
+
+**决策**：默认姿态改为「只信任局域网，暴露必须显式」，分三层：
+
+| 层 | 机制 | 默认值 |
+|---|---|---|
+| L1 容器网络 | daemon 不发布端口（ADR-026） | 已生效 |
+| L2 绑定地址 | `.env` 的 `LAN_BIND_ADDR` → compose `ports` 的 host_ip | `0.0.0.0`（可改 `127.0.0.1`） |
+| L3 宿主防火墙 | `./orzmc.sh firewall apply`，来源取 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS` | 仅 `192.168.0.0/24` |
+
+- 新增 `lib/firewall.sh` + `./orzmc.sh firewall show|apply [--dry-run]`：幂等重建
+  `OrzMC-*` 入站规则（Windows 走 PowerShell `New-NetFirewallRule`，Linux 走 ufw，
+  macOS 只打印建议）。
+- `status` 增加「暴露面」摘要（绑定地址 + 限源建议）。
+- 三层叠加的意义：单层误配（把规则改回 `Any`，或把绑定改成 `0.0.0.0`）不足以造成暴露，
+  必须两个误操作同时发生。
+
+**对外暴露的三条正规路径**（详见 `docs/security.md`）：VPN（推荐，零公网端口）→
+TLS 反代（后端绑 `127.0.0.1`）→ 路由器端口映射（须强口令 + 尽量限源）。
+
+**影响**：`compose.yaml` 端口改用 `${LAN_BIND_ADDR:-0.0.0.0}`；`templates/env` 新增
+`LAN_BIND_ADDR` / `LAN_CIDR` / `ALLOW_EXTRA_CIDRS`（及可选的 `MC_TCP_PORTS` /
+`MC_UDP_PORTS` / `RCON_PORTS`，注释形式给出）；新增 `docs/security.md`。
+
+**唯一例外**：站点自备的**公网 TLS 反代端口**（如 80/443）本身就要对公网开放，可单独命名
+规则（如 `OrzMC-Web-TLS`）；`firewall apply` 只重建 `OrzMC-Panel/EasyBot/MC-*/RCON` 五组
+限源规则，不会把反代端口收回 `LAN_CIDR`，也不会被它改成 `Any`。
+
 ### ADR-029：Windows 档 daemon 默认交给 compose（2026-10-29）
 
 **背景**：ADR-016 曾断言 Windows 下 compose 无法创建 daemon，故 `compose_cmd` 在 Windows
@@ -481,6 +446,97 @@ daemon 注入 `-p` 时（compose 无法按 `.env` 动态生成端口列表）才
 `invalid volume specification: 'E:/orzmc/...:/opt/...:rw'`，短语法盘符冒号）→
 `DATA_ROOT=E:/...` 时必须在 Windows 侧执行 compose。
 
+### ADR-030：收尾 ADR-027/028 遗留（默认值/兼容性/读取语义/发布链路）（2026-10-30）
+
+**背景**：ADR-027（删边缘层）、ADR-028（默认限源）两轮大改后，代码/文档/CI 之间留下一批
+不一致，其中三处是**真故障**：
+
+1. **Release 打包失效**：`ci.yml` 的 `package` job 仍 `tar … local.sh lan.sh windows.sh`，
+   而这三个脚本已随 ADR-027 删除 → `tar: Cannot stat … exit 2` → 打 tag 不会产生 tarball，
+   `install.sh` 免克隆安装（ADR-018）整体不可用。
+2. **bash 3.2 兼容不成立**：`lib/common.sh` / `backup.sh` 用了 `mapfile`（bash 4 内建），
+   且若个位置裸展开可能为空的数组（bash <4.4 + `set -u` 会报 unbound）——macOS 自带
+   bash 3.2 上 `validate` / `backup --keep` / Windows 分支 `up` 会直接失败。
+3. **可选服务开关测试是假阳性**：CI 用 `printf >> .env` 追加 `ENABLE_EASYBOT=false`，
+   但 `read_env_value` 是「首次出现优先」，追加行被忽略；且断言用的 `compose config`
+   未带 `--profile`，无论开关如何都不含 easybot。
+
+**决策**：
+
+1. **发布清单与仓库实际文件同步**：`package` job 的 `tar` 文件列表去掉已删脚本；
+   注释里写明“删脚本时必须同步这里”。
+2. **真兼容 bash 3.2**：删掉全部 `mapfile`，改 `while IFS= read -r`；
+   可能为空的数组统一用 `${arr[@]+"${arr[@]}"}` 展开；在 `AGENTS.md` 代码约定里写死这条。
+3. **开关断言改成真的走消费端**：CI 用 `sed` 原地改键 + 断言 `enabled_profiles` 为空
+   + 用 `compose_cmd config --services`（不带 `--profile`）断言无 easybot；新增
+   `LAN_BIND_ADDR` / `firewall apply --dry-run` 两个 ADR-028 用例。
+4. **默认 `DATA_ROOT` 按平台**（`default_data_root`）：Windows `E:/orzmc`、macOS
+   `/Users/Shared/orzmc`、Linux `/srv/orzmc`——此前代码恒为 `/srv/orzmc`，与文档/AGENTS
+   一直宣称的平台默认值不符（Windows 上会落到 MSYS 的 `/srv/orzmc`）。
+5. **`read_env_value` 语义固定并容错**：同名键**首次出现优先**（写入注释）、剥除 CRLF
+   （Windows 编辑器写出的 `\r` 会让 `ENABLE_EASYBOT` / `LAN_BIND_ADDR` 静默失效）。
+6. **删 `ensure_data_dirs` 里的 `caddy/`**：ADR-027 后无边缘层，新装不再建这个空目录。
+7. **`firewall` 平台行为对齐文档**：Linux `show` 的端口正则改逐端口拼接（原实现末尾
+   `|` 导致 `grep -E` 匹配全部行，且 `25565,25566` 永远匹配不到）；macOS `apply` 改为
+   打印等价 `pf` 规则（原实现实际打印 iptables）；缺 `.env` 时直接拒绝（不再用缺省值
+   建规则）。
+8. **文档与实现对齐**：AGENTS/README/usage/windows-deployment/papermc-template 清理
+   边缘层与 `-e <edge>` 残留；`windows-deployment.md` 不再教用户写 `-RemoteAddress Any`
+   规则（ADR-028 禁止）与容器内端口 23333；`templates/env` 补上 `MC_TCP_PORTS` /
+   `MC_UDP_PORTS` / `RCON_PORTS` 注释（ADR-028 早已引用它们）；architecture 合并两处
+   ADR 节并删除重复的归档索引。
+
+**影响**：
+- 代码：`lib/common.sh`（默认值/读取/空数组/目录/输出）、`backup.sh`、`lib/firewall.sh`、
+  `deploy.sh`（删与 `orzmc.sh` 重复的别名）、`update-image-digests.sh`（服务→镜像映射
+  只留 shell 一处，去掉 python 重复缺省值）、`install.sh`（上手提示去 CLOUDFLARE 残留）。
+- CI：`package` job 恢复可用；`validate` job 新增两个 ADR-028 用例且开关用例变真；
+  `tests/windows_ci.sh` 40 → 47 项（新增 `default_data_root` / CRLF / 首次出现优先）。
+- 文档：本 ADR、`AGENTS.md`（铁律/代码约定）、`README.md`、`docs/usage.md`、
+  `docs/security.md`、`docs/windows-deployment.md`、`docs/papermc-template.md`、
+  `EXECUTION_PATH.md`、`CHANGELOG.md`。
+- **兼容性**：无破坏性变更。唯一行为变化：Windows/macOS 上省略 `-d` 时的默认 `DATA_ROOT`
+  改为文档一直宣称的值；旧装显式传 `-d` / `ORZMC_DATA_ROOT` 不受影响。已存在的
+  `$DATA_ROOT/caddy/` 不会被删（需手工清理）。
+
+### ADR-031：配置文件最小化（只留有消费者的字段）（2026-10-30）
+
+**背景**：`compose.yaml` / `templates/*` 经多轮演进后夹带了无运行时作用的字段与历史注释：
+
+- `expose:`（web/daemon/easybot 各一条）——Compose 里 `expose` **无任何运行时效果**
+  （同网络容器任意端口可达，发布端口由 `ports` 决定），纯注释性；
+- daemon 的 `/etc/timezone:/etc/timezone:ro`——已由 `TZ` env + `/etc/localtime` 覆盖，
+  且 macOS 宿主无此文件（Docker Desktop 会建目录），属冗余且有平台隐患；
+- `templates/env.papermc`——139 行"参数参考"，但字段名（`PAPERMC_INSTANCE_GROUP` /
+  `ENVIRONMENT` / `WORLD_TEMPLATE` / `MAINTENANCE_WINDOW` / `HEALTHCHECK_*` 等）**并非
+  MCSManager 实例字段**，且与 `docs/papermc-template.md` 逐字段重复（还写着违反文档的
+  `25566:25566` 无协议端口）→ 双重漂移源；
+- 三份模板与 compose 的头部注释大量重复 ADR/文档正文（历史背景、内存上限长篇解释），
+  改一次行为要在 4 处同步叙述。
+
+**决策**：配置只保留**有消费者**的字段，解释类内容一律指向文档单点：
+
+1. `compose.yaml`：删除全部 `expose:`；删除 daemon 的 `/etc/timezone` 挂载（保留
+   `/etc/localtime` + `TZ`）；注释压缩到每处 1–3 行（保留 issue/ADR 编号作为溯源），
+   文件头只留「两个宿主发布端口 + daemon 不发布」。
+2. `templates/env`：按用途分组、去掉重复表述；只保留 `required_env_list` 需要的键
+   （15 个）+ 可选键的注释示例；内存/适配器/防火墙的长解释改为一行指向
+   `docs/usage.md` / `docs/security.md` / `docs/easybot.md`。
+3. `templates/compose.site.yaml`、`templates/gateway.local.yaml`：头部注释压到 5–8 行。
+4. **删除 `templates/env.papermc`**：字段参考唯一来源改为 `docs/papermc-template.md`
+   （该文档本次同时去掉 `${PAPERMC_*}` 占位符写法，改为可直接录入的固定字符串）。
+5. `.gitignore` 只留当前会用到的 3 项（`.env` / `.local-data/` / `.local-backups/`）；
+   CI 的禁入路径守卫与 tar `--exclude` 继续覆盖旧目录名（防御纵深，不影响新仓库）。
+
+**影响**：
+
+- `compose.yaml` 128 → 88 行，`templates/env` 94 → 58 行，`templates/env.papermc`
+  139 行整份删除，`compose.site.yaml` 34 → 22 行；
+- 行为无变化：`docker compose config` 的发布端口/环境变量/卷与改前一致（`expose` 本就不
+  生效），`init && validate`、`tests/windows_ci.sh` 全通过；
+- 文档：`AGENTS.md` 目录地图、`docs/usage.md` 附录 B（"仅 expose"→"不发布到宿主"）、
+  `docs/papermc-template.md`、`docs/architecture.md` §2 同步措辞。
+- **回退**：只需 `git revert`；无数据/接口影响。
 
 ### 已归档 ADR 索引（正文见 git 历史）
 
@@ -501,3 +557,28 @@ daemon 注入 `-p` 时（compose 无法按 `.env` 动态生成端口列表）才
 - **ADR-020** Windows mirrored 下 lan 档节点地址改内网名，浏览器直连不可用（2026-08-18，Windows 三档实机验收）
 - **ADR-021** Mac→Windows 迁移四问题修复（#4–#7）（2026-09-09）
 - **ADR-023** EasyBot 镜像升级 v0.0.41 / easybot 内存上限可调 / 端口映射文档（#14–#16）（2026-10-01）
+
+## 7. 演进路径
+
+- **未来候选**（尚未排期）：
+  - Phase 3：环境自检脚本 / 自动化校验 / 升级回滚标准化（见 `EXECUTION_PATH.md`）。
+  - PaperMC 插件端到端消息验证（依赖 monorepo 侧 OrzMC plugin）。
+  - 备份保留策略与异地备份。
+- **如何改动架构**：新增一条 ADR，说明背景/决策/影响；同步 `AGENTS.md`（如铁律变化）、
+  `README.md`、`templates/*`、`docs/*`；跑 `./orzmc.sh -d /tmp/xx init && ./orzmc.sh -d /tmp/xx validate`。
+
+## 8. 改动时需同步的位置清单
+
+| 架构改动类型 | 必同步文件 |
+|---|---|
+| 服务增减 / 端口变更 | `compose.yaml`、`templates/env`、`README.md`、`docs/architecture.md`(ADR)、`AGENTS.md` |
+| `.env` 必需变量增减 | `templates/env`、`lib/common.sh`(required_env_list / ENABLE_*) |
+| 卷 / 网络调整 | `compose.yaml`、`lib/common.sh`(ensure_data_dirs) |
+| 站点增量/站点特有配置 | `templates/compose.site.yaml`、`lib/common.sh`(collect_site_override_files)、`docs/usage.md` §4.5 |
+| 镜像升级/回滚 | `compose.yaml`(digest)、`update-image-digests.sh`(映射) |
+| 安全边界变化 | `docs/architecture.md`(ADR)、`AGENTS.md`(安全约束)、`docs/security.md`、`lib/firewall.sh`、`templates/env`(LAN_*/MC_*) |
+| 文档索引 / 命令变化 | `README.md`、`AGENTS.md`、`orzmc.sh` usage |
+| 发布打包内容 | `.github/workflows/ci.yml`(`package` job 的 tar 文件清单，删文件时必须同步) |
+
+---
+

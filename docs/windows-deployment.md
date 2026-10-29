@@ -52,16 +52,17 @@ Error response from daemon: invalid volume specification:
 - 宿主发布端口：`LAN_MCS_WEB_PORT`（默认 18090）、`LAN_EASYBOT_PORT`（默认 18091）。
   **daemon 的 24444 不发布**（ADR-026）。
 - PaperMC 实例端口（`25565` / `19132` 等）由 MCSManager 按实例配置发布。
-- Windows 防火墙需要放行上述入站端口（管理员 PowerShell）：
+- Windows 防火墙**不要手写规则**（也不要写成 `-RemoteAddress Any`，ADR-028）：直接用脚本
+  幂等应用，来源自动取 `.env` 的 `LAN_CIDR` + `ALLOW_EXTRA_CIDRS`：
 
-```powershell
-New-NetFirewallRule -DisplayName 'OrzMC MCSM Panel' -Direction Inbound -Action Allow `
-  -Protocol TCP -LocalPort 23333 -RemoteAddress Any
-New-NetFirewallRule -DisplayName 'OrzMC EasyBot' -Direction Inbound -Action Allow `
-  -Protocol TCP -LocalPort 18091 -RemoteAddress Any
-# 查已有规则：Get-NetFirewallRule -DisplayName 'OrzMC*' | Select DisplayName,Enabled,Action
+```bash
+./orzmc.sh firewall show          # 看现状
+./orzmc.sh firewall apply         # 弹 UAC，需管理员；重建 OrzMC-* 规则
+./orzmc.sh firewall apply --dry-run   # 只看将执行的命令
 ```
 
+  端口清单同样来自 `.env`（`LAN_*_PORT` / `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS`），
+  详见 [`docs/security.md`](security.md)。
 - Docker 发布端口在 WSL 网络栈里（`networkingMode=mirrored`），Windows 侧 `netstat` 看不到
   监听属正常；**验证要用手机/另一台设备**访问 `http://<宿主LAN IP>:<端口>`。
 
@@ -80,7 +81,7 @@ Windows 侧由 Docker Desktop 的文件共享承担写入，一般无需 `chown`
 |---|---|---|
 | `up` 报 `invalid volume specification` | 在 WSL 侧执行了 compose | 改到 Windows 侧执行（§3） |
 | 面板能开，终端/文件管理打不开 | 面板未启用中转模式 | 见 `docs/usage.md` §6.3（`dataPlane=proxy`） |
-| 本机能访问、手机不能 | 防火墙未放行 / 用错 IP | 补入站规则；确认访问的是宿主 LAN IP |
+| 本机能访问、手机不能 | 防火墙未放行 / 用错 IP | `./orzmc.sh firewall apply`；确认访问的是宿主 LAN IP |
 | 端口被旧容器占用 | 残留容器（改端口/改服务后） | `./orzmc.sh stop`（`down --remove-orphans`）后 `up` |
 | 实例容器"消失" | 直接 `docker restart MCSM-<uuid>` 被 daemon 当停止处理 | 实例生命周期一律走面板 |
 | 改了实例 JSON 又回退 | 实例运行中改被内存副本覆盖 | 停 daemon → 改 JSON → 启 daemon（`docs/usage.md` §6.5） |

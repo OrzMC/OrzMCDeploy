@@ -1,6 +1,4 @@
-# 运行数据与配置（全部落在统一目录 $DATA_ROOT，不入 Git）
+# 运行数据与配置（全部落 $DATA_ROOT，不入 Git；见 AGENTS.md 铁律 2）
 .env
-.env.local
 .local-data/
-.local-data-lan/
 .local-backups/

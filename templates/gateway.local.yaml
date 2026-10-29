@@ -1,12 +1,11 @@
-# EasyBot 本地覆盖配置（gateway.local.yaml）
-# init 自动生成到 $DATA_ROOT/easybot/data/（与 compose.site.yaml 一样，绝不覆盖已有文件）。
-# EasyBot 从 EASYBOT_HOME（容器 /var/lib/easybot）解析本文件，作为 gateway.yaml
-# 的覆盖层合并（官方文档称 gateway.local.yaml，未纳入 Git 属运行数据）。
+# ===========================================================================
+# EasyBot 本地覆盖（gateway.local.yaml）
 #
-# 依赖 EasyBot ≥0.0.35（本仓库镜像 digest 已锁定该版本以上）：本地覆盖仅按显式写出的
-# 键合并，无需补 server.host。
-#
-# 个人微信适配器无需凭据即自动启用（扫码登录），会造成空转刷码；此处显式禁用：
+# init 生成到 $DATA_ROOT/easybot/data/（与 compose.site.yaml 一样绝不覆盖已有文件），
+# EasyBot 从 EASYBOT_HOME 读取并作为 gateway.yaml 的覆盖层合并（≥0.0.35，仅按显式键合并）。
+# 个人微信适配器无需凭据即自动启用（空转刷码），此处显式禁用；要接入微信请删除本文件。
+# ===========================================================================
+
 adapters:
   wechat:
     enabled: false

@@ -1,42 +1,29 @@
 # ===========================================================================
-# OrzMC 平台层编排（仅承载"运行时"）
+# OrzMC 平台层编排（只承载"运行时"；全部数据经卷映射落 $DATA_ROOT）
 #
-# 架构原则：本文件与仓库只描述运行时；全部配置与数据通过卷映射落在宿主机
-# 统一目录 $DATA_ROOT（生产默认 /srv/orzmc）。详见 README"运行时/数据分离"。
+# 统一通过 ./orzmc.sh 启动（显式 --env-file $DATA_ROOT/.env，见 lib/common.sh）。
+# 拓扑/数据流见 docs/architecture.md §2；本文件只保留必要注释。
 #
-# 统一通过 orzmc.sh 启动，保证 --env-file $DATA_ROOT/.env 前置就绪（见 lib/common.sh）。
-#
-# 运行模型（ADR-027）：**只有局域网模式**——面板与 EasyBot 发布到宿主端口，
-# 纯 HTTP，局域网设备直连；对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN）。
-#   - 核心服务：mcsmanager-web / mcsmanager-daemon（常驻，无 profile）
-#   - 可选服务：easybot（`profiles: ["easybot"]`，由 .env 的 ENABLE_EASYBOT 控制）
-#   - **daemon 不发布宿主端口**：ADR-026 起面板自己中转浏览器↔daemon 数据流
-#     （SystemConfig.dataPlane=proxy），节点地址固定内网名。
-#   - 端口绑定地址由 LAN_BIND_ADDR 控制（ADR-028）：0.0.0.0=局域网可达，
-#     127.0.0.1=仅本机（配合反代/VPN），单网卡 IP=只绑该网卡。
-#   - ADR-025 起平台层不再内置数据库与状态页。
-# 局域网暴露 2 个入口：mcs 面板（LAN_MCS_WEB_PORT）、easybot（LAN_EASYBOT_PORT）；
-# EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）。
+# 宿主发布端口只有两个（LAN_BIND_ADDR 控制绑定地址，ADR-027/028）：
+#   面板 LAN_MCS_WEB_PORT→23333、EasyBot LAN_EASYBOT_PORT→8080
+# daemon 24444 不发布（面板中转数据面，ADR-026）；easybot 由 ENABLE_EASYBOT 开关
+# （compose_cmd 追加 --profile easybot），核心 web/daemon 常驻。
 # ===========================================================================
 
 name: orzmc
 
 services:
   mcsmanager-web:
-    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 512M      # 防御性保险丝：面板占用平稳，固定上限即可
     image: githubyumao/mcsmanager-web@sha256:c3de64da162927a2386f9b036791f2eaeb610129d8742395fed4baad24678c64
     container_name: orzmc-mcsmanager-web
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-    expose:
-      - "${MCS_WEB_PORT}"
     ports:
-      # 局域网直连（ADR-027）：宿主端口 → 容器端口，纯 HTTP、仅可信内网
       - "${LAN_BIND_ADDR:-0.0.0.0}:${LAN_MCS_WEB_PORT:-18090}:${MCS_WEB_PORT}"
     volumes:
       - /etc/localtime:/etc/localtime:ro
@@ -44,9 +31,8 @@ services:
       - "${DATA_ROOT}/mcsmanager/web/logs:/opt/mcsmanager/web/logs"
 
   mcsmanager-daemon:
-    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
-    # 与下方 NODE_HEAP 对齐：两者均由 .env 派生，避免「容器上限 / Node 堆上限」两处漂移
-    # （issue #10）。默认 512M / 384（384 留出堆外内存余量）。
+    # 容器内存上限与 Node 堆上限必须成对（issue #10 / ADR-022），缺省 512M / 384；
+    # 升级镜像后若默认 CMD 变化，需同步核对下方 command。
     deploy:
       resources:
         limits:
@@ -54,22 +40,16 @@ services:
     image: githubyumao/mcsmanager-daemon@sha256:f6fd2facb03029a12b86c6c836d37f57b1608c68d8dc8abbc8e1539e5d12fae3
     container_name: orzmc-mcsmanager-daemon
     restart: unless-stopped
-    # issue #10：镜像默认 CMD 是 `node app.js --max-old-space-size=8192`（8G），在 512M
-    # cgroup 上限下重负载有被 OOM kill 风险（daemon 无健康检查兜底时实例会失去跟踪）。
-    # 必须**覆盖 CMD** 才能真正降堆：命令行 flag 优先级高于 NODE_OPTIONS（env 方案无效）。
-    # 若镜像升级后 CMD 改变，需同步核对本行（update-image-digests.sh 后回归）。
+    # 覆盖镜像默认 CMD（原为 --max-old-space-size=8192）才能真正降堆：
+    # 命令行 flag 优先级高于 NODE_OPTIONS（只设 env 无效）。
     command: ["node", "--max-old-space-size=${DAEMON_NODE_HEAP_MB:-384}", "app.js"]
     environment:
       TZ: "${TZ}"
-      # Docker 实例 cwd 路径翻译（daemon 源码读取）：daemon 容器内
-      # /opt/mcsmanager/daemon/data/InstanceData/<uuid> → 宿主
-      # $DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>。
-      # 缺失时 docker 实例 bind source 用容器内路径，宿主引擎报
-      # "bind source path does not exist"（ADR-019 移除旧 instances 方案时误删）。
+      # docker 型实例的 cwd 宿主↔容器路径翻译；缺失时建实例报
+      # "bind source path does not exist"（ADR-019）。
       MCSM_DOCKER_WORKSPACE_PATH: "${DATA_ROOT}/mcsmanager/daemon/data/InstanceData"
     healthcheck:
-      # TCP 探活 daemon 端口（node 内置模块，镜像自带 node，无需 curl/wget）；
-      # 重负载被 cgroup OOM kill 时转为 unhealthy，便于及时发现（issue #10）。
+      # TCP 探活（用镜像自带 node，无需 curl）；被 cgroup OOM kill 时转为 unhealthy。
       test:
         - CMD-SHELL
         - node -e 'const s=require("net").connect(Number("${MCS_DAEMON_PORT:-24444}"),"127.0.0.1");s.on("connect",()=>{s.destroy();process.exit(0)});s.on("error",()=>process.exit(1));s.setTimeout(3000,()=>process.exit(1));'
@@ -77,51 +57,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    expose:
-      - "${MCS_DAEMON_PORT}"
     volumes:
-      - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/daemon/data:/opt/mcsmanager/daemon/data"
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # ---- 可选服务（ENABLE_EASYBOT 控制，见 .env）---------------------------
-  # easybot 带 profiles 标签：默认由 compose_cmd 按 ENABLE_EASYBOT 追加 --profile 启用。
-  # 核心 web/daemon 无 profile 常驻，不随 ENABLE_* 变化。
-
   easybot:
-    # 资源上限（issue #16）：由 .env 的 EASYBOT_MEMORY_LIMIT 派生（缺省 512M，与原硬编码值一致）。
-    # 刻意保持**紧**上限：EasyBot v0.0.41 已修掉近空载匿名内存泄漏（上游 issue #139），
-    # 若随之把上限放大（曾短暂用 1G），反而会**掩盖**未来的内存回归——泄漏应尽快由 OOM/重启
-    # 暴露，而不是被余量吞掉。仅当站点确有更重负载时才上调（.env / compose.site.yaml）。
+    # 可选服务：ENABLE_EASYBOT=true 时由 compose_cmd 追加 --profile easybot。
+    # 上限刻意保持紧（ADR-024）：放大只会让未来的内存回归更晚暴露。
+    profiles: ["easybot"]
     deploy:
       resources:
         limits:
           memory: "${EASYBOT_MEMORY_LIMIT:-512M}"
-    # 依赖 EasyBot ≥0.0.35（镜像 digest 锁定，勿回退到更低版本；升级见 update-image-digests.sh）
-    # 钉 v0.0.43（发布 tag 0.0.43 的 digest，非 latest——上游 latest 跟踪 main 分支）：
-    #   0.0.41 SQLite 权限加固降级 / 存储降级上报（#121/#122/#123）+ 空载内存泄漏（#139）
-    #   0.0.42 QQ 公私域 intent 自动降级探测、Telegram 相册多图（sendMediaGroup）
-    #   0.0.43 进程外插件双重 init 导致握手失败（IPC adapter init 幂等化）
-    # ENABLE_EASYBOT=true 时启用（compose_cmd 追加 --profile easybot）
-    profiles: ["easybot"]
     image: ghcr.io/easyindie/easybot@sha256:85e9e3fa2faafd3861c998b57be30c8cdafa3b8eac1e214ad9209026ae3506bc
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:
       TZ: "${TZ}"
-      # 发布镜像硬性要求 EASYBOT_ALLOW_PLAINTEXT=true；监听器仅 HTTP（ADR-027 局域网模式，
-      # 无边缘层 TLS；要对公网暴露请自行前置反代/VPN）。插件（挂 orzmc_default）
-      # 内网直连 http://easybot:8080。
+      # 发布镜像硬性要求；监听器仅 HTTP（局域网可信内网，ADR-027）。
       EASYBOT_ALLOW_PLAINTEXT: "true"
       EASYBOT_HOME: "/var/lib/easybot"
       EASYBOT_ADMIN_PASSWORD: "${EASYBOT_ADMIN_PASSWORD}"
-      # QQ 适配器使用 QQ 开放平台凭据（复用 QQBOT_* 变量）
       QQ_APP_ID: "${QQBOT_APP_ID}"
       QQ_CLIENT_SECRET: "${QQBOT_CLIENT_SECRET}"
-    expose:
-      - "${EASYBOT_PORT}"
     ports:
       - "${LAN_BIND_ADDR:-0.0.0.0}:${LAN_EASYBOT_PORT:-18091}:${EASYBOT_PORT}"
     volumes:

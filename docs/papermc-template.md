@@ -1,15 +1,12 @@
 # PaperMC 实例模板建议
 
-本文档用于配合 `.env.example.full`，帮助在 `MCSManager` 中创建 `PaperMC` Docker 实例。
+本文档是在 `MCSManager` 面板创建 `PaperMC` Docker 实例时的逐项字段参考（唯一来源；
+这些字段属**运行数据**，由面板写入 `InstanceConfig/<uuid>.json`，不在仓库配置里）。
 
-## 建议的模板拆分
+## 建议的实例拆分
 
-- `PaperMC Test`
-  - 使用 `PAPERMC_TEST_*` 参数
-  - 面向功能验证、插件测试、临时活动服
-- `PaperMC Prod`
-  - 使用 `PAPERMC_PROD_*` 参数
-  - 面向正式生存服
+- `papermc-test`：功能验证 / 插件测试 / 临时活动服（端口 `25566`、内存 2G）
+- `papermc-main`：正式生存服（端口 `25565`、内存 4G）
 
 ## 必填字段
 
@@ -17,15 +14,15 @@
 |---|---|---|---|
 | 实例名 | `papermc-test` | `papermc-main` | 同时建议作为目录名和容器名 |
 | 显示名 | `OrzMC Test` | `OrzMC Main` | 面板显示名称 |
-| 镜像名 | `eclipse-temurin:21-jre` | `eclipse-temurin:21-jre` | 已验证可运行的 Java 21 基础镜像 |
+| 镜像名 | `eclipse-temurin:25-jre` | `eclipse-temurin:25-jre` | 按 Paper 版本选 Java（Paper 26.2→Java 25；1.21.x→`eclipse-temurin:21-jre`） |
 | 服务端口 | `25566` | `25565` | 测试服避开正式服默认端口 |
 | 端口映射 | `25566:25566/tcp`（启用 Geyser 再加 `19133:19133/udp`） | `25565:25565/tcp`（启用 Geyser 再加 `19132:19132/udp`） | `宿主:容器/协议`，一个对外端口一条；启用 Geyser 必须**显式发布 UDP**，仅写 TCP 时基岩通道在容器外不可达（见「端口映射与多实例分配」） |
 | 服务目录 | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | `/srv/orzmc/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置） |
 | 挂载定义 | `.../InstanceData/<uuid>:/server` | `.../InstanceData/<uuid>:/server` | 核心数据挂载（`<uuid>` 由面板生成） |
-| Java 版本 | `21` | `21` | 根据目标 Paper 版本选择 |
+| Java 版本 | `25` | `25` | 根据目标 Paper 版本选择（同上一行） |
 | 最小内存 | `2G` | `4G` | 测试服保守，正式服更稳妥 |
 | 最大内存 | `2G` | `4G` | 建议与最小值一致，降低抖动 |
-| 启动命令 | `java ${PAPERMC_JVM_OPTS} -Xms${PAPERMC_TEST_MEMORY_MIN} -Xmx${PAPERMC_TEST_MEMORY_MAX} -jar ${PAPERMC_SERVER_JAR_NAME} --nogui` | `java ${PAPERMC_JVM_OPTS} -Xms${PAPERMC_PROD_MEMORY_MIN} -Xmx${PAPERMC_PROD_MEMORY_MAX} -jar ${PAPERMC_SERVER_JAR_NAME} --nogui` | 实际录入时可直接替换成固定字符串 |
+| 启动命令 | `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui` | `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms4G -Xmx4G -jar paper.jar --nogui` | 面板里直接填固定字符串（内存与最小/最大值一致） |
 | Minecraft 版本 | `1.21.1` | `1.21.1` | 业务版本 |
 | Jar 文件名 | `paper.jar` | `paper.jar` | 镜像内实际服务端文件名 |
 | 接受 EULA | `true` | `true` | 必须开启 |
@@ -113,8 +110,8 @@
 > 现象锚点（issue #15）：容器内 Geyser 正常监听、日志 `Started Geyser on UDP port 19132`，
 > 但宿主机/局域网探测返回 `WinError 10054`（ICMP 端口不可达）——**docker 型实例的容器端口
 > 不会自动发布**，`docker.ports` 没写的协议/端口即便容器内监听也传不到宿主机。此时按
-> [windows-deployment.md §9.1](windows-deployment.md#91-前置每档都依赖) 放行的 `19132/udp`
-> 防火墙规则**完全无效**（宿主没有该端口的转发），极易误判为防火墙 / Geyser 配置 / 客户端问题。
+> [`security.md`](security.md) 用 `./orzmc.sh firewall apply` 放行的 `19132/udp` 规则**完全无效**
+> （宿主没有该端口的转发），极易误判为防火墙 / Geyser 配置 / 客户端问题。
 
 ### 铁律：端口必须从配置推导，并逐条显式发布
 
@@ -211,7 +208,6 @@ LuckPerms 用 `storage-method: h2`，AuthMe / EzShops / GriefPrevention / CorePr
          MARIADB_DATABASE: "${MARIADB_DATABASE}"
          MARIADB_USER: "${MARIADB_USER}"
          MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
-       expose: ["3306"]
        volumes:
          - "${DATA_ROOT}/database/mariadb:/var/lib/mysql"
    ```

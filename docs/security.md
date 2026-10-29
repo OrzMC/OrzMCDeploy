@@ -24,7 +24,7 @@
 | `LAN_BIND_ADDR` | `0.0.0.0` | 端口绑定的宿主地址：`0.0.0.0` 全部网卡 / `127.0.0.1` 仅本机 / 具体 IP 只绑该网卡 |
 | `LAN_CIDR` | `192.168.0.0/24` | 防火墙默认放行的来源网段 |
 | `ALLOW_EXTRA_CIDRS` | 空 | 额外放行来源，逗号分隔（如 Tailscale `100.64.0.0/10`、另一台机器 IP） |
-| `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | `25565,25566` / `19132` / `25575,25576` | 实例进服端口的放行清单（仅 `firewall` 使用） |
+| `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | `25565,25566` / `19132` / `25575,25576` | 实例进服端口的放行清单（仅 `firewall` 使用；`templates/env` 里以注释形式给出） |
 
 ## 3. 三档推荐配置
 
@@ -73,6 +73,7 @@ API 写 `_acme-challenge` TXT 记录验证，**不依赖入站 80/443**，因此
 
 ```yaml
 # $DATA_ROOT/compose.site.yaml（站点增量，升级不丢）
+services:
   caddy:
     # 官方 caddy 镜像不含 DNS provider，必须用带 cloudflare 模块的构建
     image: ghcr.io/caddybuilds/caddy-cloudflare@sha256:...
@@ -122,6 +123,11 @@ UDP 被丢 → 再回退，表现为「偶尔打不开 / 白屏 / 懒加载 chun
 改完后浏览器可能仍缓存了旧的 alt-svc：需要**完全退出浏览器**，或在
 `chrome://net-internals/#sockets` 点 Flush socket pools、`#dns` 清 host cache。
 
+**反代端口是唯一允许“非 LAN_CIDR 来源”的规则**：80/443 本身就要对公网开放，属站点有意
+暴露。做法是给它们单独命名（如 `OrzMC-Web-TLS`）并保留 `RemoteAddress` 按需（甚至 `Any`），
+而 **不要**把 `OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-*` 改成 `Any`。`./orzmc.sh firewall apply`
+会重建的 5 组规则均限 `LAN_CIDR`，与反代规则互不覆盖（只删重建 `OrzMC-*` 同名项）。
+
 **反代不要顺带暴露开发文档**：EasyBot 的 `/docs`、`/swagger` 是开发调试页面，
 公网无必要。注意 **容器内 `remote_ip` 已被 Docker 改写成网桥网关**，靠 IP 匹配区分
 内外网并不可靠——直接在反代里无条件挡掉、局域网改走宿主端口即可：
@@ -168,7 +174,8 @@ docker ps --format '{{.Names}}\t{{.Ports}}' | grep orzmc   # 谁发布了什么�
   脚本会弹 UAC）。Docker 发布端口在 WSL 网络栈里，Windows 侧 `netstat` 看不到监听属正常；
   **验证要用手机/另一台机器**。
 - **Linux**：优先用 `ufw`（未安装时脚本打印等价 `iptables` 命令）。
-- **macOS**：脚本只打印建议（`pf` 规则易误伤，不自动改），实际用 `LAN_BIND_ADDR` 控制即可。
+- **macOS**：脚本只打印等价 `pf` 规则（不自动改，避免误伤系统 pf 配置），实际用
+  `LAN_BIND_ADDR` 控制更可靠。
 
 ## 7. 凭据加固（配合做）
 

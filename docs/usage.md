@@ -44,7 +44,7 @@
 | **MCSManager 面板** | Web 界面管理 PaperMC 实例：启动/停止/控制台/文件/配置 |
 | **EasyBot 网关** | 统一 IM 网关 + 管理后台，插件经它收发聊天平台消息 |
 | **PaperMC 游戏服** | 由面板创建，可多实例，玩家局域网 `IP:25565` 直连 |
-| **三种运行形态** | `local`（本机验证）/ `prod`（Cloudflare Tunnel 公网上线）/ `lan`（局域网直连，无边缘层纯 HTTP） |
+| **局域网直连** | 面板与 EasyBot 发布宿主端口、纯 HTTP，局域网设备直连（唯一运行形态，ADR-027） |
 | **运行时与数据分离** | 仓库只承载"运行时"，全部配置与数据落宿主机 `$DATA_ROOT`，随数据整体备份/迁移 |
 
 ### 1.2 架构一图流
@@ -80,7 +80,7 @@ flowchart TB
 
 | 术语 | 含义 |
 |---|---|
-| **DATA_ROOT** | 宿主机上的统一数据目录，存放全部配置与密钥。生产 macOS 常用 `/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，本地为仓库下 `.local-data/` |
+| **DATA_ROOT** | 宿主机上的统一数据目录，存放全部配置与密钥。默认值按平台：macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`（`-d` / `ORZMC_DATA_ROOT` 可覆盖） |
 | **局域网模式** | 本项目唯一的运行形态（ADR-027）：宿主发布 `LAN_*_PORT`，纯 HTTP |
 | **daemon key** | MCSManager Daemon 的鉴权密钥，等同最高权限（daemon 可管理宿主机 Docker）。位于 `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` |
 | **会话 key** | EasyBot 后台为某个平台会话分配的标识（如 `qq:xxxxxxxx`），填进插件 `easybot.yml` |
@@ -181,13 +181,14 @@ Windows `E:/orzmc`）。
 
 ### 4.1 DATA_ROOT 与 .env
 
-**DATA_ROOT 优先级**：命令行 `-d/--data-root` 参数 > 环境变量 `ORZMC_DATA_ROOT` > 默认值
-（`/srv/orzmc`）。所有脚本（deploy / local / backup / restore）统一按此解析，并用
-`compose_cmd` 显式 `--env-file $DATA_ROOT/.env` 调用 compose。
+**DATA_ROOT 优先级**：命令行 `-d/--data-root` 参数 > 环境变量 `ORZMC_DATA_ROOT` >
+平台默认值（macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`）。所有脚本
+（deploy / backup / restore）统一按此解析，并用 `compose_cmd` 显式 `--env-file
+$DATA_ROOT/.env` 调用 compose。
 
-`.env` 是**唯一配置源**（含密钥）。首次由 `init` 从模板生成，之后**改配置 = 编辑
-`.env`**。必需变量按 profile 分三套（`REQUIRED_ENV_VARS_PROD/LOCAL/LAN`，见
-`lib/common.sh`）：
+`.env` 是**唯一配置源**（含密钥）。首次由 `init` 从 `templates/env` 生成，之后**改配置 =
+编辑 `.env`**。必需变量清单由 `lib/common.sh` 的 `required_env_list` 定义（`orzmc.sh validate`
+校验）：
 
 | 变量 | 必需 | 说明 |
 |---|---|---|
@@ -199,8 +200,11 @@ Windows `E:/orzmc`）。
 | `MCS_DAEMON_PORT` | ✔ | MCSManager Daemon 容器内端口（默认 `24444`，不发布） |
 | `EASYBOT_PORT` | ✔ | EasyBot 容器内端口（默认 `8080`） |
 | `EASYBOT_ADMIN_PASSWORD` | ✔ | EasyBot 管理后台密码（强密码） |
-| `ENABLE_EASYBOT` | 可选 | 缺省 `true`；`false` 则不启动 EasyBot |
 | `QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET` | ✔（启用 EasyBot 时） | QQ 开放平台凭据 |
+| `ENABLE_EASYBOT` | 可选 | 缺省 `true`；`false` 则不启动 EasyBot |
+| `LAN_BIND_ADDR` | 可选 | 端口绑定地址（缺省 `0.0.0.0`；`127.0.0.1` 仅本机，ADR-028） |
+| `LAN_CIDR` / `ALLOW_EXTRA_CIDRS` | 可选 | 防火墙放行来源（只需 `firewall` 时关心） |
+| `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | 可选 | 实例进服端口的防火墙放行清单（仅 `firewall` 使用） |
 | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | 可选 | daemon 容器/堆上限（缺省 512M / 384） |
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
@@ -223,7 +227,7 @@ Windows `E:/orzmc`）。
 |---|---|---|
 | 局域网入口 | `LAN_HOST_IP` / `LAN_MCS_WEB_PORT`(18090) / `LAN_EASYBOT_PORT`(18091) | `compose.yaml` 直接把这两个端口发布到宿主 |
 | 可选服务 | `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
-| 入口命令 | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status\|validate\|backup` | 三平台一致 |
+| 入口命令 | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status\|validate\|backup\|firewall` | 三平台一致 |
 
 - **没有边缘层服务**：不跑 cloudflared / Caddy，也没有 `compose.edge.*.yaml`。
   历史上按 `EDGE=cloudflare|local|lan|none` 切换的四档已随 ADR-027 移除。
@@ -252,8 +256,8 @@ Windows `E:/orzmc`）。
 | `$DATA_ROOT/compose.site.yaml` | 站点增量模板（`templates/compose.site.yaml`） |
 | `$DATA_ROOT/easybot/data/gateway.local.yaml` | EasyBot 本地覆盖（`templates/gateway.local.yaml`） |
 
-想用仓库新模板重建某个文件时：先备份/删除旧文件，再 `./orzmc.sh init`。
-（多边缘层时代的 `templates --diff/--force` 命令已随 ADR-027 删除。）
+想用仓库新模板重建某个文件时：先备份/删除旧文件，再 `./orzmc.sh init`（`ensure_*`
+永不覆盖已有文件）。
 
 ### 4.5 站点增量 override：`compose.site.yaml`（升级不丢）
 
@@ -299,8 +303,9 @@ services:
 | 校验配置 | `./orzmc.sh -d <DATA_ROOT> validate` |
 | 备份 | `./orzmc.sh -d <DATA_ROOT> backup [--stop]` |
 
-`stop` 等价于 `down --remove-orphans`，`status` 等价于 `ps`，`validate` 等价于 `config`
-（别名可互换）。看服务日志：`docker logs -f orzmc-<服务名>`（如 `orzmc-mcsmanager-daemon`）。
+`stop` 内部就是 `compose down --remove-orphans`，`status` 打印访问地址后再跑 `compose ps`，
+`validate` 跑必需变量检查 + `compose config -q`。看服务日志：
+`docker logs -f orzmc-<服务名>`（如 `orzmc-mcsmanager-daemon`）。
 
 ### 5.2 改配置
 
@@ -424,7 +429,7 @@ PaperMC 实例**不是** `compose.yaml` 的常驻服务，而是在 MCSManager �
 
 ### 6.1 首次登录与建管理员
 
-1. 打开面板入口：生产 `https://mcs.<domain>`，本地 `https://mcs.localhost:18443`。
+1. 打开面板入口：`http://<LAN_HOST_IP>:<LAN_MCS_WEB_PORT>`（缺省 18090）。
 2. 首次进入按引导**创建管理员账号**（MCSManager 默认初始密码在面板提示中，首次登录
    强制改密）。
 3. 登录后进入「实例列表」首页。
@@ -434,7 +439,7 @@ PaperMC 实例**不是** `compose.yaml` 的常驻服务，而是在 MCSManager �
 MCSManager 需要把 **daemon** 作为"节点"接入 Web 端：
 
 1. 面板 → **节点管理** → **添加节点**。
-2. 地址（`ip` + `port`）**任何 EDGE 都填同一个值**：`ws://mcsmanager-daemon` / `24444`
+2. 地址（`ip` + `port`）固定为 `ws://mcsmanager-daemon` / `24444`
    （详见 §6.3；面板中转模式下浏览器不需要直连 daemon）。
 3. **daemon key** 在 `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` 的 `key`
    字段（权限 600，属最高权限密钥，不要外泄）。
@@ -443,7 +448,7 @@ MCSManager 需要把 **daemon** 作为"节点"接入 Web 端：
 ### 6.3 节点连接地址（一条规则，ADR-026）
 
 节点的「连接地址」被**面板服务端**用来连 daemon。自 MCSManager 10.22 + 本项目 ADR-026 起，
-**所有 EDGE、所有平台都填同一个地址**：
+**所有平台都填同一个地址**：
 
 | 字段 | 值 |
 |---|---|
@@ -458,9 +463,9 @@ MCSManager 需要把 **daemon** 作为"节点"接入 Web 端：
 - 终端/控制台数据通道（`POST /stream_channel`）返回**面板自己的地址 + token**；
 - 节点地址只在面板服务端使用，浏览器**再也不需要**能解析或直连 daemon。
 
-**收益**：daemon 端口不发布、不设边缘入口；公网入口只有 `mcs` / `easybot` 两个；
-终端/控制台/文件管理在 prod/local/lan 三档、macOS/Linux/Windows 三平台行为一致
-（历史上 ADR-011/013/014/020 反复纠错的三档地址表已取消）。
+**收益**：daemon 端口不发布、不设额外入口；局域网只有面板 / EasyBot 两个入口；
+终端/控制台/文件管理在 macOS/Linux/Windows 三平台行为一致（历史上 ADR-011/013/014/020
+反复纠错的三档地址表已取消）。
 
 **旧部署一次性动作**（新装跳过）：面板配置里没有 `dataPlane` 键时按 direct 处理，
 需要手工切换（面板退出会回写配置，必须停机改）：
@@ -555,7 +560,7 @@ EasyBot 是统一 IM 网关。QQ 走 **QQ 开放平台**官方 bot 凭据
 
 ### 7.1 后台初始化
 
-1. 打开后台：生产 `https://easybot.<domain>`，本地 `https://easybot.localhost:18443`。
+1. 打开后台：`http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`（缺省 18091）。
 2. 用 `.env` 的 `EASYBOT_ADMIN_PASSWORD` 登录/初始化。
 3. 确认 QQ 适配器在线：`docker logs orzmc-easybot` 出现 `QQ Gateway ready` / `bot 在线`。
 
@@ -610,30 +615,25 @@ platforms:
 
 - **局域网暴露 2 个端口**：面板 `LAN_MCS_WEB_PORT`、EasyBot `LAN_EASYBOT_PORT`
   （均有登录鉴权）；daemon 端口不发布（ADR-026，面板中转）。
-  **EasyBot 插件 API 仅内网**（`http://easybot:8080`）。
+  **EasyBot 插件 API 仅内网**（`http://easybot:8080`）。明文 HTTP **仅限可信局域网**。
 - ⚠️ **对公网暴露前必须加保护**：面板与 EasyBot 都是 **HTTP + 口令登录**。做 DDNS
   端口映射前，请至少：换强口令 · 加 TLS 反代 · 或改用 VPN（推荐，无需开放公网端口）。
 - **默认限源三层模型（ADR-028）**：`LAN_BIND_ADDR`（绑定地址）+ `LAN_CIDR`
   （防火墙来源）+ daemon 不发布端口。落地运行 `./orzmc.sh firewall apply`
   （Windows 需 UAC），自检 `./orzmc.sh firewall show` 与 `./orzmc.sh status`。
   详细设计与三档配置见 [security.md](security.md)。
-- **prod / local 不发布任何宿主机端口**（全部服务仅 `expose`）。**lan 例外**：2 个源站
-  发布宿主 `LAN_*_PORT` 端口、纯 HTTP——**仅限可信局域网**（ADR-012）。
-- **daemon 端口不再发布**（ADR-026）：此前 lan 档会对局域网开放 `LAN_MCS_DAEMON_PORT`
-  （daemon key 鉴权、可管理
-  宿主机 Docker，等同对局域网开放最高权限密钥的探测面——再次强调**仅限可信局域网**，
-  接入不可信 Wi-Fi 时应改用 prod/local。
+- **daemon 端口不发布**（ADR-026）：节点的业务路由仍要 **daemon key** 鉴权（daemon 可管理
+  宿主机 Docker，等同最高权限）；端口不出容器网络，不存在“局域网探测面”。
 - **可信边界**：`mcsmanager-daemon` 挂载 `/var/run/docker.sock`，能管理宿主机 Docker——
   宿主机必须视为可信环境。
-- **git 卫生**：`.env`、`.local-data/`、`.local-data-lan/`、`.local-backups/`、生产
-  `DATA_ROOT` 内容都在 `.gitignore`，不要 `git add -f`；提交前 `git status` 核对无数据/
-  密钥泄漏。
+- **git 卫生**：`.env`、`.local-data/`、`.local-backups/`、生产 `DATA_ROOT` 内容都在
+  `.gitignore`，不要 `git add -f`；提交前 `git status` 核对无数据/密钥泄漏。
 
 ---
 
 ## 9 故障排查
 
-> 通用诊断顺序：`deploy.sh -d <DATA_ROOT> status`（看服务状态）→ `validate`（看配置）
+> 通用诊断顺序：`./orzmc.sh -d <DATA_ROOT> status`（看服务状态）→ `validate`（看配置）
 > → `docker logs orzmc-<服务名>`（看日志）。
 
 | 症状 | 原因 | 解决 |
@@ -688,8 +688,6 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 ## 附录 A 命令速查
 
-| 场景 | 本地 | 局域网（lan） | 生产 |
-|---|---|---|---|
 | 场景 | 命令 |
 |---|---|
 | 初始化目录/env | `./orzmc.sh -d <DATA_ROOT> init` |
@@ -703,23 +701,23 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 | 防火墙收敛 | `./orzmc.sh firewall show` / `apply` |
 
-- `<DATA_ROOT>`：macOS 生产 `/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`。
-- 别名：`stop|down`、`status|ps`、`validate|config` 可互换。
-- 统一入口解析：`-d` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
+- `<DATA_ROOT>` 默认值：macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`。
+- 统一入口解析：`-d` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 平台默认值。
+- 非 Windows 平台的 `firewall apply` 需 root/管理员（Linux 走 `ufw`，macOS 只打印 `pf` 规则）。
 
 ## 附录 B 端口约定
 
 | 端口 | 用途 | 说明 |
 |---|---|---|
-| `18090` / `18091` | 宿主发布端口：面板 / EasyBot | `LAN_*_PORT` 可覆盖（本机现用 `23333` / `18091`） |
-| `24444` | MCSManager Daemon | 容器内仅 `expose`；面板服务端经内网名 `mcsmanager-daemon` 连接，浏览器数据面走面板中转（ADR-026） |
-| `23333` | MCSManager Web | 容器内仅 `expose` |
-| `8080` | EasyBot | 容器内仅 `expose`；插件内网直连 |
+| `18090` / `18091` | 宿主发布端口：面板 / EasyBot | `LAN_*_PORT` 可覆盖 |
+| `24444` | MCSManager Daemon | 容器内端口，不发布到宿主；面板服务端经内网名 `mcsmanager-daemon` 连接，浏览器数据面走面板中转（ADR-026） |
+| `23333` | MCSManager Web | 容器内端口（宿主经 `LAN_MCS_WEB_PORT` 映射） |
+| `8080` | EasyBot | 容器内端口（宿主经 `LAN_EASYBOT_PORT` 映射）；插件内网直连 |
 | `25565` | PaperMC 正式服 | 由 MCSManager 实例映射，玩家局域网直连 |
 | `25566` | PaperMC 测试服 | 同上 |
 | `25575` / `25576` | RCON（可选） | 参考，默认关 |
 
-> 除上面两个 `LAN_*_PORT` 源站端口外，其余端口只 `expose`（不发布到宿主）。
+> 除上面两个 `LAN_*_PORT` 源站端口外，其余端口都不发布到宿主（仅容器网络内可达）。
 > PaperMC 实例端口由 MCSManager 按实例配置发布，供局域网玩家直连。
 
 ## 附录 C DATA_ROOT 目录树
@@ -749,8 +747,8 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 常驻 | `githubyumao/mcsmanager-daemon` |
 | `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`），宿主 `LAN_EASYBOT_PORT` | `ghcr.io/easyindie/easybot` |
 
-镜像版本以 `compose.yaml` 中的 `image:xxx@sha256:...` 为准；
-刷新用 `update-image-digests.sh`（自动定位每个服务所在的 compose 文件）。
+镜像版本以 `compose.yaml` 中的 `image:xxx@sha256:...` 为准；刷新用
+`update-image-digests.sh`（三个服务的镜像映射只在该脚本一处维护）。
 
 ## 附录 E 术语表
 

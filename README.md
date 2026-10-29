@@ -17,7 +17,7 @@ OrzMC 的最小容器化落地方案。平台层包括：
 > 管理 PaperMC 实例、EasyBot 接入、故障排查与整服迁移的全生命周期分步操作。
 >
 > **AI 智能体与协作者请先读 [`AGENTS.md`](AGENTS.md)**：仓库的架构铁律（运行时与数据
-> 分离）、三 Profile、网络拓扑与安全约束；架构设计与决策记录见
+> 分离）、运行模型、网络拓扑与安全约束；架构设计与决策记录见
 > [`docs/architecture.md`](docs/architecture.md)。
 >
 > 如果要推进部署方案，请优先阅读 [`EXECUTION_PATH.md`](EXECUTION_PATH.md)：执行路径、
@@ -27,10 +27,10 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 **仓库只承载"运行时"**——compose 编排、镜像 digest、部署脚本、配置模板；
 **全部配置与数据通过卷映射落在宿主机统一目录 `$DATA_ROOT`**（生产 macOS
-`/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，Windows 建议 `E:/orzmc`）。由此获得：
+`/Users/Shared/orzmc`，Linux 默认 `/srv/orzmc`，Windows 默认 `E:/orzmc`）。由此获得：
 运行时独立演进、数据独立备份/还原/迁移、密钥不进入仓库。
 
-**三平台统一命令**（macOS / Linux / Windows）：同一套 `init|up|stop|status|validate|backup`
+**三平台统一命令**（macOS / Linux / Windows）：同一套 `init|up|stop|status|validate|backup|firewall`
 在任意平台行为一致。Windows（Docker Desktop/WSL2）下脚本自动完成 MSYS→原生路径转换；
 daemon 默认由 compose 管理，仅进程模式实例需要注入 `DAEMON_PORTS` 时才走 `docker run`
 （ADR-029）。详见 [`docs/windows-deployment.md`](docs/windows-deployment.md)。
@@ -109,21 +109,21 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 | 场景 | 命令 |
 |---|---|
-| 初始化目录/env/边缘配置 | `./orzmc.sh [-e <edge>] init` |
-| 启动平台层 | `./orzmc.sh [-e <edge>] up` |
+| 初始化目录/env | `./orzmc.sh [-d DATA_ROOT] init` |
+| 启动平台层 | `./orzmc.sh [-d DATA_ROOT] up` |
 | 停止 | `./orzmc.sh stop` |
 | 状态与访问地址 | `./orzmc.sh status` |
 | 校验配置 | `./orzmc.sh validate` |
-| 备份数据 | `./orzmc.sh backup [--stop]` |
-| 防火墙收敛（默认限局域网） | `./orzmc.sh firewall show` / `./orzmc.sh firewall apply` |
+| 备份数据 | `./orzmc.sh backup [--stop] [--keep N]` |
+| 防火墙收敛（默认限源） | `./orzmc.sh firewall show` / `./orzmc.sh firewall apply` |
 | 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 
 `<DATA_ROOT>` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 平台默认
 （macOS `/Users/Shared/orzmc`、Linux `/srv/orzmc`、Windows `E:/orzmc`）。三平台命令完全一致；
-Windows 下 daemon 自动走脚本生成的 docker run（`lib/common.sh` detect_os / ADR-016），
-`orzmc.sh stop && orzmc.sh up` 即完成 daemon 重建。可选服务开关
-`ENABLE_EASYBOT` 也在 `.env` 里配。
+Windows 下 daemon 默认由 compose 管理，仅**进程模式实例**需注入 `DAEMON_PORTS` 时才走脚本
+生成的 `docker run`（`lib/common.sh` 的 `win_daemon_run`，ADR-029），
+`orzmc.sh stop && orzmc.sh up` 即完成重建。可选服务开关 `ENABLE_EASYBOT` 也在 `.env` 里配。
 
 > 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 已随 ADR-027 删除；
 > 现在只有 `./orzmc.sh` 一个入口。
@@ -134,11 +134,12 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 
 - **lint**：shell 语法（`bash -n`）+ `shellcheck`（含 `tests/`）+ 模板 YAML 解析 + 禁入路径守卫
   （`.env` / `.local-data*` / `.local-backups*` 永不入库）
-- **validate**：`init && validate`（模板全量）+ `ENABLE_EASYBOT=false` 最小集 +
-  `LAN_*_PORT` 覆盖生效（必需环境变量检查 + `docker compose config -q`，
-  纯解析不拉镜像、不触碰 `$DATA_ROOT`）
-- **windows-branch**：Windows 分支逻辑（ADR-016）单元测试——mock `uname` 强制 MINGW，
-  校验 `win_path` / `win_daemon_*` / `compose_cmd` Windows 分支的命令构造（`tests/windows_ci.sh`）。
+- **validate**：`init && validate`（模板全量）+ `ENABLE_EASYBOT=false` 最小集
+  + `LAN_*_PORT` / `LAN_BIND_ADDR` 生效 + `firewall apply --dry-run` 来源限源
+  （必需环境变量检查 + `docker compose config -q`，纯解析不拉镜像、不触碰生产 `$DATA_ROOT`）
+- **windows-branch**：Windows 分支逻辑单元测试（ADR-016 / ADR-029）——mock `uname` 强制 MINGW，
+  校验 `win_path` / `win_daemon_*` / `compose_cmd` Windows 分支的命令构造，以及
+  `read_env_value` 的「首次出现优先 + CRLF 容错」（`tests/windows_ci.sh`）。
   覆盖主 job 在 Linux 上走不到的 Windows 特有代码路径。
 
 本地想先自查同一套检查，跑 `./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate`
@@ -161,8 +162,8 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 
 - `$DATA_ROOT/.env`、daemon key（`global.json`）均属密钥：权限收紧、随数据备份、
   **永不入库**。
-- 公网仅暴露 2 个入口（`mcs` / `easybot`）；daemon 端口不发布（面板中转，ADR-026）；
-  `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为可信环境。
-  **lan 无边缘层**：面板口令与 daemon 端口以明文 HTTP 暴露给局域网（daemon key 鉴权，
-  可管理 docker.sock），**仅限可信局域网**（ADR-012）。
-  详见 [`docs/usage.md`](docs/usage.md) 第 8 章。
+- 局域网暴露 **2 个入口**（`mcs` 面板 / `easybot` 后台，均有登录鉴权）；daemon 端口不发布
+  （面板中转，ADR-026）；`mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为可信
+  环境。面板与 EasyBot 都是 **HTTP + 口令登录**，**仅限可信局域网**（ADR-027）；要对外访问
+  请自备 TLS 反代或 VPN，并用 `./orzmc.sh firewall apply` 把来源收回 `LAN_CIDR`（ADR-028）。
+  详见 [`docs/security.md`](docs/security.md)。

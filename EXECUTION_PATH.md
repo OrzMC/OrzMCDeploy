@@ -32,16 +32,23 @@ for f in *.sh lib/*.sh tests/*.sh; do bash -n "$f"; done
 shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
 python3 -c "import glob,yaml;[yaml.safe_load(open(f)) for f in glob.glob('templates/*.y*ml')+glob.glob('compose*.yaml')]"
 
-# 配置（不拉镜像、不碰真实 DATA_ROOT）
+# 配置（不拉镜像、不碰生产 DATA_ROOT）
 rm -rf /tmp/orzmc-ci && ./orzmc.sh -d /tmp/orzmc-ci init && ./orzmc.sh -d /tmp/orzmc-ci validate
-printf 'ENABLE_EASYBOT=false\n' >> /tmp/orzmc-ci/.env && ./orzmc.sh -d /tmp/orzmc-ci validate
+# 可选服务开关：必须原地改键（read_env_value 首次出现优先，追加同名键会被忽略）
+sed -i 's/^ENABLE_EASYBOT=.*/ENABLE_EASYBOT=false/' /tmp/orzmc-ci/.env
+./orzmc.sh -d /tmp/orzmc-ci validate
+# ADR-028：绑定地址与防火墙限源
+sed -i 's/^LAN_BIND_ADDR=.*/LAN_BIND_ADDR=127.0.0.1/' /tmp/orzmc-ci/.env
+./orzmc.sh -d /tmp/orzmc-ci firewall apply --dry-run
 
-# Windows 分支逻辑（mock uname/docker）
+# Windows 分支逻辑 + env 读取语义（mock uname/docker，无需 Docker daemon）
 bash tests/windows_ci.sh
 ```
 
 CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windows-branch`；
-打 `v*` tag 时额外产出 Release tarball（ADR-018）。
+打 `v*` tag 时由 `package` job 产出 Release tarball + sha256（ADR-018）。
+**注意**：`package` 的 `tar` 文件清单必须与仓库实际文件一致——删脚本时必须同步改
+`ci.yml`，否则打 tag 会直接失败。
 
 ## 4. 改动时需同步的位置
 
@@ -52,9 +59,35 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
 | 卷 / 网络 | `compose.yaml`、`lib/common.sh` 的 `ensure_data_dirs` |
 | 站点增量机制 | `templates/compose.site.yaml`、`lib/common.sh` 的 `collect_site_override_files` |
 | 镜像升级 | `compose.yaml`(digest)、`CHANGELOG.md` |
-| 安全边界 | `docs/architecture.md`(ADR)、`AGENTS.md` |
+| 安全边界 | `docs/architecture.md`(ADR)、`AGENTS.md`、`docs/security.md`、`lib/firewall.sh` |
+| 发布打包 | `.github/workflows/ci.yml` 的 `package` tar 清单 |
 
-## 5. 状态记录
+## 5. 待办
+
+- 面板 / EasyBot 对外暴露前：加 TLS 反代或改走 VPN（当前是 HTTP + 口令登录）。
+- 公网 TLS 反代端口（如 `OrzMC-Web-TLS` 80/443）是 ADR-028 「不得为 Any」的**唯一例外**，
+  已记录在本节与 `docs/security.md`；`OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-*` 必须限
+  `LAN_CIDR`，改动后用 `./orzmc.sh firewall show` 复核。
+- `EDGE` / `CLOUDFLARE_*` / `DNS_*` / `DOMAIN_*` / `LAN_MCS_DAEMON_PORT` 已无消费者；
+  旧 `.env` 残留行可清理（不影响运行）。
+- 实例（PaperMC/Folia）按需在面板启动；进服端口 `25565/25566` 由实例自己发布。
+- 升级镜像后回归：`./update-image-digests.sh` → `git commit` → `./orzmc.sh stop && ./orzmc.sh up`。
+
+## 6. 状态记录（按时间倒序，最新在上）
+
+### 2026-10-30 收尾 ADR-027/028 遗留（ADR-030）
+
+- **修复真故障**：① `ci.yml` 的 `package` job 仍 tar 已删除的 `local.sh`/`lan.sh`/`windows.sh`
+  → 打 tag 必失败、`install.sh` 不可用；② `mapfile` 与裸空数组展开破坏 bash 3.2 兼容；
+  ③ `ENABLE_EASYBOT=false` 的 CI 用例是假阳性（追加同名键被忽略 + 断言未带 `--profile`）。
+- **行为变化**：`default_data_root` 按平台返（Windows `E:/orzmc` / macOS `/Users/Shared/orzmc`
+  / Linux `/srv/orzmc`），与文档一致；`read_env_value` 固定为「首次出现优先」且剥除 CRLF；
+  `init` 不再建 `$DATA_ROOT/caddy/`。
+- **CI 新增**：`LAN_BIND_ADDR` 绑定生效（2 个发布端口）、`firewall apply --dry-run` 来源取自
+  `LAN_CIDR`、开关用例改为真断言；`tests/windows_ci.sh` 40 → 47 项。
+- **验证**：`bash -n` 全过 · `shellcheck -x` 0 告警 · `init && validate` PASS ·
+  `ENABLE_EASYBOT=false` 时 `compose_cmd config --services` 只剩 web/daemon ·
+  `tests/windows_ci.sh` 47/47 · `tar` 打包清单在本机实际可执行。
 
 ### 2026-10-29 收敛为「只有局域网模式」（ADR-027）+ 此前三轮精简
 
@@ -71,15 +104,9 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
   仍不能创建 `E:/` 绑定，`up` 必须在 Windows 侧执行。
 - **验证**：`bash -n` 全过 · `shellcheck` 0 告警 · `init && validate` PASS ·
   默认端口 18090/18091 与自定义 19090/19091 均生效 · `ENABLE_EASYBOT=false` 时只剩
-  web/daemon · `tests/windows_ci.sh` 40 项全过。
-- **本机运行态**：3 容器 Up（web/daemon/easybot）；面板 `http://192.168.0.33:23333` 200、
-  EasyBot `:18091` 200；daemon 端口未发布；防火墙仅保留在用端口规则（其余 `Any`）。
-
-## 6. 待办
-
-- 面板/ EasyBot 对外暴露前：加 TLS 反代或改走 VPN（当前是 HTTP + 口令登录）。
-- `EDGE`/`CLOUDFLARE_*`/`DNS_*`/`DOMAIN_*` 已无消费者；旧 `.env` 残留行可清理。
-- 实例（PaperMC/Folia）按需在面板启动；进服端口 `25565/25566` 由实例自己发布。
+  web/daemon · `tests/windows_ci.sh` 全通过。
+- **本机运行态**（站点自定端口）：3 容器 Up（web/daemon/easybot）；面板 200、EasyBot 200；
+  daemon 端口未发布；防火墙 `OrzMC-*` 规则来源已收回 `LAN_CIDR`（ADR-028）。
 
 ### 2026-10-29 默认限源：三层暴露面收敛（ADR-028）
 
@@ -108,8 +135,8 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
   - `compose.site.yaml`：新增 `caddy` 服务，镜像 `ghcr.io/caddybuilds/caddy-cloudflare`
     （官方镜像无 DNS provider），digest 锁定；发布 `80/443/18443`。
   - `.env`：`CF_DNS_API_TOKEN`（Zone:DNS:Edit，仅本 zone）。
-  - 防火墙：`OrzMC-Web-TLS` = TCP 80/443/18443，来源 Any（唯一对外入口）；
-    面板 23333 / EasyBot 18091 仍限 `192.168.0.0/24`。
+  - 防火墙：`OrzMC-Web-TLS` = TCP 80/443/18443，来源 Any（**ADR-028 的唯一例外**：
+    公网 TLS 反代端口本身就要对公网开放）；面板 / EasyBot 端口仍限 `LAN_CIDR`。
 - **过程**：先试 HTTP-01 / TLS-ALPN-01 均超时（路由器映射当时未生效）→ 改 DNS-01 后
   证书即刻签发（`certificate obtained successfully` ×2，issuer `Let's Encrypt YE1`，
   到期 2027-01-27，ARI 自动续期），随后公网 443 也确认可达。

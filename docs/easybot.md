@@ -80,7 +80,9 @@ platforms:
 
 ## 可选平台适配器
 
-在 `compose.yaml` 的 `easybot` 服务中按需增加环境变量（启用即加一行，勿注入空串）：
+这些变量的值写 `$DATA_ROOT/.env`，再在 `$DATA_ROOT/compose.site.yaml` 的
+`easybot.environment` 里引用（**不要改包内 `compose.yaml`**——升级换包会丢，issue #11；
+模板见 `templates/compose.site.yaml`）。启用即加一行，勿注入空串：
 - Telegram：`TELEGRAM_BOT_TOKEN`
 - Discord：`DISCORD_BOT_TOKEN`
 - 飞书：`FEISHU_APP_ID` + `FEISHU_APP_SECRET`
@@ -112,7 +114,7 @@ adapters:
 EasyBot 提供 `/api/v1/live`，可从管理后台入口验证：
 
 ```bash
-curl -s https://easybot.example.com/api/v1/live -o /dev/null -w '%{http_code}\n'
+curl -s "http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>/api/v1/live" -o /dev/null -w '%{http_code}\n'
 ```
 
 ## 运维注意

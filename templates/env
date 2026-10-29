@@ -1,94 +1,58 @@
 # ===========================================================================
-# OrzMC 运行配置模板（`./orzmc.sh init` 使用）
+# OrzMC 运行配置模板 —— `./orzmc.sh init` 据此生成 $DATA_ROOT/.env
 #
-# 生成目标为 $DATA_ROOT/.env（DATA_ROOT 行按生效值改写），属运行数据，不入 Git。
-#
-# 运行模型（ADR-027）：**只有局域网模式**。
-#   面板与 EasyBot 直接发布宿主端口，局域网设备用 http://<LAN_HOST_IP>:<端口> 访问。
-#   纯 HTTP、仅限可信内网；对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN），
-#   不在本仓库管理范围内。daemon 不对宿主发布端口（面板中转，ADR-026）。
+# .env 是唯一配置源（含密钥）：权限 600、永不入库。运行模型（局域网直连，ADR-027）、
+# 每个变量的含义与内存调优见 docs/usage.md §4 / 附录 F；防火墙见 docs/security.md。
+# 注意：同名键以**首次出现**为准，改值请改原行（不要文末追加同名行）。
 # ===========================================================================
 
-# ==================== 基础 ====================
+# ---- 基础 ----
 TZ=Asia/Shanghai
 DATA_ROOT=<DATA_ROOT>
 
-# ==================== 局域网入口：宿主发布端口 ====================
-# LAN_HOST_IP 为宿主局域网 IP：局域网设备访问入口，同时被 init 打印访问地址使用。
-# DHCP 变更需同步更新并重新 init（建议宿主用静态 IP / DHCP 保留地址）。
-# 宿主发布端口默认 18090/18091，避开实例端口 25565/25566；按需覆盖。
-# daemon 端口不发布（面板中转，ADR-026）。
+# ---- 局域网入口：宿主发布端口（改完 up 即生效；init 不会覆盖已存在的 .env）----
 LAN_HOST_IP=192.168.1.100
 LAN_MCS_WEB_PORT=18090
 LAN_EASYBOT_PORT=18091
 
-# ==================== 网络暴露面（ADR-028：默认只信任局域网）====================
-# LAN_BIND_ADDR 控制容器端口绑到哪个宿主地址：
-#   0.0.0.0      = 所有网卡可达（局域网可访问；默认）
-#   127.0.0.1    = 仅本机（最严格；配合反代 / Tailscale serve / WireGuard 使用）
-#   <具体 IP>    = 只绑该网卡（例如只绑局域网 IP，VPN 网卡不通）
+# ---- 暴露面（ADR-028）：绑定地址 + 防火墙来源 ----
+# LAN_BIND_ADDR：0.0.0.0 所有网卡 / 127.0.0.1 仅本机（配合反代、VPN）/ 具体 IP 只绑该网卡
 LAN_BIND_ADDR=0.0.0.0
-# 防火墙允许的来源网段（orzmc.sh firewall --apply 使用）：默认只放你的局域网
 LAN_CIDR=192.168.0.0/24
-# 额外放行的来源（逗号分隔，如 VPN 网段 100.64.0.0/10、另一台机器 IP）；留空=不放行
+# 额外放行来源（逗号分隔，如 Tailscale 100.64.0.0/10、另一台机器 IP）；留空=不放行
 ALLOW_EXTRA_CIDRS=
 
-# ==================== EasyBot 网关 ====================
-# 监听器仅 HTTP，局域网明文（可信内网假设；对公网暴露请自备 TLS 反代/VPN）；
-# 微信适配器默认自动启用，禁用见 docs/easybot.md（gateway.local.yaml）
-# 可选服务开关：置 false 则 easybot 容器不启动；核心 web/daemon 常驻。
+# ---- EasyBot 网关（可选服务：置 false 则不启动 easybot，核心 web/daemon 常驻）----
+# 监听器仅 HTTP（可信内网）；对公网暴露须自备 TLS 反代或 VPN。
 ENABLE_EASYBOT=true
 EASYBOT_PORT=8080
 EASYBOT_ADMIN_PASSWORD=lan_strong_password_change_me
 
-# ==================== MCSManager 平台 ====================
-# 容器内端口（宿主发布端口见上方 LAN_*_PORT）
+# ---- 容器内端口（须与镜像默认一致；宿主端口见上方 LAN_*_PORT）----
 MCS_WEB_PORT=23333
 MCS_DAEMON_PORT=24444
 
-# ==================== daemon 内存上限（issue #10） ====================
-# daemon 容器内存上限与 Node 堆上限：均由这两个变量派生（可选，缺省 512M / 384；384
-# 留出堆外内存余量）。重负载/大实例前请同步调大两者；compose 与 Windows docker run 共用同一对值。
+# ---- 内存上限（可选；缺省 daemon 512M/堆384、easybot 512M）----
+# 调 daemon 时两个值要一起动（堆须小于容器上限）；宁可 OOM 暴露回归也别放大 easybot。
 # DAEMON_MEMORY_LIMIT=512M
 # DAEMON_NODE_HEAP_MB=384
-
-# ==================== easybot 内存上限（issue #16） ====================
-# easybot 容器内存上限（可选，缺省 512M，与原硬编码值一致）。EasyBot v0.0.41 已修掉近空载
-# 匿名内存泄漏（上游 issue #139）；此处**刻意保持紧上限**——放大上限会让未来的内存回归
-# 更晚暴露。仅当站点确有更重负载（多适配器/大量插件回传）且确认是正常工作集超限时才上调；
-# 站点级覆盖也可写 $DATA_ROOT/compose.site.yaml（升级换包不丢）。
 # EASYBOT_MEMORY_LIMIT=512M
 
-# ==================== 进程模式实例进服端口（Windows daemon） ====================
-# 仅 Windows 生效（ADR-016）：进程模式 PaperMC 实例（cwd 在 daemon 内部）的进服端口
-# 须由 daemon 容器 -p 暴露。逗号分隔 host:container/proto。Java 版 25565/tcp、基岩版
-# 19132/udp。发布到宿主后局域网玩家可直连 <LAN_HOST_IP>:25565（Java）。
-# macOS/Linux 的 daemon 走 compose 实例端口由 MCSManager 配置，不消费本变量。
-# ⚠️ 只服务**进程模式**实例：**默认置空**。用进程模式实例（Windows）且需玩家经 daemon
-#    端口进服时，取消下一行注释；用 **docker 型实例**（各自发布宿主端口）保持置空。
-#    daemon 创建时若检测到 docker 型实例会**自动忽略**本变量（issue #6/#9）。
+# ---- 仅 Windows：进程模式实例的进服端口（docker 型实例保持置空；issue #9）----
 # DAEMON_PORTS=25565:25565/tcp,19132:19132/udp
 
-# 节点地址固定为内网名 ws://mcsmanager-daemon:24444（面板服务端用它连 daemon）；
-# 浏览器终端/控制台/文件管理经面板中转（dataPlane=proxy，ADR-026），
-# 因此 daemon 端口无需对宿主发布。
+# ---- 仅 firewall 消费：额外放行的实例端口（留空即用 25565,25566 / 19132 / 25575,25576）----
+# MC_TCP_PORTS=
+# MC_UDP_PORTS=
+# RCON_PORTS=
 
-# ==================== QQ 开放平台 ====================
-# EasyBot QQ 适配器凭据（本地验证无真实账号可先保留占位）
+# ---- QQ 开放平台凭据（EasyBot QQ 适配器用；无真实账号可留占位）----
 QQBOT_APP_ID=lan_app_id
 QQBOT_CLIENT_SECRET=lan_client_secret
 
-# ==================== 站点增量 override（issue #11） ====================
-# 站点特有增量（飞书等适配器凭据、额外环境变量/挂载）统一写入 $DATA_ROOT/compose.site.yaml
-# （init 生成，随数据保留、升级换包不丢）。也可额外追加任意路径的 compose 文件（空格/逗号分隔）：
+# ---- 站点增量（不要改包内 compose.yaml，升级会丢）----
+# 站点特有的 env/挂载写 $DATA_ROOT/compose.site.yaml（init 已生成，升级换包不丢，
+# 模板与示例见该文件）；也可用下面变量追加任意路径 compose 文件（空格/逗号分隔）：
 # COMPOSE_FILE_EXTRA=
-
-# ==================== 可选平台适配器（EasyBot） ====================
-# 启用即加一行，勿注入空串：
-# TELEGRAM_BOT_TOKEN=
-# DISCORD_BOT_TOKEN=
-# FEISHU_APP_ID=
-# FEISHU_APP_SECRET=
-# ⚠️ 这些变量需经 compose 传给 easybot 容器；请写入 $DATA_ROOT/compose.site.yaml 的
-#    easybot.environment（模板见该文件），不要直接改包内 compose.yaml（升级会丢，issue #11）。
-# 微信：扫码登录无凭据，默认自动启用；禁用见 docs/easybot.md
+#
+# 其它适配器（Telegram / Discord / 飞书）的变量清单见 docs/easybot.md「可选平台适配器」。

@@ -13,6 +13,54 @@
 
 ## [Unreleased]
 
+### 变更（ADR-031：配置最小化）
+
+- **compose 去掉无运行时作用的字段**：删全部 `expose:`（本就不生效，发布端口由 `ports`
+  决定）；删 daemon 的 `/etc/timezone` 挂载（`TZ` + `/etc/localtime` 已足够，macOS 宿主
+  没有该文件）。128 → 88 行，行为不变。
+- **模板瘦身**：`templates/env` 94 → 58 行（按用途分组、去掉重复叙述，只保留 15 个
+  有消费者的键 + 可选键注释示例）；`compose.site.yaml` 34 → 22 行；
+  `gateway.local.yaml` 精简头部。
+- **删除 `templates/env.papermc`**（139 行）：字段名（`PAPERMC_INSTANCE_GROUP` /
+  `ENVIRONMENT` / `WORLD_TEMPLATE` / `MAINTENANCE_WINDOW` / `HEALTHCHECK_*` 等）并非
+  MCSManager 实例字段，且与 `docs/papermc-template.md` 逐项重复（还写着无协议的
+  `25566:25566`）。字段参考唯一来源改为 `docs/papermc-template.md`，该文档同时改为
+  可直接录入的固定字符串。
+- **`.gitignore`** 只留当前会用到的 3 项；CI 禁入守卫仍覆盖旧目录名（防御纵深）。
+
+### 修复（ADR-030：收尾 ADR-027/028 遗留）
+
+- **Release 打包失效**：`ci.yml` 的 `package` job 仍在 tar 已删除的
+  `local.sh` / `lan.sh` / `windows.sh`，打 tag 时 `tar` 直接报错退出 → 没有 tarball，
+  `install.sh` 免克隆安装（ADR-018）不可用。已同步文件清单。
+- **bash 3.2 兼容**：移除 `lib/common.sh` / `backup.sh` 中的 `mapfile`（bash 4 内建），
+  可能为空的数组统一用 `${arr[@]+"${arr[@]}"}` 展开——之前 macOS 自带 bash 3.2 上
+  `validate` / `backup --keep` / Windows 分支 `up` 会直接失败。
+- **CI 开关用例假阳性**：`ENABLE_EASYBOT=false` 用例原用 `printf >> .env`（同名键首次出现
+  优先 → 被忽略）且断言未带 `--profile`。改为 `sed` 原地改键，并断言 `enabled_profiles`
+  为空 + `compose_cmd config --services` 无 easybot。
+- **`read_env_value` 容错**：剥除 CRLF（Windows 编辑器写出的 `\r` 会让开关/绑定地址静默
+  失效），并在注释中明确「同名键首次出现优先」。
+- **`firewall` 平台行为**：Linux `show` 的端口正则改为逐端口拼接（原实现末尾 `|` 使
+  `grep -E` 匹配全部行）；macOS `apply` 改为打印等价 `pf` 规则（原为 iptables）；
+  缺 `.env` 时直接拒绝，不再用缺省值建规则。
+- **`init` 不再建 `$DATA_ROOT/caddy/`**（ADR-027 后无边缘层）；已存在的目录不自动删除。
+- **默认 `DATA_ROOT` 按平台**（`default_data_root`）：Windows `E:/orzmc`、macOS
+  `/Users/Shared/orzmc`、Linux `/srv/orzmc`——与 README/AGENTS 一直宣称的一致。
+
+### 文档
+
+- `templates/env` 补上 `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` 注释（ADR-028 已引用）。
+- `docs/windows-deployment.md` 不再教用户写 `-RemoteAddress Any` 规则与容器内端口 `23333`，
+  改为 `./orzmc.sh firewall apply`（ADR-028）。
+- `docs/architecture.md`：合并两处 ADR 节为单一按编号升序列表、删除重复的「已归档 ADR 索引」、
+  修正设计目标（去 Cloudflare Tunnel 残留）与交叉引用；新增 ADR-030。
+- `AGENTS.md`：修 `-e <edge>` 命令表与已失效的回归命令、`ensure_caddyfile` / `templates/env.*`
+  残留、bash 3.2 约定补充（禁用 `mapfile` / 空数组展开）。
+- `README.md` / `docs/usage.md` / `docs/papermc-template.md`：清理三档/边缘层/域名 URL 残留，
+  修复附录 A 表格结构损坏与失效链接。
+- `EXECUTION_PATH.md`：待办前置、状态记录归档、过时事实（`Any` 规则 / 40 项）修正。
+
 ### 安全（ADR-028：默认限源）
 
 - **默认只信任局域网**：新增 `LAN_BIND_ADDR`（端口绑定地址，缺省 `0.0.0.0`；可改
