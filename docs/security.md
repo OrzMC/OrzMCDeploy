@@ -66,6 +66,46 @@ ALLOW_EXTRA_CIDRS=             # 有 VPN 就填 100.64.0.0/10（Tailscale）
 
 > 注意 WebSocket：面板与终端都走 WS，反代必须放行 `Upgrade`（Caddy 默认支持）。
 
+## 3.1 TLS 反代实操配方（DNS-01，适合家宽）
+
+站点若要给面板配 `https://<域名>`，推荐 **Caddy + Let's Encrypt DNS-01**：证书靠 Cloudflare
+API 写 `_acme-challenge` TXT 记录验证，**不依赖入站 80/443**，因此家宽/端口被封也能签发。
+
+```yaml
+# $DATA_ROOT/compose.site.yaml（站点增量，升级不丢）
+  caddy:
+    # 官方 caddy 镜像不含 DNS provider，必须用带 cloudflare 模块的构建
+    image: ghcr.io/caddybuilds/caddy-cloudflare@sha256:...
+    ports: ["80:80", "443:443"]        # 80 仅用于 HTTP→HTTPS 跳转（可选）
+    environment:
+      CF_DNS_API_TOKEN: "${CF_DNS_API_TOKEN}"
+    volumes:
+      - "${DATA_ROOT}/site/Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "${DATA_ROOT}/caddy/data:/data"      # 证书缓存在这里，务必随数据备份
+```
+
+```text
+# $DATA_ROOT/site/Caddyfile
+{
+    email you@example.com
+}
+mcs.example.com {
+    tls { dns cloudflare {$CF_DNS_API_TOKEN} }
+    reverse_proxy mcsmanager-web:23333     # 与面板同网络，无需经过宿主端口
+}
+```
+
+配套三件事：
+
+| 项 | 说明 |
+|---|---|
+| Cloudflare API Token | 权限 **Zone → DNS → Edit**，只授该 zone；写进 `$DATA_ROOT/.env`，永不入库 |
+| 防火墙 | 只额外放行 Caddy 的端口（80/443）；面板 23333、EasyBot 18091 仍限 `LAN_CIDR` |
+| 路由器 | `外部 443 → 宿主 443`；若 ISP 封 443，可改映射高位端口（如 18443 → 宿主 443），证书与端口无关 |
+
+验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer 是否为 Let's Encrypt；
+`curl -I https://<域名>/` 200；证书到期前 Caddy 会按 ARI 自动续期，无需人工干预。
+
 ## 4. 自检
 
 ```bash

@@ -97,3 +97,23 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
 - **验证**：`init + validate` PASS；`compose config` 的 `host_ip` 随 `LAN_BIND_ADDR`
   在 `0.0.0.0` ↔ `127.0.0.1` 间切换；`bash -n`/`shellcheck` 0 告警。
 - **对外暴露**：VPN（推荐）→ TLS 反代（后端绑 127.0.0.1）→ 路由器映射+限源，见 security.md。
+
+### 2026-10-29 站点公网入口落地：Caddy + Let's Encrypt DNS-01
+
+- **需求**：站点自备 `https://mcs.jokerhub.cn` / `https://easybot.jokerhub.cn`（ADR-027 后
+  项目本体不带边缘层）。
+- **落地**（全部在 `$DATA_ROOT`，不进仓库）：
+  - `site/Caddyfile`：两站点各加 `tls { dns cloudflare {$CF_DNS_API_TOKEN} }`，
+    反代到 `mcsmanager-web:23333` / `easybot:8080`（同网络，不经宿主端口）。
+  - `compose.site.yaml`：新增 `caddy` 服务，镜像 `ghcr.io/caddybuilds/caddy-cloudflare`
+    （官方镜像无 DNS provider），digest 锁定；发布 `80/443/18443`。
+  - `.env`：`CF_DNS_API_TOKEN`（Zone:DNS:Edit，仅本 zone）。
+  - 防火墙：`OrzMC-Web-TLS` = TCP 80/443/18443，来源 Any（唯一对外入口）；
+    面板 23333 / EasyBot 18091 仍限 `192.168.0.0/24`。
+- **过程**：先试 HTTP-01 / TLS-ALPN-01 均超时（路由器映射当时未生效）→ 改 DNS-01 后
+  证书即刻签发（`certificate obtained successfully` ×2，issuer `Let's Encrypt YE1`，
+  到期 2027-01-27，ARI 自动续期），随后公网 443 也确认可达。
+- **验收**：公网 `mcs` / `easybot` 各 8/8 成功，耗时 0.03–0.12 s；证书严格校验通过；
+  `http://114.240.151.88:23333` 从公网仍超时（防火墙生效，面板端口未暴露）。
+- **注意**：`$DATA_ROOT/caddy/data` 存证书与 ACME 账号，**务必随数据备份**；
+  路由器若日后封 443，只需把外部端口换成 18443（已发布到宿主 443）即可，证书不受影响。
