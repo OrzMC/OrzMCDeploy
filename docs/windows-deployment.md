@@ -7,6 +7,11 @@
 > ⚠️ **ADR-025（v0.1.0）起平台层已移除 `mariadb` 与 `status`(Gatus) 两个服务**：
 > 本文涉及这两个容器的问题章节（§4 别名补丁、§5 状态页占位符等）仅作**历史排障参考**，
 > 对应服务已不存在，无需再执行。
+>
+> ⚠️ **ADR-026 起 daemon 不再对外暴露**：节点地址固定 `ws://mcsmanager-daemon:24444`，
+> 浏览器终端/控制台/文件管理由面板中转（`dataPlane=proxy`）。本文凡涉及「三档节点地址」
+> 「`mcs-node` 入口」「Windows 档网页直连不可用」的段落均为**历史记录**，当前配置见
+> `docs/usage.md` §6.3。
 
 - **部署机器**：Windows 11 家庭版（SKU 101，无 RDP 服务端）、Docker Desktop 4.86 / WSL2
   **（`.wslconfig` 开 `networkingMode=mirrored`，见 §1.3 / ADR-020）**、域 `jokerhub.cn`。

@@ -2,17 +2,16 @@
 # cloudflared 隧道配置模板（prod profile 使用）
 #
 # 首次 init 时由 lib/common.sh 的 ensure_cloudflared_config 用 .env 的
-# CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE
-# 替换占位符，生成到 $DATA_ROOT/cloudflared/config.yml。
+# CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN 替换占位符，
+# 生成到 $DATA_ROOT/cloudflared/config.yml。
 # 已落盘的文件是运行数据的一部分；隧道凭据 <tunnel-id>.json 与 cert.pem 同目录，
 # 随 $DATA_ROOT 一起备份。
 #
-# 公网入口共 3 条：MCSManager 面板 + EasyBot 管理后台 + daemon 节点（远程终端依赖）。
-# EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080），
-# 不在隧道 ingress 中。daemon 节点经本入口可达是 MCSManager 的既有连接模型：
-# 面板浏览器需直连 daemon（终端/控制台/文件），daemon 全部业务路由要求密钥
-# 鉴权（session.key === config.key），无 key 无权限；请把 daemon key
-# （$DATA_ROOT/mcsmanager/daemon/data/Config/global.json 的 key）当密钥保管。
+# 公网入口共 2 条：MCSManager 面板 + EasyBot 管理后台。
+# daemon **不再单独暴露**（ADR-026）：MCSManager 10.22 起面板自身中转浏览器↔daemon
+# 的数据流（SystemConfig.dataPlane=proxy），终端/控制台/文件管理都经面板端口，
+# 节点地址固定内网名 ws://mcsmanager-daemon:24444。daemon key 仍属最高权限密钥
+# （$DATA_ROOT/mcsmanager/daemon/data/Config/global.json），继续当密钥保管。
 # 兜底规则返回 404：未匹配 hostname 的请求到此为止，不转发到任何服务。
 # ===========================================================================
 
@@ -24,6 +23,4 @@ ingress:
     service: http://mcsmanager-web:23333
   - hostname: __DOMAIN_EASY_ADMIN__
     service: http://easybot:8080
-  - hostname: __DOMAIN_MCS_NODE__
-    service: http://mcsmanager-daemon:24444
   - service: http_status:404

@@ -105,6 +105,7 @@ cmd_init() {
         cloudflare) ensure_cloudflared_config ;;
         lan|none)   : ;;  # lan/none 无边缘层配置可生成
     esac
+    warn_legacy_data_plane
     info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
 }

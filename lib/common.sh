@@ -211,24 +211,22 @@ ensure_site_override() {
 }
 
 # prod profile 专用：由 templates/cloudflared-config.yml 用 .env 的
-# CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE
+# CLOUDFLARE_TUNNEL_ID / DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN
 # 替换占位符，生成 $DATA_ROOT/cloudflared/config.yml。仅当 CLOUDFLARE_TUNNEL_ID
 # 已填写时生成；与当前 .env 一致时不动（已落盘 config 属运行数据），不一致时
 # 覆盖并留备份（config.yml 完全由 .env 派生，.env 为唯一事实源）。
 ensure_cloudflared_config() {
-    local tid mcs_domain easy_domain node_domain target tmp
+    local tid mcs_domain easy_domain target tmp
     tid="$(read_env_value CLOUDFLARE_TUNNEL_ID)"
     [ -n "$tid" ] || { warn "CLOUDFLARE_TUNNEL_ID 未设置，跳过 cloudflared config 生成"; return 0; }
     mcs_domain="$(read_env_value DOMAIN_MCS_WEB)"
     easy_domain="$(read_env_value DOMAIN_EASY_ADMIN)"
-    node_domain="$(read_env_value DOMAIN_MCS_NODE)"
     mkdir -p "$DATA_ROOT/cloudflared"
     target="$DATA_ROOT/cloudflared/config.yml"
     tmp="$(mktemp)"
     sed -e "s#__CLOUDFLARE_TUNNEL_ID__#${tid}#g" \
         -e "s#__DOMAIN_MCS_WEB__#${mcs_domain}#g" \
         -e "s#__DOMAIN_EASY_ADMIN__#${easy_domain}#g" \
-        -e "s#__DOMAIN_MCS_NODE__#${node_domain}#g" \
         "$TEMPLATES_DIR/cloudflared-config.yml" > "$tmp"
     if [ -f "$target" ] && cmp -s "$target" "$tmp"; then
         info "cloudflared config 已就绪: $target"
@@ -371,9 +369,6 @@ win_daemon_run() {
         done
         IFS="$oldifs"
     fi
-    if [ "$(normalize_edge)" = "lan" ]; then
-        port+=(-p "${LAN_MCS_DAEMON_PORT:-24444}:${MCS_DAEMON_PORT:-24444}")
-    fi
     docker run -d --name "$(daemon_container)" \
         --restart unless-stopped \
         --memory "$mem" \
@@ -481,22 +476,32 @@ compose_cmd() {
         base=(docker compose --env-file "$file" -f "$(win_path "$COMPOSE_FILE")" "${extra_win[@]}" "${profiles_flags[@]}")
     fi
 
-    # ---- Windows：daemon 不走 compose（结构性 docker run）----
+    # ---- Windows：daemon 默认交给 compose，仅在需要注入端口时走 docker run ----
+    # ADR-029：ADR-019 去掉实例自挂载后，Windows 原生 compose 已能创建 daemon
+    # （Docker Desktop 4.95 / compose 29.8 实测）。只有 **进程模式实例** 需要给
+    # daemon 注入 `DAEMON_PORTS` 的 `-p`（compose 无法按 .env 动态生成端口列表），
+    # 此时才退回 win_daemon_run 的 docker run。
     if is_windows; then
         case "$1" in
             up)
                 # 仅全量 up -d 时接管 daemon；指定服务 up（如 backup.sh 拉起的
                 # 单服务 up，$#=3）仍交 compose 原样处理。
                 if [ "${2:-}" = "-d" ] && [ "$#" -eq 2 ]; then
-                    local -a svcs=()
-                    # 列出当前 EDGE+ENABLE 下全部 compose 服务，剔除 daemon
-                    mapfile -t svcs < <("${base[@]}" config --services 2>/dev/null | grep -v '^mcsmanager-daemon$')
-                    "${base[@]}" up -d --no-deps "${svcs[@]}"
-                    win_daemon_run
+                    if [ -n "$(read_env_value DAEMON_PORTS)" ]; then
+                        local -a svcs=()
+                        # 进程模式实例：剔除 daemon，由 win_daemon_run 注入 -p
+                        mapfile -t svcs < <("${base[@]}" config --services 2>/dev/null | grep -v '^mcsmanager-daemon$')
+                        "${base[@]}" up -d --no-deps "${svcs[@]}"
+                        win_daemon_run
+                    else
+                        # 常规场景：compose 直接管理 daemon（含服务名别名）
+                        "${base[@]}" up -d
+                    fi
                     return 0
                 fi
                 ;;
             down)
+                # 手动创建的 daemon 无 compose 标签，compose down 不管它
                 win_daemon_rm
                 "${base[@]}" down --remove-orphans
                 return 0
@@ -505,8 +510,11 @@ compose_cmd() {
                 # 仅裸 ps/status 时补 daemon 行；ps -q/ps <svc> 等带参数透传
                 if [ "$#" -eq 1 ]; then
                     "${base[@]}" "$@"
-                    printf '  %-24s %s\n' "daemon(docker-run)" \
-                        "$(docker inspect -f '{{.State.Status}}' "$(daemon_container)" 2>/dev/null || echo "absent")"
+                    # compose 管理的 daemon 已在上表；只有手动 docker run 的才补齐
+                    if [ -z "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$(daemon_container)" 2>/dev/null)" ]; then
+                        printf '  %-24s %s\n' "daemon(docker-run)" \
+                            "$(docker inspect -f '{{.State.Status}}' "$(daemon_container)" 2>/dev/null || echo "absent")"
+                    fi
                     return 0
                 fi
                 ;;
@@ -534,14 +542,14 @@ required_env_list() {
     fi
     case "$edge" in
         cloudflare)
-            printf '%s\n' CLOUDFLARE_TUNNEL_ID DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE
+            printf '%s\n' CLOUDFLARE_TUNNEL_ID DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN
             ;;
         local)
             printf '%s\n' CADDY_EMAIL PROXY_HTTP_PORT PROXY_HTTPS_PORT \
-                DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN DOMAIN_MCS_NODE
+                DOMAIN_MCS_WEB DOMAIN_EASY_ADMIN
             ;;
         lan)
-            printf '%s\n' LAN_HOST_IP LAN_MCS_WEB_PORT LAN_EASYBOT_PORT LAN_MCS_DAEMON_PORT
+            printf '%s\n' LAN_HOST_IP LAN_MCS_WEB_PORT LAN_EASYBOT_PORT
             ;;
     esac
 }
@@ -553,6 +561,25 @@ validate_required_env() {
         v="$(read_env_value "$k")"
         [ -n "$v" ] || die "env 缺少必需变量: ${k}（请编辑 $(env_file)）"
     done
+}
+
+# ---- 面板中转数据模式（ADR-026）------------------------------------------
+# MCSManager 10.22 起浏览器↔daemon 的数据面可由面板中转（SystemConfig.dataPlane
+# = proxy，**新装默认**；升级的旧装保留 direct）。中转模式下节点地址固定为内网名
+# ws://mcsmanager-daemon:24444，daemon 无需对浏览器/公网暴露任何端口。
+# 面板配置属运行数据（面板退出时会回写），故这里**只检查并提示**，不自动改写。
+warn_legacy_data_plane() {
+    local cfg
+    cfg="$DATA_ROOT/mcsmanager/web/data/SystemConfig/config.json"
+    [ -f "$cfg" ] || return 0          # 尚未首次启动：面板会按新装默认写 proxy
+    grep -q '"dataPlane"[[:space:]]*:[[:space:]]*"proxy"' "$cfg" && return 0
+    warn "MCSManager 面板未启用中转数据模式（SystemConfig.dataPlane != proxy）"
+    warn "  影响：浏览器需能直连 daemon 地址，节点地址不能填内网名"
+    warn "  修复（面板运行时会回写配置，必须停机改）："
+    warn "    docker stop orzmc-mcsmanager-web"
+    warn "    # 在 ${cfg} 中把 \"dataPlane\" 设为 \"proxy\"（无该键则新增）"
+    warn "    docker start orzmc-mcsmanager-web"
+    warn "  详见 docs/usage.md §6.3"
 }
 
 # ---- 访问地址 -----------------------------------------------------------
@@ -573,7 +600,6 @@ print_access_info() {
             # lan：无边缘层纯 HTTP，局域网设备用 http://<LAN_HOST_IP>:<LAN_*_PORT>
             echo "  MCSManager Web: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_MCS_WEB_PORT)"
             echo "  EasyBot 管理后台: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_EASYBOT_PORT)"
-            echo "  MCSManager Daemon: http://$(read_env_value LAN_HOST_IP):$(read_env_value LAN_MCS_DAEMON_PORT)"
             ;;
         local)
             # local：Caddy 本地 CA，.localhost + 非特权端口

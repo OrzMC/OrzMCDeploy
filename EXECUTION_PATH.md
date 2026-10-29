@@ -1170,3 +1170,24 @@
 - 另确认：**WSL 侧 compose 不能创建** `E:/orzmc/...` 绑定（`invalid volume specification`），
   与 ADR-016 描述一致 → `DATA_ROOT=E:/...` 时必须在 Windows 侧执行 compose。
 - 已写入 `docs/windows-deployment.md` §3「2026-10-29 实测复核」。
+
+### 2026-10-29 精简落地（ADR-026 / ADR-029 / S3 / S4）
+
+按「新版本能力 → 可精简项」评估结果逐项落地：
+
+- **ADR-026（最大项）**：`dataPlane=proxy` 使 daemon 无需对外暴露 → 删除 `mcs-node` 入口
+  （隧道 ingress、Caddy vhost、`extra_hosts`、lan daemon 端口、`win_daemon_run` 的 lan `-p`）、
+  删除 `DOMAIN_MCS_NODE` / `LAN_MCS_DAEMON_PORT` 两个变量；`init` 增加
+  `warn_legacy_data_plane` 提示旧装切换。公网入口 **3 → 2**。
+- **ADR-029**：Windows 档在 `DAEMON_PORTS` 为空时交给 compose 创建 daemon（本次升级实测
+  Windows 原生 compose 已可行），仅进程模式实例需要 `-p` 时才走 `docker run`。
+- **S3**：`DNS_PRIMARY` / `DNS_SECONDARY` 从 `.env` 模板移除（实测 Clash TUN 下无效），
+  compose 内保留缺省值，文档改为"仅无 DNS 劫持时有效"。
+- **S4**：文档明确禁止面板内置自助升级（与 digest 锁定冲突），`AGENTS.md` 加守则。
+- **验证**：`bash -n` 全过、`shellcheck` 0 告警、四档 `init && validate` PASS、
+  `tests/windows_ci.sh` **40 项全通过**（新增"DAEMON_PORTS 为空走 compose"用例，
+  改"lan 不再注入 daemon 端口"）；生成物核对：cloudflared ingress = 2、Caddyfile vhost = 2、
+  lan 发布端口仅 18090/18091。
+- **运行数据**：本机 `SystemConfig.dataPlane=proxy` 与节点内网名已在上一轮生效；
+  `.env` 中 `DOMAIN_MCS_NODE` 待清理（已无消费者），`cloudflared/config.yml` 会在下次
+  `init/up` 时自动重新生成为 2 条 ingress（旧文件备份为 `.bak.<时间戳>`）。

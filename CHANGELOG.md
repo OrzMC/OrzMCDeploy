@@ -13,6 +13,35 @@
 
 ## [Unreleased]
 
+### 移除（ADR-026，daemon 不再对外暴露）
+
+- **新增：面板中转数据模式成为标准拓扑**（MCSManager 10.22 的 `dataPlane=proxy`，
+  新装默认）：浏览器终端/控制台/文件管理由面板中转，节点地址固定
+  `ws://mcsmanager-daemon:24444`。
+  - 删除 `mcs-node` 公网入口：隧道 ingress / Caddyfile vhost 各少一条，**入口 3 → 2**
+    （`mcs` / `easybot`）。
+  - 删除 `DOMAIN_MCS_NODE`、`LAN_MCS_DAEMON_PORT` 两个变量；`compose.edge.lan.yaml`
+    不再发布 daemon 端口；`win_daemon_run` 不再注入 lan 档 `-p 24444`；
+    `compose.yaml` 去掉 `extra_hosts: mcs-node.localhost:host-gateway`。
+  - `init` 新增 `warn_legacy_data_plane`：检测到面板 `dataPlane != proxy` 时打印修复步骤
+    （面板退出会回写配置，故只提示不代改）。**旧装需一次性手工切换**，新装无需操作。
+  - **三平台/三档行为统一**：Windows 不再有"lan 档浏览器终端不可用"的例外
+    （ADR-020 作废）；面板↔daemon 也不再经隧道（此前 prod 档每次 RPC ~1 s）。
+
+### 变更（Windows daemon 交给 compose）
+
+- **ADR-029**：`DAEMON_PORTS` 为空时，Windows 档的 daemon 直接由 compose 创建（ADR-019
+  移除实例自挂载后已可行，本次实测 Docker Desktop 4.95 / compose 29.8）；只有**进程模式
+  实例**需要 `-p` 注入时才退回 `win_daemon_run` 的 `docker run`。
+
+### 文档
+
+- 明确**禁止使用面板内置「自助升级」**（10.19+）：容器内自升级会偏离 digest 锁定、
+  `git revert` 回滚不了、重建即丢（`docs/usage.md` §5.3、`AGENTS.md` 修改守则 6.1）。
+- `DNS_PRIMARY` / `DNS_SECONDARY` 降级为"仅在无 DNS 劫持的宿主有效"（实测 Clash TUN
+  下容器仍解析到 `198.18.x`，该配置无效），默认不再写进 `.env` 模板。
+- `docs/usage.md` §6.3 整节重写；ADR-005/011/013/014/020 标注为历史。
+
 ### 变更（镜像升级）
 
 - **全部服务升级到当前最新发布版**（digest 重新锁定）：

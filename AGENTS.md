@@ -39,10 +39,10 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 | 可选服务 | `.env` 里 `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
 | 入口 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
 
-- **EDGE 边缘层**（决定 3 个源站对外如何可达）：
+- **EDGE 边缘层**（决定 2 个源站对外如何可达）：
   - `cloudflare` → `compose.edge.cloudflare.yaml`（cloudflared 出站隧道，生产，真实 HTTPS，免开端口）
   - `local` → `compose.edge.local.yaml`（Caddy `.localhost` 本地 CA + 非特权端口 18080/18443）
-  - `lan` → `compose.edge.lan.yaml`（无边缘层，3 源站发宿主端口，纯 HTTP，局域网）
+  - `lan` → `compose.edge.lan.yaml`（无边缘层，2 源站发宿主端口，纯 HTTP，局域网）
   - `none` → 不追加 override（仅内网 `orzmc_default`，不对外）
 - **ENABLE_EASYBOT 可选服务**：easybot 带 `profiles: ["easybot"]` 标签，
   缺省启用；置 `false` 即从 `--profile` 移除。ADR-025 起不再有 mariadb / status。
@@ -52,43 +52,24 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 
 ### 4. 网络拓扑：3 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
 
-- 公网/局域网暴露 3 个入口（prod/local 走边缘层域名；**lan 无边缘层**，走宿主发布端口
+- 公网/局域网暴露 **2 个入口**（prod/local 走边缘层域名；**lan 无边缘层**，走宿主发布端口
   `http://<LAN_HOST_IP>:<LAN_*_PORT>`，见 ADR-012）：
   - `mcs.<domain>` → MCSManager 面板（Web 登录鉴权）
   - `easybot.<domain>` → EasyBot 管理后台（登录鉴权）
-  - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**；
-    远程终端/控制台/文件管理器依赖该入口，**不可删**）
+- **daemon 不对外暴露任何入口**（ADR-026）：MCSManager 10.22 起面板自身中转浏览器↔daemon
+  的数据流（`SystemConfig.dataPlane=proxy`，新装默认），因此：
+  - 节点地址**固定** `ws://mcsmanager-daemon:24444`（内网名），与 EDGE/平台无关；
+  - 浏览器终端/控制台/文件管理经面板端口中转，daemon 端口不发布、无边缘入口；
+  - `.env` 不再需要 `DOMAIN_MCS_NODE` / `LAN_MCS_DAEMON_PORT`。
+  ADR-005/011/013/014/020 的"浏览器怎么连 daemon"决策已由本条统一收敛，保留为历史。
 - **EasyBot 的插件 API 不外露**：PaperMC 插件跑在 `orzmc_default` 网络内，
   直连 `http://easybot:8080`（REST + WebSocket 同端口，内网无 TLS）。
 - **应用数据库 / 状态页已不在平台层（ADR-025）**：v0.1.0 起移除 mariadb 与 Gatus
   （实测无插件使用；状态页还会自我轮询占用隧道）。需要时用 `compose.site.yaml`
   站点增量自行加回，不影响包内文件升级。
-- **daemon 连接（三档浏览器直连均可用）**：节点地址统一「面板服务端与浏览器**同一地址**」，
-  按档不同：
-  - **prod**：节点 `ip` 填 `wss://mcs-node.<domain>:443`——经 cloudflared 隧道连 daemon。
-    隧道 socket.io 已实测可用（polling/websocket + `{uuid,data}` 鉴权全通；ADR-011 的 koa
-    拦截结论已过时，见 ADR-013）。代价：面板↔daemon 走 Cloudflare 边缘（延迟略增、依赖
-    隧道在线；`connectOpts.reconnection` 兜底重连）。
-  - **local**：节点 `ip` 填 `wss://mcs-node.localhost` + 端口 `18443`（Caddy 非特权 TLS 端
-    口）；`compose.yaml` 的 `mcsmanager-web` 有 `extra_hosts: mcs-node.localhost:host-gateway`
-    使容器把 `.localhost` 解析到宿主 Caddy（ADR-014）。浏览器直连前须一次性信任 Caddy 本
-    地根证书并完全重启浏览器（`security add-trusted-cert -d -r trustRoot -k
-    ~/Library/Keychains/login.keychain $DATA_ROOT/caddy/data/caddy/pki/authorities/local/root.crt`）。
-  - **lan**：节点 `ip` 填 `ws://<LAN_HOST_IP>` + 端口 `<LAN_MCS_DAEMON_PORT>`——daemon 端口
-    本就发布到宿主，浏览器/局域网设备经 LAN IP 直连，解除 ADR-011 lan 遗留（ADR-014）。
-    ⚠️ LAN IP 多为 DHCP，换 IP 需同步改 `.env` 与节点配置。
-    **Windows 例外（ADR-020）**：Windows 宿主在 WSL2 `networkingMode=mirrored` 下，内核级
-    hairpin 使「容器→宿主自身 LAN IP 的发布端口」必超时（面板连不上 LAN-IP 节点）；节点
-    `ip` 改填内网名 `ws://mcsmanager-daemon` + 端口 `24444`——节点在线、面板管理可用，但
-    浏览器解析不了内网名，**「网页直连」/实时终端在 lan Windows 档不可用**（macOS/Linux
-    无此问题）。需要浏览器终端时用 local 档（宿主浏览器）或 prod 档（任意设备）。
-  - **macOS/Linux 三档浏览器终端/控制台/文件管理器均可用**；Windows 例外：lan 档浏览器
-    直连不可用（ADR-020，见上）。节点配置在
-    `$DATA_ROOT/mcsmanager/web/data/RemoteServiceConfig/*.json`，改后
-    `docker restart orzmc-mcsmanager-web`。daemon 全部业务路由要求密钥鉴权，无 key 无权限。
 - 服务端口**默认只 `expose`，不发布宿主机端口**（cloudflare/local；PaperMC 实例端口 `25565`
   由 MCSManager 按实例配置映射，供玩家局域网直连）。**lan 直连模式例外**：经
-  `compose.edge.lan.yaml` 把 4 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网
+  `compose.edge.lan.yaml` 把 2 个源站发布到宿主 `LAN_*_PORT`，纯 HTTP 仅限可信局域网
   （ADR-012）。
 
 ## 目录地图
@@ -97,7 +78,7 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，核心 web/daemon 常驻 + 可选服务带 profiles 标签）
 compose.edge.cloudflare.yaml  EDGE=cloudflare 边缘层 override（cloudflared 出站隧道）
 compose.edge.local.yaml       EDGE=local 边缘层 override（Caddy，.localhost）
-compose.edge.lan.yaml         EDGE=lan 边缘层 override（无边缘层：给 3 个源站发布宿主端口，纯 HTTP）
+compose.edge.lan.yaml         EDGE=lan 边缘层 override（无边缘层：给 2 个源站发布宿主端口，纯 HTTP）
 templates/              首次 init 的配置模板
   env.prod              生产 .env 模板（含 CLOUDFLARE_TUNNEL_ID）
   env.local             本地 .env 模板（.localhost）
@@ -206,5 +187,8 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
    与 `templates/env.*`（`ENABLE_EASYBOT` 开关也在此）。
 6. 需要用户输入密钥/凭据时，引导用户编辑 `$DATA_ROOT/.env`，不要把真实值写进仓库或
    回显到日志/提交信息。
+6.1 **禁止使用面板内置自助升级**（MCSManager 10.19+）：它在容器内替换程序文件，会偏离
+   digest 锁定、无法用 `git revert` 回滚，且容器重建即丢失。升级只走
+   `update-image-digests.sh` + commit（见 `docs/usage.md` §5.3）。
 7. 提交前核对 `git status`：不得出现 `.env`、`.local-data/`、`.local-backups/`、
    生产 `DATA_ROOT` 内容或任何密钥。

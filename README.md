@@ -52,14 +52,15 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 | EDGE | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
-| `cloudflare` | cloudflared（Cloudflare Tunnel，出站隧道免开端口） | 生产 | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` |
+| `cloudflare` | cloudflared（Cloudflare Tunnel，出站隧道免开端口） | 生产 | `mcs.<domain>` / `easybot.<domain>` |
 | `local` | Caddy（`.localhost` 本地 CA + 非特权端口 18080/18443） | 本地验证 / 回归 | `mcs.localhost:18443` 等 |
-| `lan` | 无边缘层（`compose.edge.lan.yaml` 发布 3 源站宿主端口，纯 HTTP） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>` |
+| `lan` | 无边缘层（`compose.edge.lan.yaml` 发布 2 源站宿主端口，纯 HTTP） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>` |
 | `none` | 不追加 override | 仅内网 `orzmc_default` | 内网服务名 |
 
-公网/本地暴露 **3 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）、
-`mcs-node`（daemon 直连，daemon key 鉴权；**浏览器终端/控制台依赖它，必须保留**）。
-lan 无边缘层，同 3 个源站改为发布宿主 `LAN_*_PORT` 端口、纯 HTTP（ADR-012）。
+公网/本地暴露 **2 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）。
+**daemon 不对外暴露**（ADR-026）：10.22 起面板自身中转浏览器↔daemon 数据流，节点地址固定
+内网名，终端/控制台/文件管理经面板端口。lan 无边缘层，同 2 个源站改为发布宿主
+`LAN_*_PORT` 端口、纯 HTTP（ADR-012）。
 **EasyBot 插件 API 仅内网**——插件挂 `orzmc_default` 网络直连 `http://easybot:8080`，
 无 `easybot-api` 子域名。
 
@@ -166,7 +167,7 @@ compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck 
 
 - `$DATA_ROOT/.env`、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、
   daemon key（`global.json`）均属密钥：权限收紧、随数据备份、**永不入库**。
-- 公网仅暴露 3 个入口（`mcs` / `easybot` / `mcs-node`）；
+- 公网仅暴露 2 个入口（`mcs` / `easybot`）；daemon 端口不发布（面板中转，ADR-026）；
   `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为可信环境。
   **lan 无边缘层**：面板口令与 daemon 端口以明文 HTTP 暴露给局域网（daemon key 鉴权，
   可管理 docker.sock），**仅限可信局域网**（ADR-012）。

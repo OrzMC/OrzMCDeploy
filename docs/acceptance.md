@@ -5,8 +5,8 @@
 > 与平台层相关文档联动：架构与 ADR 见 `docs/architecture.md`，用户操作见 `docs/usage.md`。
 
 > ⚠️ **本文是 2026-08-15 的历史验收记录**：其中「6 容器 / 4 入口 / MariaDB / Gatus」
-> 均为 ADR-025 之前的形态。当前基线为 **4 容器（web/daemon/cloudflared/easybot）、
-> 3 入口（mcs/easybot/mcs-node）**，以 `docs/architecture.md` ADR-025 为准。
+> 均为已废止形态。当前基线为 **4 容器（web/daemon/cloudflared/easybot）、2 入口
+> （mcs/easybot；daemon 不暴露）**，以 `docs/architecture.md` ADR-025/ADR-026 为准。
 
 ## 1. 前置条件与总览
 

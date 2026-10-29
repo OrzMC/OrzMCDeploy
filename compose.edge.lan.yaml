@@ -3,16 +3,15 @@
 #
 # 由 lib/common.sh 的 compose_cmd 在 EDGE=lan 时追加合并：
 #   docker compose -f compose.yaml -f compose.edge.lan.yaml --profile easybot
-# 本文件不做任何新服务，只给 3 个源站补 `ports:` 发布宿主端口：
+# 本文件不做任何新服务，只给 2 个源站补 `ports:` 发布宿主端口：
 #   - 无边缘层：EDGE=lan 不追加 Caddy/cloudflared override，故无 Caddy / cloudflared、
 #     无域名、无 TLS。
 #   - 纯 HTTP：局域网设备用 http://<宿主LAN IP>:<端口> 访问（可信内网假设，
 #     面板/EasyBot 登录口令走局域网明文）。
-#   - 宿主发布端口在 .env 用 LAN_*_PORT 覆盖（默认 18090/18091/24444，
-#     避开 local Caddy 的 18080/18443 与实例端口 25565/25566）。
-#   - daemon 节点配置仍为内网直连 ws://mcsmanager-daemon:24444（ADR-011，与 cloudflare
-#     相同，零运行时改动）；本文件发布的 daemon 端口供局域网直连 daemon API
-#     （daemon key 鉴权），浏览器「网页直连」终端在 lan 下依旧不可用（ADR-011）。
+#   - 宿主发布端口在 .env 用 LAN_*_PORT 覆盖（默认 18090/18091），
+#     避开 local Caddy 的 18080/18443 与实例端口 25565/25566。
+#   - **daemon 端口不发布**（ADR-026）：面板中转模式下浏览器只连面板，节点地址固定
+#     内网名 ws://mcsmanager-daemon:24444，daemon 无需对宿主/局域网暴露任何端口。
 #   - 仅当对应服务被 ENABLE_* 启用时才生效：本文件对未启用服务（如 ENABLE_EASYBOT=
 #     false）的 ports 合并无实际效果（该服务不运行）。
 # ===========================================================================
@@ -25,7 +24,3 @@ services:
   easybot:
     ports:
       - "${LAN_EASYBOT_PORT:-18091}:${EASYBOT_PORT}"
-
-  mcsmanager-daemon:
-    ports:
-      - "${LAN_MCS_DAEMON_PORT:-24444}:${MCS_DAEMON_PORT}"

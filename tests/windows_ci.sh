@@ -122,6 +122,7 @@ DATA_ROOT="E:/orzmc"
 cat > "$TMP/.env" <<EOF
 TZ=Asia/Shanghai
 DAEMON_PORTS=25565:25565/tcp,19132:19132/udp
+# LAN_MCS_DAEMON_PORT 自 ADR-026 起已无消费者，保留在样本里验证"多余变量不炸"
 LAN_MCS_DAEMON_PORT=24444
 MCS_DAEMON_PORT=24444
 EOF
@@ -186,12 +187,12 @@ mkdir -p "$TMP/inst-empty/mcsmanager/daemon/data/InstanceConfig"
 check "无 docker 型实例时原样输出" "25565:25565/tcp,19132:19132/udp" "$(win_effective_daemon_ports "$TMP/inst-empty" 2>/dev/null)"
 
 # ===========================================================================
-section "win_daemon_run —— lan 模式补 daemon API 端口"
+section "win_daemon_run —— lan 档不再发布 daemon 端口（ADR-026）"
 EDGE=lan
 DOCKER_RUN_LOGLINE=""
 win_daemon_run >/dev/null 2>&1
 echo "  docker run 捕获: $DOCKER_RUN_LOGLINE"
-check "lan 下补 -p 24444:24444" "1" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-p 24444:24444')"
+check "lan 下不再补 -p 24444" "0" "$(printf '%s' "$DOCKER_RUN_LOGLINE" | grep -c '\-p 24444')"
 
 # ===========================================================================
 section "win_daemon_alias —— 别名缺失时 disconnect+connect --alias"
@@ -269,6 +270,15 @@ check "服务列表不含 daemon" "0" "$(printf '%s' "$calls" | grep 'up -d --no
 check "服务列表含 web" "1" "$(printf '%s' "$calls" | grep 'up -d --no-deps' | grep -c 'mcsmanager-web')"
 check "COMPOSE_FILE 转 Windows 原生路径" "1" "$(printf '%s' "$calls" | grep -c '\-f C:/')"
 check "issue #11 自动追加 site override" "1" "$(printf '%s' "$calls" | grep -c 'compose.site.yaml')"
+
+# ADR-029：DAEMON_PORTS 为空时 daemon 交给 compose（不再 --no-deps 剔除）
+sed -i.bak 's/^DAEMON_PORTS=.*/DAEMON_PORTS=/' "$TMP/.env" 2>/dev/null || true
+DOCKER_CALLS=()
+compose_cmd up -d >/dev/null 2>&1
+calls2="$(printf '%s\n' "${DOCKER_CALLS[@]}")"
+echo "  docker 调用(无 DAEMON_PORTS): $calls2"
+check "DAEMON_PORTS 为空时走 compose up -d（无 --no-deps）" "0" "$(printf '%s' "$calls2" | grep -c -- '--no-deps')"
+check "DAEMON_PORTS 为空时不由 docker run 创建 daemon" "0" "$(printf '%s\n' "${DOCKER_CALLS[@]}" | grep -c '^run ')"
 
 # ===========================================================================
 section "posix 分支不受影响（回归）—— compose_cmd 透传"

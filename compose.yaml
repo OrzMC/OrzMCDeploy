@@ -18,9 +18,9 @@
 #       EDGE=lan        → compose.edge.lan.yaml         （4 源站发宿主端口，纯 HTTP）
 #       EDGE=none       → 不追加（仅内网 orzmc_default，不对外）
 #   compose_cmd 负责按 EDGE + ENABLE_* 拼出完整的 -f / --profile 集合。
-# 公网/本地暴露 3 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
-# 密钥鉴权；远程终端依赖它，ADR-013）；EasyBot 插件 API 仅内网（插件挂
-# orzmc_default 直连 http://easybot:8080）。
+# 公网/本地暴露 2 个入口：mcs 面板、easybot 后台；**daemon 不对外暴露**（ADR-026：
+# 面板中转浏览器↔daemon 数据流，节点地址固定内网名）。EasyBot 插件 API 仅内网
+# （插件挂 orzmc_default 直连 http://easybot:8080）。
 # ===========================================================================
 
 name: orzmc
@@ -43,11 +43,6 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - "${DATA_ROOT}/mcsmanager/web/data:/opt/mcsmanager/web/data"
       - "${DATA_ROOT}/mcsmanager/web/logs:/opt/mcsmanager/web/logs"
-    extra_hosts:
-      # local：面板服务端（容器）连 daemon 走节点地址 wss://mcs-node.localhost:18443（Caddy，
-      # 与浏览器同一地址，ADR-013）；容器内把 mcs-node.localhost 解析到宿主（Caddy 非特权端口）。
-      # host-gateway 需 Docker ≥20.10（Desktop ≥4.x）；prod/lan 下该主机名未使用，无副作用。
-      - "mcs-node.localhost:host-gateway"
 
   mcsmanager-daemon:
     # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
