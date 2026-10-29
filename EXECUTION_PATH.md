@@ -117,3 +117,14 @@ CI（`.github/workflows/ci.yml`）跑同样三组：`lint` / `validate` / `windo
   `http://114.240.151.88:23333` 从公网仍超时（防火墙生效，面板端口未暴露）。
 - **注意**：`$DATA_ROOT/caddy/data` 存证书与 ACME 账号，**务必随数据备份**；
   路由器若日后封 443，只需把外部端口换成 18443（已发布到宿主 443）即可，证书不受影响。
+
+### 2026-10-29 EasyBot 公网入口收口
+
+- `easybot.jokerhub.cn` 经同一 Caddy 反代可用（`/` 200、`/admin` 200、`/api/v1/live` 200）。
+- **发现并修复**：Caddy 反代把 EasyBot 的 `/docs`、`/swagger`（开发文档）一并暴露到公网
+  → 在 Caddyfile 里无条件 404；局域网改走 `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>/docs`
+  （已实测 200）。
+- **踩坑记录**：容器内 `remote_ip` 被 Docker 改写成网桥网关，无法据此区分局域网/公网，
+  所以"只对局域网开放某路径"这类规则不能靠 IP 匹配实现。
+- **残留风险（已知可接受）**：EasyBot 插件 API 与管理后台同端口，公网可达但需 API key
+  （未鉴权返回 401）。若不需要公网管理 EasyBot，建议不配该域名，只留面板一个公网入口。

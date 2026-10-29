@@ -103,6 +103,19 @@ mcs.example.com {
 | 防火墙 | 只额外放行 Caddy 的端口（80/443）；面板 23333、EasyBot 18091 仍限 `LAN_CIDR` |
 | 路由器 | `外部 443 → 宿主 443`；若 ISP 封 443，可改映射高位端口（如 18443 → 宿主 443），证书与端口无关 |
 
+**反代不要顺带暴露开发文档**：EasyBot 的 `/docs`、`/swagger` 是开发调试页面，
+公网无必要。注意 **容器内 `remote_ip` 已被 Docker 改写成网桥网关**，靠 IP 匹配区分
+内外网并不可靠——直接在反代里无条件挡掉、局域网改走宿主端口即可：
+
+```text
+@devdocs path /docs* /swagger*
+respond @devdocs "404 page not found" 404
+```
+
+同理：EasyBot 的插件 API（`/api/v1/*`）与管理后台同端口，一旦把该域名反代出去，
+插件 API 也随之外露（有 API key 鉴权）。若不需要公网管理 EasyBot，最省事的是
+**不给它配公网域名**，只保留面板一个公网入口。
+
 验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer 是否为 Let's Encrypt；
 `curl -I https://<域名>/` 200；证书到期前 Caddy 会按 ARI 自动续期，无需人工干预。
 
