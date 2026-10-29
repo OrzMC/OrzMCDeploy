@@ -178,14 +178,13 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 - `init`：生成 `.local-data/.env`（从 `templates/env.local`，权限 600）与数据目录。
 - `start`：compose 按 `local` profile 拉起 `mcsmanager-web`、`mcsmanager-daemon`、`easybot`
   与 `reverse-proxy`（Caddy），无报错。
-- `status`：打印四个访问地址（Caddy 本地证书，首次访问有自签警告，放行即可）：
+- `status`：打印三个访问地址（Caddy 本地证书，首次访问有自签警告，放行即可）：
 
   | 地址 | 用途 |
   |---|---|
   | `https://mcs.localhost:18443` | MCSManager 面板 |
   | `https://easybot.localhost:18443` | EasyBot 管理后台 |
   | `https://mcs-node.localhost:18443` | MCSManager daemon（浏览器直连） |
-  | `https://orzmcs.localhost:18443` | 统一状态页（Gatus：聚合产品入口 + 实时健康） |
 
 浏览器打开 MCSManager 面板，按[第 6 章](#6-管理-papermc-实例)建管理员并创建一个测试
 PaperMC 实例。启动成功后，玩家可用 `Mac 局域网 IP:25566` 进服（测试服端口，见附录 B）。
@@ -218,13 +217,11 @@ docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
   cloudflare/cloudflared tunnel route dns orzmc easybot.<domain>
 docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
   cloudflare/cloudflared tunnel route dns orzmc mcs-node.<domain>
-docker run --rm -v <DATA_ROOT>/cloudflared:/home/cloudflared \
-  cloudflare/cloudflared tunnel route dns orzmc orzmcs.<domain>
 ```
 
 - `login`：浏览器里给 Cloudflare 账号授权，`cert.pem` 落到 `<DATA_ROOT>/cloudflared/`。
 - `create orzmc`：生成隧道凭据 `<tunnel-id>.json` 与隧道 UUID。
-- `route dns`：在 Cloudflare 建四条 CNAME（`mcs` / `easybot` / `mcs-node` / `orzmcs`），
+- `route dns`：在 Cloudflare 建三条 CNAME（`mcs` / `easybot` / `mcs-node`），
 
 ```bash
 # 2. 初始化生产数据目录与 .env（生成 .env 与 cloudflared/config.yml）
@@ -232,7 +229,7 @@ deploy.sh -d <DATA_ROOT> init
 
 # 3. 编辑 .env，至少修改以下项（用编辑器打开 <DATA_ROOT>/.env）
 #    - CLOUDFLARE_TUNNEL_ID   ← create 输出的隧道 UUID
-#    - DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE / DOMAIN_STATUS  ← 你的四个真实子域名
+#    - DOMAIN_MCS_WEB / DOMAIN_EASY_ADMIN / DOMAIN_MCS_NODE  ← 你的三个真实子域名
 #    - EASYBOT_ADMIN_PASSWORD ← 设一个强密码
 #    - QQBOT_APP_ID / QQBOT_CLIENT_SECRET ← 需要 QQ bot 时填写
 
@@ -248,14 +245,13 @@ deploy.sh -d <DATA_ROOT> up
 - `validate`：提示必需环境变量齐全、compose 配置合法。
 - `up` 后：`docker logs orzmc-cloudflared` 出现"隧道已注册 / Registered tunnel"；
   公网 `curl -I https://mcs.<domain>` 返回 200。
-- 四个公网入口：
+- 三个公网入口：
 
   | 地址 | 用途 |
   |---|---|
   | `https://mcs.<domain>` | MCSManager 面板 |
   | `https://easybot.<domain>` | EasyBot 管理后台 |
   | `https://mcs-node.<domain>` | MCSManager daemon（无 key 会提示鉴权，属预期） |
-  | `https://orzmcs.<domain>` | 统一状态页（Gatus：聚合产品入口 + 实时健康，无鉴权仅状态） |
 
 之后按[第 6 章](#6-管理-papermc-实例)建管理员、加节点、建实例；正式服端口 `25565`
 供玩家局域网直连。
@@ -264,7 +260,7 @@ deploy.sh -d <DATA_ROOT> up
 
 ### 3.4 路径 C：局域网直连（lan，15 分钟）
 
-适合**可信局域网**内多人直连：不配置公网域名、不做 TLS 终止，4 个源站直接发布
+适合**可信局域网**内多人直连：不配置公网域名、不做 TLS 终止，3 个源站直接发布
 宿主端口、纯 HTTP（ADR-012）。无需 Cloudflare 账号、无任何域名/DNS 配置。
 
 ```bash
@@ -273,7 +269,7 @@ deploy.sh -d <DATA_ROOT> up
 ./lan.sh init
 
 # 2. 编辑 .local-data-lan/.env，把 LAN_HOST_IP 改成宿主机局域网 IP（局域网设备入口）
-#    （也可同时覆盖 LAN_*_PORT 宿主发布端口，默认 18090/18091/18092/24444）
+#    （也可同时覆盖 LAN_*_PORT 宿主发布端口，默认 18090/18091/24444）
 
 # 3. 启动平台层（lan profile：无 Caddy/cloudflared 边缘层）
 ./lan.sh start
@@ -284,15 +280,14 @@ deploy.sh -d <DATA_ROOT> up
 
 **预期看到**：
 
-- `start`：compose 按 `lan` profile 拉起 `mcsmanager-web`、`mcsmanager-daemon`、
-  `easybot`、`mariadb`、`status`（**无** `reverse-proxy`/`cloudflared`）。
+- `start`：compose 拉起 `mcsmanager-web`、`mcsmanager-daemon`、`easybot`
+  （**无** `reverse-proxy`/`cloudflared` 边缘层服务）。
 - 局域网设备（同一网段）访问：
 
   | 地址 | 用途 |
   |---|---|
   | `http://<LAN_HOST_IP>:18090` | MCSManager 面板 |
   | `http://<LAN_HOST_IP>:18091` | EasyBot 管理后台 |
-  | `http://<LAN_HOST_IP>:18092` | 统一状态页（Gatus：聚合入口 + 实时健康） |
   | `http://<LAN_HOST_IP>:24444` | MCSManager daemon（daemon key 鉴权；lan 无边缘层，浏览器经 LAN IP 直连终端可用，ADR-014） |
 
 - 登录面板建管理员、加节点（lan 节点地址填 `ws://<LAN_HOST_IP>` / `<LAN_MCS_DAEMON_PORT>`
@@ -328,26 +323,19 @@ deploy.sh -d <DATA_ROOT> up
 | `DOMAIN_MCS_WEB` | ✔ | ✔ | — | MCSManager 面板域名：`mcs.<domain>` / `mcs.localhost` |
 | `DOMAIN_EASY_ADMIN` | ✔ | ✔ | — | EasyBot 后台域名：`easybot.<domain>` / `easybot.localhost` |
 | `DOMAIN_MCS_NODE` | ✔ | ✔ | — | daemon 直连域名：`mcs-node.<domain>` / `mcs-node.localhost` |
-| `DOMAIN_STATUS` | ✔ | ✔ | — | 统一状态页域名：`orzmcs.<domain>` / `orzmcs.localhost` |
 | `CADDY_EMAIL` | — | ✔ | — | Caddy 证书邮箱（本地模板用占位） |
 | `PROXY_HTTP_PORT` | — | ✔ | — | 本地 Caddy HTTP 端口（默认 `18080`） |
 | `PROXY_HTTPS_PORT` | — | ✔ | — | 本地 Caddy HTTPS 端口（默认 `18443`） |
 | `LAN_HOST_IP` | — | — | ✔ | 宿主机局域网 IP（lan 访问入口；DHCP 变更需同步更新） |
 | `LAN_MCS_WEB_PORT` | — | — | ✔ | lan 面板宿主发布端口（默认 `18090`） |
 | `LAN_EASYBOT_PORT` | — | — | ✔ | lan EasyBot 宿主发布端口（默认 `18091`） |
-| `LAN_STATUS_PORT` | — | — | ✔ | lan 状态页宿主发布端口（默认 `18092`） |
 | `LAN_MCS_DAEMON_PORT` | — | — | ✔ | lan daemon 宿主发布端口（默认 `24444`） |
 | `EASYBOT_PORT` | ✔ | ✔ | ✔ | EasyBot 内网端口（默认 `8080`） |
 | `EASYBOT_ADMIN_PASSWORD` | ✔ | ✔ | ✔ | EasyBot 管理后台密码（强密码） |
 | `MCS_WEB_PORT` | ✔ | ✔ | ✔ | MCSManager Web 端口（默认 `23333`） |
 | `MCS_DAEMON_PORT` | ✔ | ✔ | ✔ | MCSManager Daemon 端口（默认 `24444`） |
-| `STATUS_PORT` | ✔ | ✔ | ✔ | Gatus 状态页内网端口（默认 `8080`，仅 expose） |
 | `QQBOT_APP_ID` | ✔ | ✔ | ✔ | QQ 开放平台 AppID（接 QQ 时必填） |
 | `QQBOT_CLIENT_SECRET` | ✔ | ✔ | ✔ | QQ 开放平台 ClientSecret（接 QQ 时必填） |
-| `MARIADB_ROOT_PASSWORD` | ✔ | ✔ | ✔ | MariaDB root 密码（强密码，密钥） |
-| `MARIADB_DATABASE` | ✔ | ✔ | ✔ | 插件默认数据库名（如 `papermc`） |
-| `MARIADB_USER` | ✔ | ✔ | ✔ | 插件连接用户名（如 `mc`） |
-| `MARIADB_PASSWORD` | ✔ | ✔ | ✔ | 插件连接密码（强密码，密钥） |
 
 **可选变量**：`DNS_PRIMARY` / `DNS_SECONDARY`（仅 prod 生效，cloudflared 解析 Cloudflare
 边缘用的公网 DNS）。仅在该宿主 DNS 被 fake-ip 代理（Clash/Surge 类）劫持成
@@ -358,12 +346,11 @@ deploy.sh -d <DATA_ROOT> up
 （模板里已有注释示例）。微信为扫码登录、默认自动启用，不需要时禁用，见
 [docs/easybot.md](easybot.md)（`gateway.local.yaml`）。
 
-**应用数据库 MariaDB**：平台层常驻服务（默认启用，无开关）。插件挂 `orzmc_default`
-内网直连 `jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>`（仅 `expose` 3306，不发布
-宿主机、无公网/边缘入口）。数据落 `$DATA_ROOT/database/mariadb`，随整机备份。
-> ⚠️ **既有部署迁移**：`ensure_env_file` 不覆盖已有 `.env`，存量环境需手动把上面
-> `MARIADB_*` 四项与 `DOMAIN_STATUS` / `STATUS_PORT` 两行补进 `$DATA_ROOT/.env`，再跑
-> `deploy.sh validate`（会强制校验）。
+**平台层数据库与状态页已移除（ADR-025，v0.1.0）**：MariaDB 与 Gatus 不再随平台层部署
+（实测 `papermc` 库 0 张表、插件全走本地存储；状态页每 30 s 经隧道自我轮询，反而拖慢
+公网访问）。需要时在 `$DATA_ROOT/compose.site.yaml` 用站点增量加回，升级换包不丢。
+> ⚠️ **存量部署**：旧 `.env` 里的 `MARIADB_*` / `DOMAIN_STATUS` / `STATUS_PORT` /
+> `ENABLE_MARIADB` / `ENABLE_STATUS` 变为无消费者的普通行，**不报错**，可随手删除。
 
 ### 4.2 单 Profile：EDGE 边缘层 + ENABLE_* 可选服务（ADR-017）
 
@@ -373,36 +360,35 @@ deploy.sh -d <DATA_ROOT> up
 | 维度 | 配置（`.env`） | 说明 |
 |---|---|---|
 | 边缘层 | `EDGE=`（`cloudflare`/`local`/`lan`/`none`） | `compose_cmd` 按 EDGE 追加 `compose.edge.<edge>.yaml` override |
-| 可选服务 | `ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS`（缺省 `true`） | 按启用项追加 `--profile <name>`；核心 web/daemon 常驻 |
+| 可选服务 | `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
 | 入口 | `./orzmc.sh`（唯一，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
 
-- **EDGE 边缘层**决定 4 个源站（`mcs`/`easybot`/`mcs-node`/`orzmcs`）对外如何可达：
+- **EDGE 边缘层**决定 3 个源站（`mcs`/`easybot`/`mcs-node`）对外如何可达：
   - `cloudflare` → cloudflared 隧道（生产，真实 HTTPS，免开端口）
   - `local` → Caddy（`.localhost` + 本地 CA + 非特权端口 18080/18443）
-  - `lan` → 无边缘层，4 源站发宿主端口，纯 HTTP（`http://<LAN_HOST_IP>:<LAN_*_PORT>`）
+  - `lan` → 无边缘层，3 源站发宿主端口，纯 HTTP（`http://<LAN_HOST_IP>:<LAN_*_PORT>`）
   - `none` → 仅内网 `orzmc_default`（不对外）
-- **ENABLE_\*** 可选服务：easybot/mariadb/status 带 `profiles: ["<name>"]` 标签，默认全启用，
+- **ENABLE_EASYBOT** 可选服务：easybot 带 `profiles: ["easybot"]` 标签，缺省启用，
   置 `false` 即从 `--profile` 移除（`docker compose config --services` 不再包含它）。
 - 脚本通过 `EDGE`（或兼容旧值 `COMPOSE_PROFILE`，`prod`→`cloudflare` 自动映射）选择边缘层：
   `./orzmc.sh -e cloudflare`、`-e local`、`-e lan`。旧入口 `deploy.sh -p ...`/`local.sh`/
   `lan.sh`/`windows.sh` 兼容保留（deprecated）。`lan` 无边缘层：不追加任何 edge override，
-  4 源站端口由 `compose.edge.lan.yaml` 发布（ADR-012）。
+  3 源站端口由 `compose.edge.lan.yaml` 发布（ADR-012）。
 
 ### 4.3 域名约定
 
-子域名 = 产品代号，无后缀即该产品管理控制台；`orzmcs` 为平台自身入口（统一状态页）。
+子域名 = 产品代号，无后缀即该产品管理控制台。
 
 | 子域名 | 用途 |
 |---|---|
 | `mcs.<domain>` | MCSManager 面板 |
 | `easybot.<domain>` | EasyBot 管理后台 |
 | `mcs-node.<domain>` | MCSManager daemon（浏览器直连，daemon key 鉴权） |
-| `orzmcs.<domain>` | 统一状态页（Gatus：聚合产品入口 + 实时健康，无鉴权仅状态） |
 
 **插件 API 不设域名**——PaperMC 插件跑在 `orzmc_default` 网络内直连 `http://easybot:8080`。
 
 **lan 无域名**：无边缘层时不存在子域名，局域网设备用 `http://<LAN_HOST_IP>:<LAN_*_PORT>`
-访问同 4 个入口（LAN_HOST_IP 即宿主局域网 IP，见 §3.4）。
+访问同 3 个入口（LAN_HOST_IP 即宿主局域网 IP，见 §3.4）。
 
 ### 4.4 模板同步
 
@@ -542,13 +528,9 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 ```
 
 - 归档**整个 `$DATA_ROOT`**（含 `.env`、cloudflared 凭据、各服务数据、
-  `mcsmanager/daemon/data/InstanceData/`（面板实例数据）、`database/`），默认输出到
+  `mcsmanager/daemon/data/InstanceData/`（面板实例数据）），默认输出到
   `$(dirname $DATA_ROOT)/orzmc-backups`（在 DATA_ROOT 之外，避免自我包含）。
 - 归档名：`orzmc-backup-YYYYmmdd-HHMMSS.tar.gz`。
-- **MariaDB 逻辑备份**：打包前自动 `mariadb-dump --all-databases --single-transaction`
-  产出一致快照到 `$DATA_ROOT/database/dumps/mariadb-all-*.sql`（随归档一起备份），
-  **无论是否 `--stop`** 归档都含一致逻辑快照；dump 失败不中断整机备份（归档仍含
-  冷数据目录）。`--keep` 会同步剪掉过期的逻辑备份。
 - ⚠️ **重要**：PaperMC 实例**不在 compose 内**（由 MCSManager 管理），`--stop` 只保证
   compose 一致性。要完全一致的快照，请先在面板**停止实例**再备份。
 - 迁移基线建议：先面板停实例 → `backup.sh --stop` → 校验归档（`tar tzf`）确认含
@@ -565,17 +547,6 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 - 归档顶层目录名与目标不一致时默认拒绝，`--force` 解压后改名。
 - 还原到**新路径**时自动改写 `.env` 内的 `DATA_ROOT`（迁移核心），并保留
   `.env.bak-restore`。
-- **应用数据库**：整树解包自动还原 `database/mariadb`（冷数据目录，**权威**）与
-  `database/dumps/*.sql`（逻辑快照，**兜底**）。`restore.sh` 会校验数据目录存在；
-  若归档只有逻辑备份（冷目录缺失/损坏），解压后手动导入再启动：
-  `docker exec -i orzmc-mariadb mariadb -uroot -p"<MARIADB_ROOT_PASSWORD>" < database/dumps/mariadb-all-*.sql`
-  （⚠️ 归档解压在 DATA_ROOT 内，命令须在该 DATA_ROOT 对应的栈上执行）。
-- **冷数据还原后的 healthcheck**：`mariadb` 容器可能显示 `unhealthy`，但数据库经 TCP
-  用 `.env` 凭据连接完全正常（web 面板/插件不受影响）。原因是镜像自带 healthcheck 依赖
-  `mysql@localhost` unix_socket 账号，该账号**仅首次空目录 init 创建**，还原的冷数据目录
-  没有（issue #7）。本批已把 healthcheck 改为 root+socket 口令探活，还原后即为 `healthy`；
-  旧环境可手动补建：`CREATE USER IF NOT EXISTS 'mysql'@'localhost' IDENTIFIED VIA unix_socket;`
-  `GRANT ALL PRIVILEGES ON *.* TO 'mysql'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;`
 - 详细迁移流程见[第 10 章](#10-迁移到新主机)。
 
 ---
@@ -638,8 +609,8 @@ socket.io 直连 daemon；若填 Docker 内网主机名，浏览器解析不了�
     $DATA_ROOT/caddy/data/caddy/pki/authorities/local/root.crt
   ```
   （`curl` 不带 `-k` 能过即系统信任已生效。）
-- **lan 的 `LAN_HOST_IP` 是 DHCP**：换 IP 需同步改 `.env`、删 `status/config.yaml` 重新
-  init、并改节点地址；`<LAN_MCS_DAEMON_PORT>` 默认 `24444`。
+- **lan 的 `LAN_HOST_IP` 是 DHCP**：换 IP 需同步改 `.env`、重新 init、
+  并改节点地址；`<LAN_MCS_DAEMON_PORT>` 默认 `24444`。
 
 > ⚠️ **「网页直连」**：节点详情页「网页直连」反映浏览器直连 daemon 的 socket.io 通道。
 > macOS/Linux 三档走上面的地址后该通道均可用；若误填内网地址 `ws://mcsmanager-daemon`
@@ -781,13 +752,10 @@ platforms:
 | Cloudflare 隧道凭据 | `$DATA_ROOT/cloudflared/cert.pem`、`<tunnel-id>.json` | 按密钥对待：仅 DATA_ROOT 内、随备份、权限收紧 |
 | daemon key | `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` | 等同最高权限（可管理宿主机 Docker），600、随备份、永不入库 |
 | EasyBot API key / 会话 key | 插件 `easybot.yml` | 密钥，不入库 |
-| MariaDB 密码 | `$DATA_ROOT/.env` 的 `MARIADB_ROOT_PASSWORD` / `MARIADB_PASSWORD` | 600、随备份、永不入库 |
-| MariaDB 逻辑备份 | `$DATA_ROOT/database/dumps/*.sql` | 含 `mysql` 系统库（用户/授权），600、随备份、永不入库 |
 
-- **公网暴露面只有 4 个入口**：`mcs` / `easybot` / `mcs-node`（均有鉴权）+ `status`
-  （统一状态页，无鉴权仅服务名与状态、不含密钥）。
+- **公网暴露面只有 3 个入口**：`mcs` / `easybot` / `mcs-node`（均有鉴权）。
   **EasyBot 插件 API 仅内网**（`http://easybot:8080`），无公网域名。
-- **prod / local 不发布任何宿主机端口**（全部服务仅 `expose`）。**lan 例外**：4 个源站
+- **prod / local 不发布任何宿主机端口**（全部服务仅 `expose`）。**lan 例外**：3 个源站
   发布宿主 `LAN_*_PORT` 端口、纯 HTTP——**仅限可信局域网**（ADR-012）。
 - **lan 的 daemon 端口对局域网开放**（`LAN_MCS_DAEMON_PORT`）：daemon key 鉴权、可管理
   宿主机 Docker，等同对局域网开放最高权限密钥的探测面——再次强调**仅限可信局域网**，
@@ -883,17 +851,17 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 |---|---|---|
 | `18080` / `18443` | local Caddy HTTP / HTTPS | 宿主机映射，仅本地 |
 | `80` / `443` | Caddy 容器内监听 | local profile |
-| `18090` / `18091` / `18092` | lan 宿主发布端口：面板 / EasyBot / 状态页 | `LAN_*_PORT` 可覆盖，仅 lan profile |
+| `18090` / `18091` | lan 宿主发布端口：面板 / EasyBot | `LAN_*_PORT` 可覆盖，仅 `EDGE=lan` |
 | `24444` | MCSManager Daemon | 容器内仅 `expose`；浏览器经 `mcs-node.<domain>` 直连；lan 下同时经 `LAN_MCS_DAEMON_PORT` 发布宿主端口（daemon key 鉴权） |
 | `23333` | MCSManager Web | 容器内仅 `expose` |
 | `8080` | EasyBot | 容器内仅 `expose`；插件内网直连 |
-| `8080` | Gatus 状态页 | 容器内仅 `expose`（`STATUS_PORT`，与 EasyBot 各自独立容器内、互不冲突） |
 | `25565` | PaperMC 正式服 | 由 MCSManager 实例映射，玩家局域网直连 |
 | `25566` | PaperMC 测试服 | 同上 |
 | `25575` / `25576` | RCON（可选） | 参考，默认关 |
 
-> prod / local 模式**不发布任何宿主机端口**；lan 模式发布 4 个 `LAN_*_PORT` 源站端口
-> （默认 `18090` / `18091` / `18092` / `24444`，纯 HTTP，仅限可信局域网）。
+> cloudflare / local 模式**不发布任何宿主机端口**（站点如需局域网直连，可用
+> `compose.site.yaml` 单独发布）；lan 模式发布 3 个 `LAN_*_PORT` 源站端口
+> （默认 `18090` / `18091` / `24444`，纯 HTTP，仅限可信局域网）。
 
 ## 附录 C DATA_ROOT 目录树
 
@@ -916,24 +884,18 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 │       └── logs/
 ├── easybot/
 │   └── data/                      # gateway.db 等网关数据
-├── status/
-│   └── config.yaml                # Gatus 状态页配置（init 生成，绝不覆盖）
-├── database/
-│   ├── mariadb/                   # InnoDB 数据目录（uid/gid=999）
-│   └── dumps/                     # backup.sh 逻辑备份（含系统库，密钥，600）
+# 注：status/ 与 database/ 仅在 ADR-025 前的旧部署中存在，可安全删除
 ```
 
 ## 附录 D 服务与镜像
 
 | 服务 | 容器名 | profile | 镜像（digest 锁定） |
 |---|---|---|---|
-| `reverse-proxy` | `orzmc-caddy` | local | `caddy` |
-| `cloudflared` | `orzmc-cloudflared` | prod | `cloudflare/cloudflared` |
-| `mcsmanager-web` | `orzmc-mcsmanager-web` | 三者 | `githubyumao/mcsmanager-web` |
-| `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 三者 | `githubyumao/mcsmanager-daemon` |
-| `easybot` | `orzmc-easybot` | 三者 | `ghcr.io/easyindie/easybot` |
-| `mariadb` | `orzmc-mariadb` | 三者 | `mariadb:11.4`（应用数据库，插件用） |
-| `status` | `orzmc-status` | 三者 | `twinproduction/gatus`（统一状态页） |
+| `reverse-proxy` | `orzmc-caddy` | `EDGE=local` | `caddy` |
+| `cloudflared` | `orzmc-cloudflared` | `EDGE=cloudflare` | `cloudflare/cloudflared` |
+| `mcsmanager-web` | `orzmc-mcsmanager-web` | 常驻 | `githubyumao/mcsmanager-web` |
+| `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 常驻 | `githubyumao/mcsmanager-daemon` |
+| `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`） | `ghcr.io/easyindie/easybot` |
 
 镜像版本以 `compose.yaml` 中 `image:xxx@sha256:...` 为准；刷新用 `update-image-digests.sh`。
 
@@ -943,9 +905,8 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 
 ## 附录 F 硬件选型（按在线人数）
 
-> 本文档的**平台层**（mcsmanager / easybot / cloudflared / mariadb / status，见附录 D）
-> 实测占用**固定约 0.5–0.6 GB / 1 核**（其中 mariadb 常驻约 0.3 GB；status/Gatus 为 scratch
-> 镜像，占用可忽略），不随玩家数变化——
+> 本文档的**平台层**（mcsmanager-web / daemon / easybot / cloudflared，见附录 D）
+> 实测占用**固定约 0.25–0.3 GB / 1 核**（ADR-025 移除 mariadb 与 Gatus 后），不随玩家数变化——
 > 所有档位的资源大头都是 PaperMC 实例本身。
 
 ### 前提：档位 = 同时在线
@@ -966,21 +927,16 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 \* 网络上行指"玩家从公网进服"（隧道/端口转发）时的持续上行；本方案默认玩家局域网直连
 25565，那个场景下千兆局域网即可。
 
-> MariaDB 常驻约 0.3 GB（默认 buffer pool 128M），上表各档整机内存**已含**该固定成本且仍
-> 富余（重算见下）。低内存（<8 GB）环境可调 `--innodb-buffer-pool-size=64M` 再压约 0.15 GB。
-> 磁盘方面 mariadb 初始约 1 GB（系统库 + redo 日志），对 20 GB 起步的磁盘档位可忽略。
 
 ### 为什么是这些数（底层逻辑）
 
-1. **平台层成本固定**：mcsmanager + easybot + cloudflared + mariadb 实测约
-   0.5–0.6 GB / 1 核（mariadb 默认 buffer pool 128M，约 0.3 GB；可调
-   `--innodb-buffer-pool-size` 压到约 0.15 GB）。20→200 人档平台层开销一样，
-   涨的全是 MC 实例。
+1. **平台层成本固定**：mcsmanager（web+daemon）+ easybot + cloudflared 实测约
+   0.25–0.3 GB / 1 核。20→200 人档平台层开销一样，涨的全是 MC 实例。
 2. **MC 的硬瓶颈是单线程 tick**：20 TPS 主循环只跑在一个核上，**单核主频比核数更重要**——
    100 人档也要"顶级单核"而不是堆低主频核。核数的用处是 Paper 的**异步区块生成**、GC 线程，
    以及 150 人以上把世界拆给多个实例。内存随**已加载区块数**涨（约每玩家 100–200 MB），
    粗略估算：`堆内存 ≈ 同时在线 × 0.15–0.2 GB`，
-   整机内存 ≈ 堆 + 平台(含 mariadb) 约 0.6G + 系统约 2G。
+   整机内存 ≈ 堆 + 平台约 0.3G + 系统约 2G。
 3. **三个杠杆能压配置，让"临界"档活下来**：
    - **视距**：10 → 6，实体/区块负载可降 40%+，最有效的旋钮
    - **预生成世界**（`/pregen` 类工具）：消掉"边玩边生成区块"这个最大的 CPU 尖峰，
@@ -1002,8 +958,6 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | `mcsmanager-daemon` | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | `512M` / `384` | 堆须与上限对齐，见 issue #10 |
 | `easybot` | `EASYBOT_MEMORY_LIMIT` | `512M` | 与旧值一致的**紧**上限；v0.0.41 已修空载内存泄漏（上游 #139），放大上限会掩盖回归 |
 | `mcsmanager-web` | —（`compose.yaml` 硬编码） | `512M` | 面板服务，占用平稳 |
-| `mariadb` | —（`compose.yaml` 硬编码） | `512M` | buffer pool 128M，可另调 `--innodb-buffer-pool-size` |
-| `status`（Gatus） | —（`compose.yaml` 硬编码） | `256M` | scratch 镜像，占用可忽略 |
 
 > **easybot 上限刻意保持紧**（缺省 `512M`，与原硬编码值一致）：EasyBot v0.0.41 修掉了空载
 > 内存泄漏后，不要为了“保险”把上限放大——放大只会让未来的内存回归更晚暴露。仅当站点确有
@@ -1021,6 +975,6 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 ### 一句话买机建议
 
 - **≤50 人**：8–16 GB 高主频 VPS，或家用 Mac/PC（本仓库当前生产即 20 人档：4G 堆，
-  整机 8G 即可——含 mariadb 常驻约 0.3G 后仍有 1G+ 余量）
+  整机 8G 即可——平台层约 0.3G 后仍有 1G+ 余量）
 - **50–100 人**：16–24 GB **独立服务器/裸金属**，优先单核主频，SSD 必须
 - **≥150 人**：别在单实例上堆钱，直接规划 hub + 分实例架构

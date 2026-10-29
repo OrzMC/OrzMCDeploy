@@ -243,7 +243,7 @@ docker() {
         compose)
             # 模拟 `config --services`
             if printf '%s' "$*" | grep -q 'config --services'; then
-                printf '%s\n' "mcsmanager-daemon" "mcsmanager-web" "easybot" "mariadb" "status" "cloudflared"
+                printf '%s\n' "mcsmanager-daemon" "mcsmanager-web" "easybot" "cloudflared"
                 return 0
             fi
             return 0 ;;

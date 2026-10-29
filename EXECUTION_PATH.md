@@ -1074,3 +1074,32 @@
   `./install.sh -v 0.0.6` sha256 校验通过（`6641fff1…`）、包内 `compose.yaml` 为
   `${EASYBOT_MEMORY_LIMIT:-512M}`、模板含 `EASYBOT_MEMORY_LIMIT=512M`。
 - **待办**：父仓库 `OrzMC/OrzMC` bump deploy 指针到本 main 最新。
+
+### 2026-10-29 服务精简（移除 mariadb / status，ADR-025）
+
+- **背景**：站点复盘「服务是否都在创造价值」——`SHOW DATABASES` 显示 `papermc` 库
+  **0 张表**（两个实例的 LuckPerms 都是 `storage-method: h2`，AuthMe/EzShops/
+  GriefPrevention 全本地存储），MariaDB 从未被使用；Gatus 状态页端点指向公网域名，
+  每 30 s 各走一遍 Cloudflare 隧道（实测 ~1 s/次），与用户访问抢同一条隧道。
+- **决策**：从平台层移除 `mariadb` 与 `status`（ADR-025）。稳态容器 6 → 4、入口 4 → 3、
+  `.env` 必需变量 12 → 7、密钥 4 → 2、备份步骤 3 → 2。需要时用 `compose.site.yaml`
+  站点增量加回（站点级可逆）。
+- **改动面**（≈ −360 行）：`compose.yaml`（−69）、`lib/common.sh`（−125，
+  `ensure_status_config` + 三个 mariadb 函数 + 四处散点）、`templates/gatus-config.yml`
+  （整删 101 行）、`templates/env.*`（−43）、两个 edge override（−9）、
+  `backup.sh`/`restore.sh`（−9）、`update-image-digests.sh`、CI 断言、`tests/windows_ci.sh`。
+- **顺手修**：工作区 CRLF → LF（此前所有脚本在 WSL 下不可执行）；`README.md` 的
+  `EASYBOT_MEMORY_LIMIT` 缺省 `1G`→`512M`（与 ADR-024 对齐）；`architecture.md`
+  §2.2/§2.3 旧 profile 描述（`profiles: ["local"]` / `compose.lan.yaml`）改为 ADR-017 模型。
+- **验证**（本机 Windows + Docker Desktop）：
+  - `bash -n` 全部通过；`shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh` **0 告警**。
+  - `orzmc.sh -e {cloudflare,local,lan,none} init && validate` 四档全 PASS。
+  - `compose config --services`：cloudflare = `easybot/mcsmanager-daemon/mcsmanager-web/
+    cloudflared`；lan = 前三个；`ENABLE_EASYBOT=false` = `mcsmanager-daemon/
+    mcsmanager-web/cloudflared`（最小集断言）。
+  - 生成的 `cloudflared/config.yml` ingress 为 3 条 + `http_status:404` 兜底。
+  - `bash tests/windows_ci.sh` → 38 通过 / 0 失败。
+- **运行数据**：旧 `$DATA_ROOT` 里的 `database/`（162 MB）、`status/` 目录与
+  `orzmc-mariadb`/`orzmc-status` 容器需 `./orzmc.sh stop`（`down --remove-orphans`）清理，
+  目录可手工删除；`.env` 中 `MARIADB_*`/`DOMAIN_STATUS`/`STATUS_PORT` 变为无消费者的普通行。
+- **待办**：打 tag `v0.1.0`（不兼容变更）→ CI `package` 产出 tarball；父仓库 bump 指针。

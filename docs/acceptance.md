@@ -4,6 +4,10 @@
 > 发现的问题与解决办法，作为后续验收与运维的参考基线。
 > 与平台层相关文档联动：架构与 ADR 见 `docs/architecture.md`，用户操作见 `docs/usage.md`。
 
+> ⚠️ **本文是 2026-08-15 的历史验收记录**：其中「6 容器 / 4 入口 / MariaDB / Gatus」
+> 均为 ADR-025 之前的形态。当前基线为 **4 容器（web/daemon/cloudflared/easybot）、
+> 3 入口（mcs/easybot/mcs-node）**，以 `docs/architecture.md` ADR-025 为准。
+
 ## 1. 前置条件与总览
 
 - **同机互斥**：三档共用 compose 项目名 `orzmc` 与容器名，**同一时刻只能跑一档**。

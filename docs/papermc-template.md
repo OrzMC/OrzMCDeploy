@@ -105,8 +105,8 @@
 - **macOS 目录属主**：容器内 `runAs 1000:1000` 但磁盘写入由宿主用户进程执行，实例目录
   属主需改为宿主用户（`sudo chown -R joker:staff <instance-dir>`）；Linux 生产保持
   `1000:1000`（见 ADR-006）。
-- **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`，
-  也与 mariadb 同网才能用 `jdbc:mysql://mariadb:3306/...`（见下文"插件接入 MariaDB"）。
+- **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`
+  （见下文"插件数据库"）。
 
 ## 端口映射与多实例分配（Geyser/基岩必读）
 
@@ -185,23 +185,44 @@
 | 地图模板 | `default-test` / `default-survival` | 仅在有初始化模板时使用 |
 | EasyBot 联动 | `false` | 后续再扩展；插件经 `easybot.yml` 连接 EasyBot 网关，配置见 `docs/easybot.md` |
 
-## 插件接入 MariaDB（可选）
+## 插件数据库（默认用本地存储）
 
-平台层**默认启用** MariaDB 应用数据库（`compose.yaml` 的 `mariadb` 服务），插件挂
-`orzmc_default` 网络内网直连 `mariadb:3306`。需要 MySQL/MariaDB 的插件（Dynmap /
-CoreProtect / LuckPerms / Towny / 经济插件等）把数据库指向它即可：
+平台层自 **ADR-025（v0.1.0）起不再内置 MariaDB**——实测并不需要：本机两个实例的
+LuckPerms 用 `storage-method: h2`，AuthMe / EzShops / GriefPrevention / CoreProtect
+类插件默认全部落本地文件（sqlite / yaml / h2），`papermc` 库始终 0 张表。
 
-- **通用 JDBC**：`jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>`（端口恒为 3306，
-  主机名 `mariadb` 由 compose 服务名解析；账号/密码用 `.env` 的 `MARIADB_USER` /
-  `MARIADB_PASSWORD`）。
-- **Dynmap**：storage 用 `mysql`，`server=mariadb`、端口 `3306`，库名/账号/密码同上。
-- **LuckPerms**：`storage-method=mysql`，`data/address=mariadb:3306`，
-  `data/database=<MARIADB_DATABASE>`。
-- **CoreProtect**：`database.type=MYSQL`，`database.host=mariadb`，端口 `3306`。
+**默认建议**：插件保持各自的本地存储，`world/plugins/` 随实例目录一起被 `backup.sh`
+整机打包，迁移时一并搬走，零额外组件。
 
-前提：实例**网络挂 `orzmc_default`**（与 easybot / mariadb 同网）；数据库凭据与 `.env`
-保持一致，改密码需同步改插件配置。备份随整机 `backup.sh` 自动含逻辑 dump（见
-[docs/usage.md](usage.md) §5.5）。
+**确需 MySQL/MariaDB 时**（多实例共享数据、Dynmap 大存档等），两步：
+
+1. 在 `$DATA_ROOT/compose.site.yaml` 加回数据库服务（站点增量，升级换包不丢）：
+
+   ```yaml
+   services:
+     mariadb:
+       image: mariadb@sha256:<digest>        # 用 update-image-digests.sh 刷新
+       container_name: orzmc-mariadb
+       restart: unless-stopped
+       environment:
+         TZ: "${TZ}"
+         MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
+         MARIADB_DATABASE: "${MARIADB_DATABASE}"
+         MARIADB_USER: "${MARIADB_USER}"
+         MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
+       expose: ["3306"]
+       volumes:
+         - "${DATA_ROOT}/database/mariadb:/var/lib/mysql"
+   ```
+
+   四个 `MARIADB_*` 变量写在 `$DATA_ROOT/.env`（`validate` 不强制校验，站点自担）。
+
+2. 插件里指向 `jdbc:mysql://mariadb:3306/<库名>`（主机名 `mariadb` 由 compose 服务名
+   解析），并把实例**网络挂 `orzmc_default`**（与 easybot 同网）。
+
+> ⚠️ 站点级加回的数据库**不在** `backup.sh` 的自动逻辑 dump 范围内（ADR-025 已移除该
+> 分支）——冷数据目录 `$DATA_ROOT/database/mariadb` 仍随整机 tar 打包；需要逻辑快照请
+> 自行 `docker exec orzmc-mariadb mariadb-dump --all-databases > dump.sql`。
 
 ## 建议的录入顺序
 

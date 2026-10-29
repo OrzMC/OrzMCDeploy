@@ -4,6 +4,10 @@
 > 逐条记录遇到的**问题 → 根因 → 解决办法**，以指导项目后续向 Windows 平台扩展。
 > 与 `docs/architecture.md`（ADR-015 起）配套：本文件偏「怎么部署」，ADR 偏「为什么这么设计」。
 
+> ⚠️ **ADR-025（v0.1.0）起平台层已移除 `mariadb` 与 `status`(Gatus) 两个服务**：
+> 本文涉及这两个容器的问题章节（§4 别名补丁、§5 状态页占位符等）仅作**历史排障参考**，
+> 对应服务已不存在，无需再执行。
+
 - **部署机器**：Windows 11 家庭版（SKU 101，无 RDP 服务端）、Docker Desktop 4.86 / WSL2
   **（`.wslconfig` 开 `networkingMode=mirrored`，见 §1.3 / ADR-020）**、域 `jokerhub.cn`。
 - **版本基线**：本文件面向 **ADR-017 EDGE 模型**——唯一入口 `./orzmc.sh [-d DATA_ROOT]

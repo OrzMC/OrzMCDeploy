@@ -105,21 +105,19 @@ jobs:
           ./orzmc.sh -d "$RUNNER_TEMP/orzmc-none" -e none init
           ./orzmc.sh -d "$RUNNER_TEMP/orzmc-none" -e none validate
 
-      - name: EDGE=cloudflare + ENABLE 全关（仅核心服务）
+      - name: EDGE=cloudflare + ENABLE_EASYBOT 关闭（仅核心服务）
         run: |
           ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare init
-          # 关闭全部可选服务：仅核心 web/daemon + 边缘层，验证最小集配置
-          printf '\nENABLE_EASYBOT=false\nENABLE_MARIADB=false\nENABLE_STATUS=false\n' >> "$RUNNER_TEMP/orzmc-core/.env"
+          # 关闭可选服务：仅核心 web/daemon + 边缘层，验证最小集配置
+          printf '\nENABLE_EASYBOT=false\n' >> "$RUNNER_TEMP/orzmc-core/.env"
           ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare validate
-          # 断言最小集：compose config 不应含 easybot/mariadb/status
+          # 断言最小集：compose config 不应含 easybot
           if ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" -e cloudflare validate >/dev/null 2>&1; then
             svcs="$(docker compose --env-file "$RUNNER_TEMP/orzmc-core/.env" \
               -f compose.yaml -f compose.edge.cloudflare.yaml config --services 2>/dev/null)"
             echo "services: $svcs"
             echo "$svcs" | grep -q 'easybot' && { echo "easybot 应被禁用"; exit 1; } || true
-            echo "$svcs" | grep -q 'mariadb' && { echo "mariadb 应被禁用"; exit 1; } || true
-            echo "$svcs" | grep -q 'status'  && { echo "status 应被禁用"; exit 1; } || true
-            echo "可选服务按 ENABLE_* 正确禁用"
+            echo "可选服务按 ENABLE_EASYBOT 正确禁用"
           fi
 
       - name: 旧入口兼容（deploy.sh -p prod→cloudflare；local.sh/lan.sh 仍可用）

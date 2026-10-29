@@ -7,11 +7,12 @@ OrzMC 的最小容器化落地方案。平台层包括：
 - `cloudflared`（`EDGE=cloudflare`，生产）作为公网入口——Cloudflare Tunnel 出站隧道，
   Cloudflare 边缘终止真实 HTTPS
 - `Caddy`（`EDGE=local`，本地验证）作为 `.localhost` 反代 + 本地 CA
-- `EDGE=lan`（无边缘层）：4 个源站直接发布宿主端口，纯 HTTP，局域网设备直连
+- `EDGE=lan`（无边缘层）：3 个源站直接发布宿主端口，纯 HTTP，局域网设备直连
 - `MCSManager Web` + `MCSManager Daemon` 管理实例
 - `EasyBot` 统一 IM 网关（QQ / Telegram / Discord / 飞书 / 微信）
-- `MariaDB` 应用数据库（默认启用，供 PaperMC 插件使用，仅内网可达）
-- `Gatus` 统一状态页（第 4 入口 `orzmcs.<domain>`，聚合产品入口 + 实时健康）
+
+> ADR-025（v0.1.0）起平台层**不再内置** MariaDB 应用数据库与 Gatus 状态页；
+> 需要时按站点增量（`compose.site.yaml`）自行加回。
 
 `PaperMC` 不直接写在 `compose.yaml` 中，而是由 `MCSManager` 创建和管理。
 
@@ -44,30 +45,30 @@ OrzMC 的最小容器化落地方案。平台层包括：
 
 | 维度 | 配置（`.env`） | 说明 |
 |---|---|---|
-| 边缘层 | `EDGE=cloudflare\|local\|lan\|none` | 决定 4 个源站对外如何可达，见下 |
-| 可选服务 | `ENABLE_EASYBOT` / `ENABLE_MARIADB` / `ENABLE_STATUS`（缺省 `true`） | 置 `false` 即停用对应服务；核心 web/daemon 常驻 |
+| 边缘层 | `EDGE=cloudflare\|local\|lan\|none` | 决定 3 个源站对外如何可达，见下 |
+| 可选服务 | `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即停用 EasyBot；核心 web/daemon 常驻 |
 
 **EDGE 边缘层**（`compose_cmd` 按值追加 `compose.edge.<edge>.yaml` override）：
 
 | EDGE | 边缘层 | 用途 | 入口 |
 |---|---|---|---|
-| `cloudflare` | cloudflared（Cloudflare Tunnel，出站隧道免开端口） | 生产 | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` / `orzmcs.<domain>` |
+| `cloudflare` | cloudflared（Cloudflare Tunnel，出站隧道免开端口） | 生产 | `mcs.<domain>` / `easybot.<domain>` / `mcs-node.<domain>` |
 | `local` | Caddy（`.localhost` 本地 CA + 非特权端口 18080/18443） | 本地验证 / 回归 | `mcs.localhost:18443` 等 |
-| `lan` | 无边缘层（`compose.edge.lan.yaml` 发布 4 源站宿主端口，纯 HTTP） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>` |
+| `lan` | 无边缘层（`compose.edge.lan.yaml` 发布 3 源站宿主端口，纯 HTTP） | 局域网直连（可信内网） | `http://<LAN_HOST_IP>:<LAN_*_PORT>` |
 | `none` | 不追加 override | 仅内网 `orzmc_default` | 内网服务名 |
 
-公网/本地暴露 **4 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）、
-`mcs-node`（daemon 直连，daemon key 鉴权）、`orzmcs`（Gatus 统一状态页，聚合入口 +
-实时健康，页面无鉴权仅状态、不含密钥）。lan 无边缘层，同 4 个源站改为发布宿主
-`LAN_*_PORT` 端口、纯 HTTP（ADR-012）。**EasyBot 插件 API 仅内网**——插件挂
-`orzmc_default` 网络直连 `http://easybot:8080`，无 `easybot-api` 子域名。
+公网/本地暴露 **3 个入口**：`mcs`（MCSManager 面板）、`easybot`（EasyBot 管理后台）、
+`mcs-node`（daemon 直连，daemon key 鉴权；**浏览器终端/控制台依赖它，必须保留**）。
+lan 无边缘层，同 3 个源站改为发布宿主 `LAN_*_PORT` 端口、纯 HTTP（ADR-012）。
+**EasyBot 插件 API 仅内网**——插件挂 `orzmc_default` 网络直连 `http://easybot:8080`，
+无 `easybot-api` 子域名。
 
 **站点增量与升级不丢**（ADR-022）：站点特有配置（如飞书 `FEISHU_*`、额外 env/挂载）
 写入 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），升级换包不丢；
 也可用 `.env` 的 `COMPOSE_FILE_EXTRA=` 追加任意路径 compose 文件。详见
 [`docs/usage.md` §4.5](docs/usage.md)。daemon 容器内存与 Node 堆上限由 `.env` 的
 `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` 派生（缺省 `512M` / `384`），并带 TCP healthcheck；
-easybot 内存上限由 `.env` 的 `EASYBOT_MEMORY_LIMIT` 派生（缺省 `1G`，issue #16）。
+easybot 内存上限由 `.env` 的 `EASYBOT_MEMORY_LIMIT` 派生（缺省 `512M`，issue #16/ADR-024）。
 
 ## 免克隆安装（无需 git clone）
 
@@ -119,7 +120,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 停止 | `./orzmc.sh stop` |
 | 状态与访问地址 | `./orzmc.sh status` |
 | 校验配置 | `./orzmc.sh validate` |
-| 备份数据 | `./orzmc.sh backup [--stop]`（含 MariaDB 逻辑备份） |
+| 备份数据 | `./orzmc.sh backup [--stop]` |
 | 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 
@@ -128,7 +129,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 `.env` 里配（`EDGE=cloudflare` 等），`-e` 参数可临时覆盖。三平台命令完全一致；
 Windows 下 daemon 自动走脚本生成的 docker run（`lib/common.sh` detect_os / ADR-016），
 `orzmc.sh stop && orzmc.sh up` 即完成 daemon 重建。可选服务开关
-`ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS` 也在 `.env` 里配。
+`ENABLE_EASYBOT` 也在 `.env` 里配。
 
 > 旧入口 `deploy.sh -p ...` / `local.sh` / `lan.sh` / `windows.sh` 仍可用（兼容，
 > `-p prod`→`cloudflare` 自动映射），但新部署统一用 `orzmc.sh`。
@@ -139,8 +140,8 @@ push 到 `main` 或开 PR 时，GitHub Actions 自动跑三道校验（见 `.git
 
 - **lint**：shell 语法（`bash -n`）+ `shellcheck`（含 `tests/`）+ 模板 YAML 解析 + 禁入路径守卫
   （`.env` / `.local-data*` / `.local-backups*` 永不入库）
-- **validate**：`EDGE × ENABLE_*` 组合 `init && validate`（`orzmc.sh -e <edge>`），
-  覆盖 cloudflare/local/lan/none 四档 + ENABLE 全关最小集（必需环境变量检查 +
+- **validate**：`EDGE × ENABLE_EASYBOT` 组合 `init && validate`（`orzmc.sh -e <edge>`），
+  覆盖 cloudflare/local/lan/none 四档 + `ENABLE_EASYBOT=false` 最小集（必需环境变量检查 +
   `docker compose config -q`，纯解析不拉镜像、不触碰 `$DATA_ROOT`）
 - **windows-branch**：Windows 分支逻辑（ADR-016）单元测试——mock `uname` 强制 MINGW，
   校验 `win_path` / `win_daemon_*` / `compose_cmd` Windows 分支的命令构造（`tests/windows_ci.sh`）。
@@ -163,10 +164,9 @@ compose 解析；`bash tests/windows_ci.sh` 覆盖 Windows 分支；`shellcheck 
 
 ## 安全
 
-- `$DATA_ROOT/.env`（含 `MARIADB_*`）、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、
-  daemon key（`global.json`）、MariaDB 逻辑备份（`database/dumps/*.sql`）均属密钥：
-  权限收紧、随数据备份、**永不入库**。
-- 公网仅暴露 4 个入口（`mcs` / `easybot` / `mcs-node` / `orzmcs`，状态页不含密钥）；
+- `$DATA_ROOT/.env`、cloudflared 凭据（`cert.pem`、隧道 `<id>.json`）、
+  daemon key（`global.json`）均属密钥：权限收紧、随数据备份、**永不入库**。
+- 公网仅暴露 3 个入口（`mcs` / `easybot` / `mcs-node`）；
   `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，宿主机须视为可信环境。
   **lan 无边缘层**：面板口令与 daemon 端口以明文 HTTP 暴露给局域网（daemon key 鉴权，
   可管理 docker.sock），**仅限可信局域网**（ADR-012）。

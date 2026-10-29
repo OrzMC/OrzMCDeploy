@@ -36,34 +36,33 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 | 维度 | 配置 | 说明 |
 |---|---|---|
 | 边缘层 | `.env` 里 `EDGE=`（`cloudflare`/`local`/`lan`/`none`） | `compose_cmd` 按 EDGE 追加 `compose.edge.<edge>.yaml` override |
-| 可选服务 | `.env` 里 `ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS`（缺省 `true`） | 按启用项追加 `--profile <name>`；核心 web/daemon 常驻 |
+| 可选服务 | `.env` 里 `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
 | 入口 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] [-e EDGE] init\|up\|stop\|status\|validate\|backup\|templates` |
 
-- **EDGE 边缘层**（决定 4 个源站对外如何可达）：
+- **EDGE 边缘层**（决定 3 个源站对外如何可达）：
   - `cloudflare` → `compose.edge.cloudflare.yaml`（cloudflared 出站隧道，生产，真实 HTTPS，免开端口）
   - `local` → `compose.edge.local.yaml`（Caddy `.localhost` 本地 CA + 非特权端口 18080/18443）
-  - `lan` → `compose.edge.lan.yaml`（无边缘层，4 源站发宿主端口，纯 HTTP，局域网）
+  - `lan` → `compose.edge.lan.yaml`（无边缘层，3 源站发宿主端口，纯 HTTP，局域网）
   - `none` → 不追加 override（仅内网 `orzmc_default`，不对外）
-- **ENABLE_* 可选服务**：easybot / mariadb / status 带 `profiles: ["<name>"]` 标签，
-  默认全启用；置 `false` 即从 `--profile` 移除。status 仅依赖核心 web/daemon。
+- **ENABLE_EASYBOT 可选服务**：easybot 带 `profiles: ["easybot"]` 标签，
+  缺省启用；置 `false` 即从 `--profile` 移除。ADR-025 起不再有 mariadb / status。
 - 脚本通过 `EDGE`（或兼容的旧 `COMPOSE_PROFILE`，`prod`→`cloudflare` 自动映射）选择：
   `./orzmc.sh -e cloudflare`、`./orzmc.sh -e local`、`./orzmc.sh -e lan`。
   旧入口 `deploy.sh -p ...`/`local.sh`/`lan.sh`/`windows.sh` 保留兼容（deprecated）。
 
-### 4. 网络拓扑：4 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
+### 4. 网络拓扑：3 个公网入口（lan 无边缘层），EasyBot 插件 API 仅内网
 
-- 公网/局域网暴露 4 个入口（prod/local 走边缘层域名；**lan 无边缘层**，走宿主发布端口
+- 公网/局域网暴露 3 个入口（prod/local 走边缘层域名；**lan 无边缘层**，走宿主发布端口
   `http://<LAN_HOST_IP>:<LAN_*_PORT>`，见 ADR-012）：
   - `mcs.<domain>` → MCSManager 面板（Web 登录鉴权）
   - `easybot.<domain>` → EasyBot 管理后台（登录鉴权）
-  - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**）
-  - `orzmcs.<domain>` → 统一状态页（Gatus，聚合产品入口 + 实时健康；页面无鉴权，
-    仅服务名与状态、不含密钥）
+  - `mcs-node.<domain>` → MCSManager daemon/节点（浏览器直连，**daemon key 鉴权**；
+    远程终端/控制台/文件管理器依赖该入口，**不可删**）
 - **EasyBot 的插件 API 不外露**：PaperMC 插件跑在 `orzmc_default` 网络内，
   直连 `http://easybot:8080`（REST + WebSocket 同端口，内网无 TLS）。
-- **应用数据库 MariaDB 默认启用**：插件挂 `orzmc_default` 内网直连 `mariadb:3306`
-  （仅 `expose`，不发布宿主机端口、无公网/边缘入口），供需要 MySQL/MariaDB 的插件
-  （Dynmap/CoreProtect/LuckPerms/Towny 等）使用；数据落 `$DATA_ROOT/database/mariadb`。
+- **应用数据库 / 状态页已不在平台层（ADR-025）**：v0.1.0 起移除 mariadb 与 Gatus
+  （实测无插件使用；状态页还会自我轮询占用隧道）。需要时用 `compose.site.yaml`
+  站点增量自行加回，不影响包内文件升级。
 - **daemon 连接（三档浏览器直连均可用）**：节点地址统一「面板服务端与浏览器**同一地址**」，
   按档不同：
   - **prod**：节点 `ip` 填 `wss://mcs-node.<domain>:443`——经 cloudflared 隧道连 daemon。
@@ -98,14 +97,13 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，核心 web/daemon 常驻 + 可选服务带 profiles 标签）
 compose.edge.cloudflare.yaml  EDGE=cloudflare 边缘层 override（cloudflared 出站隧道）
 compose.edge.local.yaml       EDGE=local 边缘层 override（Caddy，.localhost）
-compose.edge.lan.yaml         EDGE=lan 边缘层 override（无边缘层：给 4 个源站发布宿主端口，纯 HTTP）
+compose.edge.lan.yaml         EDGE=lan 边缘层 override（无边缘层：给 3 个源站发布宿主端口，纯 HTTP）
 templates/              首次 init 的配置模板
   env.prod              生产 .env 模板（含 CLOUDFLARE_TUNNEL_ID）
   env.local             本地 .env 模板（.localhost）
   env.lan               局域网 .env 模板（LAN_HOST_IP + LAN_*_PORT，无 DOMAIN_*/CLOUDFLARE）
   cloudflared-config.yml cloudflared 隧道配置模板（__PLACEHOLDER__ 由 init 替换）
   Caddyfile             local profile 反代模板（仅本地使用）
-  gatus-config.yml      Gatus 统一状态页配置模板（init 生成到 DATA_ROOT/status/config.yaml）
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   compose.site.yaml     站点增量 override 模板（init 生成到 DATA_ROOT/compose.site.yaml，
                          升级/换包不丢；compose_cmd 检测到即 -f 追加，ADR-022）
@@ -119,7 +117,7 @@ lan.sh                  局域网直连入口（固定 EDGE=lan + .local-data-la
 windows.sh              Windows 部署入口（默认 DATA_ROOT=E:/orzmc；兼容保留，ADR-016）
 backup.sh / restore.sh  数据备份 / 还原迁移
 update-image-digests.sh 刷新 compose.yaml 镜像 digest
-.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + EDGE×ENABLE validate + windows-branch 单测）
+.github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck(含 tests/) + 模板 YAML + EDGE×ENABLE_EASYBOT validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
@@ -141,16 +139,15 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 | 停止 | `./orzmc.sh stop` |
 | 状态与访问地址 | `./orzmc.sh status` |
 | 校验配置 | `./orzmc.sh validate` |
-| 备份数据 | `./orzmc.sh backup [--stop]`（含 MariaDB 逻辑备份） |
+| 备份数据 | `./orzmc.sh backup [--stop]` |
 | 还原/迁移 | `./restore.sh -d <root> <归档> [--force]` |
 
 - `EDGE`（`cloudflare`/`local`/`lan`/`none`）在 `$DATA_ROOT/.env` 里配（`EDGE=`），
-  `-e` 参数临时覆盖；可选服务 `ENABLE_EASYBOT`/`ENABLE_MARIADB`/`ENABLE_STATUS`
-  也在 `.env` 里（缺省 `true`）。
+  `-e` 参数临时覆盖；可选服务开关 `ENABLE_EASYBOT` 也在 `.env` 里（缺省 `true`）。
 - 生产默认 `DATA_ROOT=/srv/orzmc`（macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。
 - `DATA_ROOT` 优先级：`-d/--data-root` 参数 > `ORZMC_DATA_ROOT` 环境变量 > 默认值。
 - 所有 compose 调用统一走 `lib/common.sh` 的 `compose_cmd`（显式
-  `--env-file $DATA_ROOT/.env` + 按 EDGE/ENABLE_* 追加 `-f` override 与 `--profile`）。
+  `--env-file $DATA_ROOT/.env` + 按 EDGE/ENABLE_EASYBOT 追加 `-f` override 与 `--profile`）。
 - **站点增量**放 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），
   或 `.env` 的 `COMPOSE_FILE_EXTRA`（空格/逗号分隔，任意路径）。站点特有 env/挂载
   **不改包内 `compose.yaml`**——升级换包会丢（ADR-022，issue #11）。
@@ -176,16 +173,14 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 
 ## 安全约束（必须遵守）
 
-- `$DATA_ROOT/.env` 含 `QQBOT_APP_ID/CLIENT_SECRET`、`EASYBOT_ADMIN_PASSWORD`、
-  `MARIADB_ROOT_PASSWORD/MARIADB_PASSWORD` 等密钥，权限收紧为 600，**永不入库**。
+- `$DATA_ROOT/.env` 含 `QQBOT_APP_ID/CLIENT_SECRET`、`EASYBOT_ADMIN_PASSWORD`
+  等密钥，权限收紧为 600，**永不入库**。
 - `$DATA_ROOT/cloudflared/` 含账号级 `cert.pem` 与隧道凭据 `<id>.json`（可控制该
   Cloudflare 账号下的隧道）——按密钥对待：只存在于 DATA_ROOT 内、随数据备份、
   权限收紧。
 - `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` 含 **daemon key**——daemon
   控制 docker.sock（可管理宿主机 Docker），该 key 等同最高权限密钥：权限 600、
   只存在于 DATA_ROOT 内、随数据备份、**永不入库**。
-- `$DATA_ROOT/database/dumps/*.sql` 是 MariaDB 逻辑备份，含 `mysql` 系统库
-  （用户/授权哈希）——按密钥对待：`chmod 600`、随数据备份、**永不入库**。
 - `mcsmanager-daemon` 挂载 `/var/run/docker.sock`，拥有管理宿主机 Docker 的能力，
   **宿主机必须视为可信环境**。
 - EasyBot 监听器仅 HTTP，`EASYBOT_ALLOW_PLAINTEXT=true` 为有意为之；TLS 由
@@ -203,10 +198,10 @@ docs/windows-deployment.md Windows 平台部署指南（问题/根因/解法，�
 3. 涉及架构（服务增减、入口变更、卷/网络调整）：**同步更新** `docs/architecture.md`
    （新增 ADR 记录）、`AGENTS.md`（如规则变化）、`README.md`、相关 `docs/*.md`。
 4. 改动共享库 `lib/common.sh` 后，跑一遍本地回归：`./orzmc.sh -e local init && ./orzmc.sh up`
-   与 `./orzmc.sh validate`（push/PR 后 CI 会自动跑 shellcheck + EDGE×ENABLE validate，
+   与 `./orzmc.sh validate`（push/PR 后 CI 会自动跑 shellcheck + EDGE×ENABLE_EASYBOT validate，
    见 `.github/workflows/ci.yml`）。
 5. 新增 `.env` 必需变量：同步更新 `lib/common.sh` 的 `required_env_list`
-   与 `templates/env.*`（ENABLE_* 开关也在此）。
+   与 `templates/env.*`（`ENABLE_EASYBOT` 开关也在此）。
 6. 需要用户输入密钥/凭据时，引导用户编辑 `$DATA_ROOT/.env`，不要把真实值写进仓库或
    回显到日志/提交信息。
 7. 提交前核对 `git status`：不得出现 `.env`、`.local-data/`、`.local-backups/`、

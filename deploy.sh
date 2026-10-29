@@ -100,7 +100,6 @@ cmd_init() {
     ensure_data_dirs
     ensure_easybot_local_config
     ensure_site_override
-    ensure_status_config
     case "$(normalize_edge)" in
         local)      ensure_caddyfile ;;
         cloudflare) ensure_cloudflared_config ;;
@@ -150,7 +149,7 @@ cmd_templates() {
             hint="cloudflared 启动时读取 config.yml，请执行: deploy.sh stop && deploy.sh up"
             ;;
         lan|none)
-            # lan/none 无边缘层，没有可同步的边缘层模板（gatus/easybot 配置由 init 生成）
+            # lan/none 无边缘层，没有可同步的边缘层模板（easybot 配置由 init 生成）
             info "EDGE=${EDGE:-$(normalize_edge)} 无边缘层模板可同步（无 Caddy / cloudflared）"
             return 0
             ;;

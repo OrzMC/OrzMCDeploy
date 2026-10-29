@@ -14,7 +14,7 @@
 #   lan         无边缘层直连（4 源站发宿主端口，纯 HTTP，局域网）
 #   none        仅内网 orzmc_default（不对外）
 # ENABLE_*（可选服务开关，.env 里，缺省 true）:
-#   ENABLE_EASYBOT / ENABLE_MARIADB / ENABLE_STATUS
+#   ENABLE_EASYBOT
 #   （核心 mcsmanager-web / mcsmanager-daemon 常驻，不随开关变化）
 #
 # DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 平台默认
@@ -45,7 +45,7 @@ usage() {
   orzmc.sh print-root                             # 打印解析后的 DATA_ROOT
 
 EDGE（边缘层，默认读 .env 的 EDGE=，否则 cloudflare）: cloudflare|local|lan|none
-可选服务开关在 $DATA_ROOT/.env 的 ENABLE_EASYBOT / ENABLE_MARIADB / ENABLE_STATUS。
+可选服务开关在 $DATA_ROOT/.env 的 ENABLE_EASYBOT。
 三平台命令一致；Windows 下 daemon 自动 docker run（ADR-016）。
 EOF
 }

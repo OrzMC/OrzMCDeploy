@@ -110,12 +110,6 @@ case "$(normalize_edge)" in
         ;;
 esac
 
-# 应用数据库校验：还原内容应含 database/mariadb 冷数据目录（权威）；
-# 仅有逻辑备份则提示手动导入（mariadb 是平台层常驻服务）
-if [ ! -d "$DATA_ROOT/database/mariadb" ]; then
-    warn "还原内容缺少 database/mariadb 数据目录；若归档含 database/dumps/*.sql，请解压后手动导入再启动"
-fi
-
 info "还原完成。验证: deploy.sh -d ${DATA_ROOT} -p $(normalize_edge) validate"
 if [ "$START" = 1 ]; then
     # 注意：不能用 ${SCRIPT_DIR} —— source lib/common.sh 会把 SCRIPT_DIR 覆写为

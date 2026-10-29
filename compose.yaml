@@ -9,18 +9,18 @@
 #
 # Profile 模型（ADR-017 起）：单 profile + 可插拔服务 + 可插拔边缘层。
 #   - 本文件含核心服务（mcsmanager-web / mcsmanager-daemon，无 profile 常驻）
-#     与可选服务（easybot / mariadb / status，带 profiles: ["<name>"] 标签，
-#     由 .env 的 ENABLE_* 决定是否启用，compose_cmd 按需追加 --profile）。
+#     与可选服务（easybot，带 profiles: ["easybot"] 标签，由 .env 的
+#     ENABLE_EASYBOT 决定是否启用，compose_cmd 按需追加 --profile）。
+#     ADR-025 起平台层不再内置数据库与状态页（见 docs/architecture.md）。
 #   - 边缘层独立成 override 文件，由 .env 的 EDGE 选择：
 #       EDGE=local      → compose.edge.local.yaml      （Caddy，.localhost）
 #       EDGE=cloudflare → compose.edge.cloudflare.yaml  （cloudflared 隧道）
 #       EDGE=lan        → compose.edge.lan.yaml         （4 源站发宿主端口，纯 HTTP）
 #       EDGE=none       → 不追加（仅内网 orzmc_default，不对外）
 #   compose_cmd 负责按 EDGE + ENABLE_* 拼出完整的 -f / --profile 集合。
-# 公网/本地暴露 4 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
-# 密钥鉴权）与 status（统一状态页，Gatus，实时健康，无鉴权仅状态，不含密钥）；
-# EasyBot 插件 API 仅内网（插件挂 orzmc_default 直连 http://easybot:8080）；
-# mariadb（默认启用，插件应用数据库）同样仅内网，插件挂 orzmc_default 直连 mariadb:3306。
+# 公网/本地暴露 3 个入口：mcs 面板、easybot 后台、mcs-node（daemon 浏览器直连入口，
+# 密钥鉴权；远程终端依赖它，ADR-013）；EasyBot 插件 API 仅内网（插件挂
+# orzmc_default 直连 http://easybot:8080）。
 # ===========================================================================
 
 name: orzmc
@@ -92,8 +92,8 @@ services:
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
       - /var/run/docker.sock:/var/run/docker.sock
 
-  # ---- 可选服务（ENABLE_* 控制，见 .env）--------------------------------
-  # 以下三个服务带 profiles 标签：默认由 compose_cmd 按 ENABLE_* 追加 --profile 启用。
+  # ---- 可选服务（ENABLE_EASYBOT 控制，见 .env）---------------------------
+  # easybot 带 profiles 标签：默认由 compose_cmd 按 ENABLE_EASYBOT 追加 --profile 启用。
   # 核心 web/daemon 无 profile 常驻，不随 ENABLE_* 变化。
 
   easybot:
@@ -130,73 +130,3 @@ services:
       - "${EASYBOT_PORT}"
     volumes:
       - "${DATA_ROOT}/easybot/data:/var/lib/easybot"
-
-  # ---- 应用数据库：MariaDB（ENABLE_MARIADB=true 时启用）------------------
-  # 仅内网 orzmc_default 可达 mariadb:3306；不发布宿主机端口、不设公网/边缘入口。
-  # PaperMC 插件（Dynmap/CoreProtect/LuckPerms/Towny/economy 等）需要 MySQL/MariaDB
-  # 时，实例挂 orzmc_default，JDBC 用 jdbc:mysql://mariadb:3306/<MARIADB_DATABASE>。
-  # 数据在 $DATA_ROOT/database/mariadb（随整机备份）；逻辑备份由 backup.sh 自动产出。
-  mariadb:
-    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-    profiles: ["mariadb"]
-    image: mariadb@sha256:67873d30a17f6a9c331f06363b2fa15f38abca415529966d67c84f87f82439fe
-    container_name: orzmc-mariadb
-    restart: unless-stopped
-    environment:
-      TZ: "${TZ}"
-      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
-      MARIADB_DATABASE: "${MARIADB_DATABASE}"
-      MARIADB_USER: "${MARIADB_USER}"
-      MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
-    expose:
-      - "3306"
-    volumes:
-      - "${DATA_ROOT}/database/mariadb:/var/lib/mysql"
-    healthcheck:
-      # 不用镜像自带 `healthcheck.sh --su-mysql --connect --innodb_initialized`：它依赖
-      # `mysql@localhost`（unix_socket 免密）账号，该账号仅镜像**首次 init 空数据目录**时
-      # 创建；restore 冷数据还原后不存在 → 数据库正常但 healthcheck 恒报 unhealthy
-      # （issue #7）。改用 root 经 unix socket + .env 口令执行 innodb 就绪查询，只依赖
-      # MARIADB_ROOT_PASSWORD：冷/热数据、改密后均适用，且鉴权失败会如实报 unhealthy。
-      test: ["CMD-SHELL", "mariadb --protocol socket --skip-ssl -uroot -p\"$$MARIADB_ROOT_PASSWORD\" --skip-column-names -e \"SELECT 1 FROM information_schema.ENGINES WHERE engine='innodb' AND support IN ('YES','DEFAULT','ENABLED')\" | grep -qx 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
-  # ---- 统一首页/状态页：Gatus（ENABLE_STATUS=true 时启用）-----------------
-  # 页头按钮聚合产品入口 + 实时健康卡片；配置 $DATA_ROOT/status/config.yaml 由
-  # init 生成（按 EDGE 替换公网/本地链接与 TLS 校验），绝不覆盖已有文件。
-  # scratch 镜像无 shell/curl，不设 compose healthcheck（页面本身即存活信号）。
-  # 仅 depends_on 核心 web/daemon（不依赖可选服务，避免 ENABLE_* 禁用时依赖报错）。
-  status:
-    # 资源上限（2026-09-03：Docker Desktop VM 扩容 8G/4vCPU 后加装防御性保险丝）
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-    profiles: ["status"]
-    image: twinproduction/gatus@sha256:0009b90a11c042809f7f988c05c3f398dbf24b7498a0b7083efe3b9e8e126550
-    container_name: orzmc-status
-    restart: unless-stopped
-    environment:
-      TZ: "${TZ}"
-    expose:
-      - "${STATUS_PORT}"
-    volumes:
-      - "${DATA_ROOT}/status/config.yaml:/config/config.yaml:ro"
-    depends_on:
-      - mcsmanager-web
-      - mcsmanager-daemon
-    extra_hosts:
-      # local：容器内把 *.localhost 解析到宿主（Caddy 非特权端口），健康检查走真实入口；
-      # prod 下这些主机名未使用，无副作用。host-gateway 需 Docker ≥20.10（Desktop ≥4.x）。
-      - "mcs.localhost:host-gateway"
-      - "easybot.localhost:host-gateway"
-      - "mcs-node.localhost:host-gateway"
-      # 游戏实例端口由 MCSManager 映射在宿主机，经 host-gateway 探测真实进服口
-      - "host.docker.internal:host-gateway"

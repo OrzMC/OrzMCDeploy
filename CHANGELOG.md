@@ -13,6 +13,29 @@
 
 ## [Unreleased]
 
+### 修复
+
+
+### 移除（⚠️ 不兼容变更，计划 v0.1.0）
+
+- **移除平台层 `mariadb` 与 `status`(Gatus) 两个服务**（ADR-025）：稳态容器 6 → 4，
+  公网入口 4 → 3，`.env` 必需变量 12 → 7、密钥 4 → 2，备份步骤 3 → 2。
+  - 依据：`papermc` 库 **0 张表**、两个实例的 LuckPerms 均为 `storage-method: h2`，
+    MariaDB 从未被使用；Gatus 只读看板且端点指向公网域名，每 30 s 经 Cloudflare 隧道
+    自我轮询（实测每次 ~1 s），反向拖慢访问。
+  - 连带代码：`ensure_status_config`、`db_root_pw`/`wait_for_mariadb`/`dump_db_logical`、
+    `templates/gatus-config.yml`、`DOMAIN_STATUS`/`STATUS_PORT`/`MARIADB_*`、备份逻辑 dump、
+    `ENABLE_MARIADB`/`ENABLE_STATUS` 开关全部删除（`ENABLE_*` 只剩 `ENABLE_EASYBOT`）。
+  - 回退：需要时在 `$DATA_ROOT/compose.site.yaml` 站点增量加回（升级换包不丢，ADR-022）。
+
+### 修复
+
+- **工作区换行归一化为 LF**：仓库内所有文本文件曾被 CRLF 化（无 `.gitattributes`），
+  在 WSL/Linux/macOS 下直接执行脚本会报 `env: 'bash\r'`；现已统一为 LF。
+- 文档漂移：`README.md` 的 `EASYBOT_MEMORY_LIMIT` 缺省值 `1G` → `512M`（与 ADR-024 一致）；
+  `docs/architecture.md` §2.2/§2.3 的旧 profile 描述（`profiles: ["local"]`、
+  `compose.lan.yaml`）修正为 ADR-017 的 override 模型。
+
 ## [0.0.6] - 2026-10-01
 
 ### 修复

@@ -23,11 +23,9 @@ services:
       DOMAIN_EASY_ADMIN: "${DOMAIN_EASY_ADMIN:-}"
       DOMAIN_MCS_WEB: "${DOMAIN_MCS_WEB:-}"
       DOMAIN_MCS_NODE: "${DOMAIN_MCS_NODE:-}"
-      DOMAIN_STATUS: "${DOMAIN_STATUS:-}"
       EASYBOT_PORT: "${EASYBOT_PORT}"
       MCS_WEB_PORT: "${MCS_WEB_PORT}"
       MCS_DAEMON_PORT: "${MCS_DAEMON_PORT}"
-      STATUS_PORT: "${STATUS_PORT}"
     volumes:
       - "${DATA_ROOT}/caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
       - "${DATA_ROOT}/caddy/data:/data"
