@@ -13,8 +13,7 @@
 #
 # 默认:
 #   REPO         OrzMC/OrzMCDeploy（-r 覆盖，支持 "owner/repo" 或完整 URL 前缀）
-#   INSTALL_DIR  ~/.local/share/orzmc-deploy（macOS/Linux）；Windows 无自定义则用
-#                "$HOME/orzmc-deploy"
+#   INSTALL_DIR  ~/.local/share/orzmc-deploy（三平台一致，可用 -d 覆盖）
 #   版本         最新 release
 #
 # 特性: 幂等（可重复跑，不覆盖已存在的 DATA_ROOT）；不写仓库内任何数据/密钥；
@@ -110,8 +109,8 @@ echo "==> 安装完成：$INSTALL_DIR"
 echo ""
 echo "下一步（照常，与 git clone 部署完全一致）："
 echo "  cd $INSTALL_DIR"
-echo "  ./orzmc.sh init   # 建目录树 + 生成 .env（局域网模式，ADR-027）"
-echo "  # 编辑 \$DATA_ROOT/.env 填入真实值（域名/密码/CLOUDFLARE_TUNNEL_ID 等）"
+echo "  ./orzmc.sh init   # 建目录树 + 生成 .env（默认 DATA_ROOT 按平台，见 README）"
+echo "  # 编辑 \$DATA_ROOT/.env 填真实值（LAN_HOST_IP / 口令 / QQ 凭据）"
 echo "  ./orzmc.sh validate                          # 校验配置（可选但建议）"
 echo "  ./orzmc.sh up                                # 启动平台层"
 echo ""

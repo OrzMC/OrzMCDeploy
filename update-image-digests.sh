@@ -60,10 +60,10 @@ for service in "${SERVICES[@]}"; do
     docker pull "$image_ref" >/dev/null
 done
 
-# 传参：service=compose文件 对，python 负责取 digest 并原地替换
+# 传参：service|源镜像|compose 文件（服务→镜像映射只在本 shell 一处，python 不再重复）
 pairs=()
 for service in "${SERVICES[@]}"; do
-    pairs+=("${service}=${COMPOSE_FILE}:${service}")
+    pairs+=("${service}|$(source_image_for_service "$service")|${COMPOSE_FILE}")
 done
 
 python3 - "${pairs[@]}" <<'PY'
@@ -72,19 +72,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-EASYBOT_TAG = __import__("os").environ.get("EASYBOT_TAG", "0.0.43")
-source_images = {
-    "mcsmanager-web": "githubyumao/mcsmanager-web:latest",
-    "mcsmanager-daemon": "githubyumao/mcsmanager-daemon:latest",
-    "easybot": f"ghcr.io/easyindie/easybot:{EASYBOT_TAG}",
-}
-
 changes = []
 for pair in sys.argv[1:]:
-    service, target = pair.split("=", 1)
-    compose_path, compose_key = target.rsplit(":", 1)
+    service, rest = pair.split("|", 1)
+    image_ref, compose_path = rest.split("|", 1)
     compose_file = Path(compose_path)
-    image_ref = source_images[service]
+    compose_key = service
 
     digests = subprocess.check_output(
         ["docker", "image", "inspect", image_ref, "--format", "{{join .RepoDigests \"\\n\"}}"],
@@ -103,11 +96,12 @@ for pair in sys.argv[1:]:
         raise SystemExit(f"未在 {compose_file.name} 中找到服务: {compose_key}")
 
     old_line = match.group(0).splitlines()[-1].strip()
+    old_ref = old_line.split("image:", 1)[-1].strip()
     # 保留原有的行尾注释（如资源上限说明），只替换镜像引用
     compose_file.write_text(
         re.sub(pattern, rf"\1{digest_ref}", text, count=1, flags=re.MULTILINE)
     )
-    changes.append((compose_file.name, service, old_line.removeprefix("image: ").strip(), digest_ref))
+    changes.append((compose_file.name, service, old_ref, digest_ref))
 
 for fname, service, old, new in changes:
     print(f"[{fname}] {service}: {'未变化' if old == new else '已更新'}")

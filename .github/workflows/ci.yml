@@ -4,14 +4,15 @@
 # 仓库只承载"运行时"，无构建产物；本 CI 是纯校验，不构建/不发布镜像、
 # 不拉取容器镜像（docker compose config 为纯解析，无需 daemon/镜像）。
 #
-# 三个并行 job：
+# Jobs：
 #   lint           —— shell 语法（bash -n）+ shellcheck + 模板 YAML 解析 + 禁入路径守卫
-#   validate       —— 三 profile（local / lan / prod）init && validate：
-#                      必需变量检查（validate_required_env）+ docker compose config -q
-#   windows-branch —— Windows 分支逻辑（ADR-016）单元测试（mock uname 强制 MINGW，
-#                      校验 win_path / win_daemon_* / compose_cmd Windows 分支的命令
-#                      构造，不真连 Docker；详见 tests/windows_ci.sh）
-#   详见 AGENTS.md 命令速查与 docs/architecture.md。
+#   validate       —— init && validate（必需变量 + docker compose config -q）+ 可选服务开关
+#                     + LAN_*_PORT / LAN_BIND_ADDR 生效 + firewall --dry-run
+#   windows-branch —— Windows 分支逻辑单元测试（mock uname 强制 MINGW，
+#                     校验 win_path / win_daemon_* / compose_cmd Windows 分支的命令
+#                     构造，不真连 Docker；详见 tests/windows_ci.sh）
+#   package        —— 仅打 tag(v*) 时：产出 Release tarball + sha256（ADR-018）
+# 详见 AGENTS.md 命令速查与 docs/architecture.md。
 # ===========================================================================
 
 name: CI
@@ -91,13 +92,20 @@ jobs:
 
       - name: ENABLE_EASYBOT 关闭（仅核心服务）
         run: |
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" init
-          printf '\nENABLE_EASYBOT=false\n' >> "$RUNNER_TEMP/orzmc-core/.env"
-          ./orzmc.sh -d "$RUNNER_TEMP/orzmc-core" validate
-          svcs="$(docker compose --env-file "$RUNNER_TEMP/orzmc-core/.env" \
-            -f compose.yaml config --services 2>/dev/null)"
+          d="$RUNNER_TEMP/orzmc-core"
+          ./orzmc.sh -d "$d" init
+          # 必须原地改已有键：read_env_value 是「首次出现优先」，追加同名行会被忽略
+          sed -i 's/^ENABLE_EASYBOT=.*/ENABLE_EASYBOT=false/' "$d/.env"
+          ./orzmc.sh -d "$d" validate
+          # 断言开关真的生效（enabled_profiles 为空，即 compose_cmd 不会追加 --profile）
+          profiles="$(bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; enabled_profiles')"
+          [ -z "$profiles" ] || { echo "!! ENABLE_EASYBOT=false 仍输出 profile: $profiles"; exit 1; }
+          # 走 compose_cmd 实际构造（注意：不要直接传 --profile easybot，那会强制启用）
+          svcs="$(bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; compose_cmd config --services')"
           echo "services: $svcs"
-          echo "$svcs" | grep -q 'easybot' && { echo "easybot 应被禁用"; exit 1; } || true
+          if echo "$svcs" | grep -q '^easybot$'; then
+            echo "!! easybot 应被 ENABLE_EASYBOT=false 禁用"; exit 1
+          fi
           echo "可选服务按 ENABLE_EASYBOT 正确禁用"
 
       - name: 局域网端口随 LAN_*_PORT 生效
@@ -106,8 +114,29 @@ jobs:
           docker compose --env-file "$RUNNER_TEMP/orzmc/.env" -f compose.yaml \
             --profile easybot config 2>/dev/null | grep -E 'published: "1909[01]"' | sort -u
 
+      - name: 绑定地址随 LAN_BIND_ADDR 生效（ADR-028 L2）
+        run: |
+          d="$RUNNER_TEMP/orzmc-bind"
+          ./orzmc.sh -d "$d" init
+          sed -i 's/^LAN_BIND_ADDR=.*/LAN_BIND_ADDR=127.0.0.1/' "$d/.env"
+          got="$(docker compose --env-file "$d/.env" -f compose.yaml --profile easybot config \
+            | grep -c 'host_ip: 127.0.0.1' || true)"
+          echo "host_ip=127.0.0.1 的发布端口数: $got"
+          [ "$got" -eq 2 ] || { echo "!! 预期 2 个发布端口绑定 127.0.0.1，实际 $got"; exit 1; }
+
+      - name: 防火墙来源取自 LAN_CIDR（ADR-028 L3，dry-run）
+        run: |
+          d="$RUNNER_TEMP/orzmc-bind"
+          out="$(./orzmc.sh -d "$d" firewall apply --dry-run)"
+          echo "$out"
+          echo "$out" | grep -q '192.168.0.0/24' || { echo "!! dry-run 未包含 LAN_CIDR"; exit 1; }
+          if echo "$out" | grep -q '0\.0\.0\.0/0'; then
+            echo "!! 规则来源不得为全放行（0.0.0.0/0）"; exit 1
+          fi
+          echo "防火墙 dry-run 来源限定正常"
+
   windows-branch:
-    name: Windows branch logic (ADR-016)
+    name: Windows branch logic (ADR-016 / ADR-029)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -135,14 +164,14 @@ jobs:
           VERSION="${TAG:-0.0.0}"
           # 打包"运行时"：入口脚本 + lib + templates + compose + 文档。
           # 显式排除 .git/.github/tests/EXECUTION_PATH.md/数据（铁律：密钥与数据不入包）。
+          # 文件清单必须与仓库实际文件一致（删脚本时同步删这里，否则 tar 直接失败）。
           tar --exclude='./.git' --exclude='./.github' --exclude='./tests' \
               --exclude='./EXECUTION_PATH.md' \
               --exclude='./.env' --exclude='./.local-data' --exclude='./.local-data-lan' \
               --exclude='./.local-backups' \
               -czf "orzmc-${VERSION}.tar.gz" \
               AGENTS.md CLAUDE.md README.md CHANGELOG.md .gitignore \
-              orzmc.sh deploy.sh local.sh lan.sh windows.sh \
-              backup.sh restore.sh update-image-digests.sh install.sh \
+              orzmc.sh deploy.sh backup.sh restore.sh update-image-digests.sh install.sh \
               lib templates compose.yaml docs
           sha256sum "orzmc-${VERSION}.tar.gz" > "orzmc-${VERSION}.tar.gz.sha256"
           echo "=== 打包内容 ==="

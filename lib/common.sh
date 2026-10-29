@@ -22,7 +22,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/compose.yaml"
 TEMPLATES_DIR="${REPO_ROOT}/templates"
-DEFAULT_DATA_ROOT="/srv/orzmc"
 # shellcheck disable=SC2034  # 供 deploy.sh 读取（TEMPLATE 默认值），跨文件可见
 DEFAULT_TEMPLATE="${TEMPLATES_DIR}/env"
 
@@ -43,13 +42,12 @@ die()  { printf '[error] %s\n' "$*" >&2; exit 1; }
 norm_path() { printf '%s\n' "${1%/}"; }
 
 # ---- 平台检测 -------------------------------------------------------------
-# Windows 下 daemon 的实例自挂载卷 target 含驱动器冒号，Docker Compose 无法创建
-# （见 ADR-016 / docs/windows-deployment.md §3）：compose 只对「target 含冒号」的
-# bind 序列化失败，source 含冒号无碍。因此 Windows 下 daemon 须用 docker run --
-# mount 手动创建（结构性必然），其余服务（web/easybot/边缘层）的
-# 卷 target 均无冒号，本可由 compose 管理。三平台统一：macOS/Linux 全 compose；
-# Windows 下脚本自动生成 daemon 的 docker run 命令 + 补网络别名 + 转原生路径，
-# 用户命令与 macOS/Linux 完全一致。
+# Windows 与 macOS/Linux 的主要差异（详见 docs/windows-deployment.md）：
+#   1) 路径：MSYS 路径（/c/...）必须转 Windows 原生正斜杠（win_path）；
+#   2) WSL 侧 compose 无法创建 `E:/...` 绑定（短语法盘符冒号），`up` 须在 Windows 侧执行；
+#   3) 仅**进程模式实例**需要给 daemon 注入 `DAEMON_PORTS` 的 `-p` 时才退回
+#      `docker run`（compose 无法按 .env 动态生成端口列表）；否则交 compose（ADR-029）。
+# 用户命令三平台完全一致。
 detect_os() {
     case "$(uname -s 2>/dev/null)" in
         MINGW*|MSYS*|CYGWIN*) printf '%s\n' "windows" ;;
@@ -87,12 +85,27 @@ daemon_image() {
 }
 
 # ---- DATA_ROOT 解析 ------------------------------------------------------
-# 优先级：-d/--data-root 参数（由各脚本解析后赋值）> ORZMC_DATA_ROOT 环境变量 > 默认 /srv/orzmc
+# 优先级：-d/--data-root 参数（由各脚本解析后赋值）> ORZMC_DATA_ROOT 环境变量 > 平台默认值：
+#   Windows E:/orzmc（必须原生路径：WSL 侧 compose 建不了 E:/ 绑定，见 ADR-029）
+#   macOS   /Users/Shared/orzmc（Docker Desktop 共享目录）
+#   Linux   /srv/orzmc
+# 默认值按平台区分是有意为之：文档/AGENTS 一直按平台描述默认值，代码也必须一致
+# （否则 Windows 上默认会落到 MSYS 的 /srv/orzmc，与文档不符）。
+default_data_root() {
+    if is_windows; then
+        printf '%s\n' "E:/orzmc"
+    elif [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+        printf '%s\n' "/Users/Shared/orzmc"
+    else
+        printf '%s\n' "/srv/orzmc"
+    fi
+}
+
 resolve_data_root() {
     if [ -n "${ORZMC_DATA_ROOT:-}" ]; then
         printf '%s\n' "$(norm_path "${ORZMC_DATA_ROOT}")"
     else
-        printf '%s\n' "$DEFAULT_DATA_ROOT"
+        default_data_root
     fi
 }
 
@@ -102,7 +115,10 @@ read_env_value() {
     local key="$1" file
     file="$(env_file)"
     [ -f "$file" ] || return 0
-    grep "^${key}=" "$file" 2>/dev/null | head -n1 | cut -d '=' -f 2- || true
+    # 同名键**首次出现优先**（后追加的同名行被忽略——要改值请改原有那一行）。
+    # tr -d '\r'：Windows 编辑器会给 .env 加 CRLF，值带 \r 会让 ENABLE_EASYBOT
+    # 判定失败、LAN_BIND_ADDR 进 compose 端口时报错（静默降级）。
+    grep "^${key}=" "$file" 2>/dev/null | head -n1 | cut -d '=' -f 2- | tr -d '\r' || true
 }
 
 # 校验 env 文件内 DATA_ROOT 与生效值一致（防静默不一致导致卷挂到旧路径）
@@ -170,9 +186,8 @@ ensure_site_override() {
 }
 
 ensure_data_dirs() {
+    # 只建平台层真正需要的目录（ADR-027 后无边缘层，不再建 caddy/）。
     mkdir -p \
-        "$DATA_ROOT/caddy/data" \
-        "$DATA_ROOT/caddy/config" \
         "$DATA_ROOT/mcsmanager/web/data" \
         "$DATA_ROOT/mcsmanager/web/logs" \
         "$DATA_ROOT/mcsmanager/daemon/data" \
@@ -230,7 +245,7 @@ find_docker_instance() {
 # 先占 25565/19132，实例启动即报 `port is already allocated`——表现为「实例起不来」而非
 # 「端口冲突」，排查易被带偏。故检测到 docker 型实例时**自动忽略** DAEMON_PORTS（幂等且
 # 安全：进程模式与 docker 型实例互斥），仅留一条 info 让行为可见；无 docker 型实例时原样
-# 输出。详见 docs/windows-deployment.md §10 P9。
+# 输出。详见 docs/windows-deployment.md §4。
 win_effective_daemon_ports() {
     local root="$1" ports docker_inst
     ports="$(read_env_value DAEMON_PORTS)"
@@ -308,7 +323,7 @@ win_daemon_run() {
         --health-timeout 5s \
         --health-retries 3 \
         --health-start-period 20s \
-        "${port[@]}" \
+        ${port[@]+"${port[@]}"} \
         --network "$network" \
         "$img" node --max-old-space-size="$heap" app.js >/dev/null
     info "daemon 已通过 docker run 创建（Windows 专用路径）"
@@ -343,16 +358,12 @@ collect_site_override_files() {
 
 # ---- compose 统一入口 ----------------------------------------------------
 # compose v2：--env-file 是替换而非叠加项目根 .env，必须显式传入且为真实普通文件。
-# Profile 模型（ADR-017）：单 profile + 可插拔服务 + 可插拔边缘层。
 #   - -f 集合：compose.yaml（含局域网端口发布）+ 站点 override（compose.site.yaml /
-#     COMPOSE_FILE_EXTRA）。ADR-027 起不再有边缘层 override 文件。
-#   - --profile：按 ENABLE_EASYBOT 追加可启用的可选服务（easybot）；核心
-#     web/daemon 无 profile 常驻。
-# Windows 适配（ADR-016）：daemon 实例自挂载 target 含驱动器冒号，compose 无法
-# 创建。up 时用 --no-deps + 显式列出非 daemon 服务让 compose 跳过 daemon，再走
-# win_daemon_run docker run；down 先 rm daemon 再 compose down；status 补一行
-# daemon 状态。macOS/Linux 走原生 compose 全流程。其余命令（config/exec/validate
-# 等）在 Windows 下同样透传 compose。
+#     COMPOSE_FILE_EXTRA）。ADR-027 起没有边缘层 override 文件。
+#   - --profile：按 ENABLE_EASYBOT 追加 easybot；核心 web/daemon 无 profile 常驻。
+# Windows 适配（ADR-029）：默认交 compose；仅当 .env 设了 DAEMON_PORTS（进程模式实例
+# 需要 -p 注入）才用 --no-deps 跳过 daemon 并走 win_daemon_run。down 先 rm 手动容器
+# 再 compose down；status 补一行手动 daemon。其余命令（config/exec/validate 等）透传。
 compose_cmd() {
     local file
     local -a extra=() profiles_flags=() base=()
@@ -372,7 +383,10 @@ compose_cmd() {
         done
     fi
     # posix（macOS/Linux）：base 用原生路径 + 站点 override + ENABLE_* profile
-    base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" "${extra[@]}" "${profiles_flags[@]}")
+    # 数组展开一律用 ${arr[@]+"${arr[@]}"}：bash 3.2/4.3 + set -u 下空数组直接展开
+    # 会报 unbound variable（ENABLE_EASYBOT=false 时 profiles_flags 必空）。
+    base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" \
+        ${extra[@]+"${extra[@]}"} ${profiles_flags[@]+"${profiles_flags[@]}"})
     # Windows：COMPOSE_FILE / override / env-file 是 MSYS 路径（/c/...），docker compose
     # 无法解析（会转成 C:\c\...）。须转 Windows 原生正斜杠路径（docs/windows-deployment.md §7）。
     if is_windows; then
@@ -382,7 +396,8 @@ compose_cmd() {
             [ "$f" = "-f" ] && continue
             extra_win+=(-f "$(win_path "$f")")
         done
-        base=(docker compose --env-file "$file" -f "$(win_path "$COMPOSE_FILE")" "${extra_win[@]}" "${profiles_flags[@]}")
+        base=(docker compose --env-file "$file" -f "$(win_path "$COMPOSE_FILE")" \
+            ${extra_win[@]+"${extra_win[@]}"} ${profiles_flags[@]+"${profiles_flags[@]}"})
     fi
 
     # ---- Windows：daemon 默认交给 compose，仅在需要注入端口时走 docker run ----
@@ -398,9 +413,13 @@ compose_cmd() {
                 if [ "${2:-}" = "-d" ] && [ "$#" -eq 2 ]; then
                     if [ -n "$(read_env_value DAEMON_PORTS)" ]; then
                         local -a svcs=()
+                        local s
                         # 进程模式实例：剔除 daemon，由 win_daemon_run 注入 -p
-                        mapfile -t svcs < <("${base[@]}" config --services 2>/dev/null | grep -v '^mcsmanager-daemon$')
-                        "${base[@]}" up -d --no-deps "${svcs[@]}"
+                        # （不用 mapfile：macOS bash 3.2 没有）
+                        while IFS= read -r s; do
+                            [ -n "$s" ] && svcs+=("$s")
+                        done < <("${base[@]}" config --services 2>/dev/null | grep -v '^mcsmanager-daemon$' || true)
+                        "${base[@]}" up -d --no-deps ${svcs[@]+"${svcs[@]}"}
                         win_daemon_run
                     else
                         # 常规场景：compose 直接管理 daemon（含服务名别名）
@@ -449,12 +468,13 @@ required_env_list() {
 }
 
 validate_required_env() {
-    local k v list
-    mapfile -t list < <(required_env_list)
-    for k in "${list[@]}"; do
+    local k v
+    # while-read 而非 mapfile：macOS 自带 bash 3.2 没有 mapfile/readarray。
+    while IFS= read -r k; do
+        [ -n "$k" ] || continue
         v="$(read_env_value "$k")"
         [ -n "$v" ] || die "env 缺少必需变量: ${k}（请编辑 $(env_file)）"
-    done
+    done < <(required_env_list)
 }
 
 # ---- 面板中转数据模式（ADR-026）------------------------------------------
@@ -479,13 +499,18 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip bind cidr
+    local lan_ip bind cidr eb
     lan_ip="$(read_env_value LAN_HOST_IP)"
     bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
     cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
+    eb="$(read_env_value ENABLE_EASYBOT)"; [ -n "$eb" ] || eb="true"
     echo "访问地址（局域网）："
     echo "  MCSManager Web: http://${lan_ip}:$(read_env_value LAN_MCS_WEB_PORT)"
-    echo "  EasyBot 管理后台: http://${lan_ip}:$(read_env_value LAN_EASYBOT_PORT)"
+    if [ "$eb" = "true" ]; then
+        echo "  EasyBot 管理后台: http://${lan_ip}:$(read_env_value LAN_EASYBOT_PORT)"
+    else
+        echo "  EasyBot: 已禁用（ENABLE_EASYBOT=false）"
+    fi
     if [ "$bind" = "127.0.0.1" ]; then
         echo "  暴露面: 仅本机（LAN_BIND_ADDR=127.0.0.1，需经反代/VPN 访问）"
     elif [ "$bind" = "0.0.0.0" ]; then

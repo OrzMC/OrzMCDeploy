@@ -19,7 +19,7 @@
 # 平台：
 #   Windows（Git Bash / MSYS）→ 通过 powershell.exe 调 New-NetFirewallRule（**需要管理员**）
 #   Linux  → 优先 ufw，其次打印 iptables 命令
-#   macOS  → 打印 pf 建议（不自动改，避免误伤）
+#   macOS  → 只打印等价 pf 规则（不自动改，避免误伤系统 pf 配置）
 # ===========================================================================
 
 set -euo pipefail
@@ -27,6 +27,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+
+# 端口/来源全取自 .env，缺文件会静默回落到缺省值——直接拦下更安全。
+[ -f "$(env_file)" ] || die "缺少 $(env_file)，请先执行 ./orzmc.sh init"
 
 ACTION="${1:-show}"
 shift || true
@@ -124,6 +127,36 @@ linux_apply() {
     fi
 }
 
+# macOS：不自动改 pf（系统 pf.conf 是全局配置，脚本改易误伤），只打印等价规则。
+macos_apply() {
+    local src; src="$(sources)"
+    echo "  macOS：不自动修改 pf；以下是等价规则（来源: ${src}）。"
+    echo "  更简单的做法是用 .env 的 LAN_BIND_ADDR 收紧绑定（见 docs/security.md）。"
+    while IFS=':' read -r name proto ports; do
+        for p in ${ports//,/ }; do
+            for s in ${src//,/ }; do
+                echo "  pass in quick proto $(printf '%s' "$proto" | tr '[:upper:]' '[:lower:]') from ${s} to any port ${p}  # ${name}"
+            done
+        done
+    done < <(port_specs)
+}
+
+# Linux/macOS 的 show：把端口清单拼成精确正则（逐端口，不能用 '25565,25566' 字面）。
+posix_show() {
+    local pat="" spec p
+    while IFS=':' read -r _ _ spec; do
+        for p in ${spec//,/ }; do
+            pat="${pat:+${pat}|}${p}"
+        done
+    done < <(port_specs)
+    if command -v ufw >/dev/null 2>&1; then
+        echo "当前 ufw 规则（与项目端口相关，含 ${pat//|/,}）:"
+        ufw status 2>/dev/null | grep -E "(${pat})" || echo "  （未匹配到相关端口规则）"
+    else
+        echo "（无 ufw：请用系统防火墙工具核对项目端口 ${pat//|/,}）"
+    fi
+}
+
 # --------------------------- 分发 -----------------------------
 echo "项目端口与来源策略："
 echo "  绑定地址 LAN_BIND_ADDR = $(bind_addr)"
@@ -133,12 +166,11 @@ echo
 
 case "$ACTION" in
     show)
-        if is_windows; then echo "当前防火墙规则："; win_show; 
-        elif command -v ufw >/dev/null 2>&1; then echo "当前 ufw 规则（含端口）:"; ufw status | grep -E "$(port_specs | cut -d: -f3 | tr '\n' '|' | sed 's/,$//')" || true
-        else echo "（非 Windows 且无 ufw：请用系统防火墙工具核对）"; fi
+        if is_windows; then echo "当前防火墙规则："; win_show; else posix_show; fi
         ;;
     apply)
         if is_windows; then win_apply
+        elif [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then macos_apply
         else linux_apply; fi
         ;;
     *)

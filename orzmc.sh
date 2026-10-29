@@ -15,7 +15,7 @@
 # LAN_CIDR（+ 可选 ALLOW_EXTRA_CIDRS）；`firewall apply` 幂等应用该策略。
 #
 # DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 平台默认
-#   （Windows: E:/orzmc；macOS/Linux: /srv/orzmc）
+#   （Windows E:/orzmc；macOS /Users/Shared/orzmc；Linux /srv/orzmc）
 # 全部 compose 调用统一走 lib/common.sh 的 compose_cmd。
 # ===========================================================================
 

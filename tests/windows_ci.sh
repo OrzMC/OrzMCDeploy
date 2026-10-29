@@ -82,15 +82,16 @@ echo "来源: $LIB"
 
 # 需在 source 后确保这些导出有值（common.sh 可能定义默认）
 DATA_ROOT="${DATA_ROOT:-E:/orzmc}"
-COMPOSE_PROFILE="${COMPOSE_PROFILE:-prod}"
 COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/compose.yaml}"
 
 # ===========================================================================
 section "detect_os / is_windows"
 MODE=windows
 check "detect_os=MINGW 返回 windows" "windows" "$(detect_os)"
+check "默认 DATA_ROOT（Windows）= E:/orzmc" "E:/orzmc" "$(MODE=windows default_data_root)"
 MODE=posix
 check "detect_os=Linux 返回 posix" "posix" "$(detect_os)"
+check "默认 DATA_ROOT（Linux）= /srv/orzmc" "/srv/orzmc" "$(MODE=posix default_data_root)"
 
 # ===========================================================================
 section "win_path（MSYS/原生路径 → Windows 原生正斜杠）"
@@ -298,6 +299,18 @@ DOCKER_CALLS=()
 compose_cmd ps >/dev/null 2>&1
 calls="$(printf '%s\n' "${DOCKER_CALLS[@]}")"
 check "COMPOSE_FILE_EXTRA 文件被 -f 追加" "1" "$(printf '%s' "$calls" | grep -c 'extra-override.yaml')"
+
+# ===========================================================================
+section "read_env_value —— 首次出现优先 + CRLF 容错"
+printf 'ENABLE_EASYBOT=true\nENABLE_EASYBOT=false\n' > "$TMP/dup.env"
+env_file() { printf '%s' "$TMP/dup.env"; }
+check "同名键首次出现优先（后者被忽略）" "true" "$(read_env_value ENABLE_EASYBOT)"
+check "enabled_profiles 跟随首个值" "easybot" "$(enabled_profiles)"
+printf 'ENABLE_EASYBOT=false\r\nLAN_BIND_ADDR=127.0.0.1\r\n' > "$TMP/crlf.env"
+env_file() { printf '%s' "$TMP/crlf.env"; }
+check "CRLF 文件读到 false" "false" "$(read_env_value ENABLE_EASYBOT)"
+check "CRLF 下 profile 为空（开关生效）" "" "$(enabled_profiles)"
+check "CRLF 值不带 \\r" "127.0.0.1" "$(read_env_value LAN_BIND_ADDR)"
 
 # ===========================================================================
 echo ""

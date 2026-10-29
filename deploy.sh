@@ -10,7 +10,8 @@
 #   deploy.sh [-d DATA_ROOT] validate
 #   deploy.sh print-root
 #
-# DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 默认 /srv/orzmc
+# DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 平台默认值
+# （Windows E:/orzmc、macOS /Users/Shared/orzmc、Linux /srv/orzmc；见 common.sh default_data_root）
 # 运行模型见 ADR-027（只有局域网模式）；compose 调用统一走 compose_cmd。
 # ===========================================================================
 
@@ -44,7 +45,7 @@ while [ "$#" -gt 0 ]; do
             break
             ;;
         -*)
-            die "未知选项: $1（-e/-p/-t 已随 ADR-027 移除）"
+            die "未知选项: $1（-e/-p/-t 已随 ADR-027 移除，现只有 -d/--data-root）"
             ;;
         *)
             break
@@ -99,9 +100,9 @@ cmd_validate() {
 case "$CMD" in
     init)       cmd_init ;;
     up)         cmd_up ;;
-    stop|down)  cmd_stop ;;
-    status|ps)  cmd_status ;;
-    validate|config) cmd_validate ;;
+    stop)       cmd_stop ;;
+    status)     cmd_status ;;
+    validate)   cmd_validate ;;
     print-root) echo "$DATA_ROOT" ;;
     *) usage; exit 1 ;;
 esac

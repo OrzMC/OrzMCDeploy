@@ -22,7 +22,7 @@ START=0
 ARCHIVE=""
 
 usage() {
-    echo "用法: restore.sh [-d DATA_ROOT] [-p PROFILE] <archive.tar.gz> [--force] [--start]" >&2
+    echo "用法: restore.sh [-d DATA_ROOT] <archive.tar.gz> [--force] [--start]" >&2
     exit 1
 }
 

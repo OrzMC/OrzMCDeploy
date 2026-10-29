@@ -24,7 +24,7 @@ STOP=0
 KEEP=""
 
 usage() {
-    echo "用法: backup.sh [-d DATA_ROOT] [-o BACKUP_DIR] [-p PROFILE] [--stop] [--keep N]" >&2
+    echo "用法: backup.sh [-d DATA_ROOT] [-o BACKUP_DIR] [--stop] [--keep N]" >&2
     exit 1
 }
 
@@ -76,10 +76,11 @@ fi
 # 保留最近 N 份
 if [ -n "$KEEP" ]; then
     # shellcheck disable=SC2012  # 文件名均为脚本自生成（无空格）；ls -1t 按 mtime 排序
-    # 找最近 N 份是有意为之，且跨 GNU/BSD find 可移植（find -printf 仅 GNU 可用）
-    mapfile -t old < <(ls -1t "$BACKUP_DIR"/orzmc-backup-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)))
-    for f in "${old[@]}"; do
+    # 找最近 N 份是有意为之，且跨 GNU/BSD find 可移植（find -printf 仅 GNU 可用）。
+    # 不用 mapfile：macOS 自带 bash 3.2 没有该内建。
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
         rm -f "$f"
         warn "清理旧备份: $f"
-    done
+    done < <(ls -1t "$BACKUP_DIR"/orzmc-backup-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) || true)
 fi
