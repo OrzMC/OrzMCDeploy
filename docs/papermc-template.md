@@ -17,7 +17,7 @@
 | 镜像名 | `eclipse-temurin:25-jre` | `eclipse-temurin:25-jre` | 按 Paper 版本选 Java（Paper 26.2→Java 25；1.21.x→`eclipse-temurin:21-jre`） |
 | 服务端口 | `25566` | `25565` | 测试服避开正式服默认端口 |
 | 端口映射 | `25566:25566/tcp`（启用 Geyser 再加 `19133:19133/udp`） | `25565:25565/tcp`（启用 Geyser 再加 `19132:19132/udp`） | `宿主:容器/协议`，一个对外端口一条；启用 Geyser 必须**显式发布 UDP**，仅写 TCP 时基岩通道在容器外不可达（见「端口映射与多实例分配」） |
-| 服务目录 | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置）；`$DATA_ROOT` 默认值见 usage §4.1 |
+| 服务目录 | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置）；`$DATA_ROOT` 由你部署时指定（无默认值，见 usage §4.1） |
 | 挂载定义 | `.../InstanceData/<uuid>:/server` | `.../InstanceData/<uuid>:/server` | 核心数据挂载（`<uuid>` 由面板生成） |
 | Java 版本 | `25` | `25` | 根据目标 Paper 版本选择（同上一行） |
 | 最小内存 | `2G` | `4G` | 测试服保守，正式服更稳妥 |

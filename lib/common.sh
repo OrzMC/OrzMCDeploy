@@ -85,27 +85,16 @@ daemon_image() {
 }
 
 # ---- DATA_ROOT 解析 ------------------------------------------------------
-# 优先级：-d/--data-root 参数（由各脚本解析后赋值）> ORZMC_DATA_ROOT 环境变量 > 平台默认值：
-#   Windows E:/orzmc（必须原生路径：WSL 侧 compose 建不了 E:/ 绑定，见 ADR-029）
-#   macOS   /Users/Shared/orzmc（Docker Desktop 共享目录）
-#   Linux   /srv/orzmc
-# 默认值按平台区分是有意为之：文档/AGENTS 一直按平台描述默认值，代码也必须一致
-# （否则 Windows 上默认会落到 MSYS 的 /srv/orzmc，与文档不符）。
-default_data_root() {
-    if is_windows; then
-        printf '%s\n' "E:/orzmc"
-    elif [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-        printf '%s\n' "/Users/Shared/orzmc"
-    else
-        printf '%s\n' "/srv/orzmc"
-    fi
-}
-
+# **没有默认路径**：数据、密钥、备份源全落该目录，默认值只会让人"不知道数据在哪"。
+# 必须由调用方显式给出其一（ADR-033）：
+#   1) -d/--data-root <路径>（入口脚本解析后直接赋值，不经过本函数）
+#   2) export ORZMC_DATA_ROOT=<路径>
+# 都没给时直接报错并说明怎么给，不做任何猜测。
 resolve_data_root() {
     if [ -n "${ORZMC_DATA_ROOT:-}" ]; then
         printf '%s\n' "$(norm_path "${ORZMC_DATA_ROOT}")"
     else
-        default_data_root
+        die "未指定 DATA_ROOT（数据/密钥/备份都落在这里）：请用 -d/--data-root <路径>，或 export ORZMC_DATA_ROOT=<路径>"
     fi
 }
 

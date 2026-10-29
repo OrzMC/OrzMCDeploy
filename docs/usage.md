@@ -32,7 +32,7 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 
 | 术语 | 含义 |
 |---|---|
-| **DATA_ROOT** | 宿主机上的统一数据目录，存放全部配置与密钥（默认值见 §4.1） |
+| **DATA_ROOT** | 宿主机上的统一数据目录，存放全部配置与密钥（**无默认值**，必须显式指定，见 §4.1） |
 | **局域网模式** | 本项目唯一的运行形态（ADR-027）：宿主发布 `LAN_*_PORT`，纯 HTTP |
 | **daemon key** | MCSManager Daemon 的鉴权密钥，等同最高权限（daemon 可管理宿主机 Docker）。位于 `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` |
 | **会话 key** | EasyBot 后台为某个平台会话分配的标识（如 `qq:xxxxxxxx`），填进插件 `easybot.yml` |
@@ -74,7 +74,7 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 ./orzmc.sh -d /path/to/orzmc status   # 打印访问地址 + 容器状态
 ```
 
-省略 `-d` 时用平台默认值（见 §4.1）。
+`-d` 必填（或用 `ORZMC_DATA_ROOT`）：**DATA_ROOT 没有默认路径**，理由与选择建议见 §4.1。
 
 `up` 会拉起 `mcsmanager-web` / `mcsmanager-daemon`（+ `easybot`，除非 `ENABLE_EASYBOT=false`）；
 `status` 打印两个入口：`http://<LAN_HOST_IP>:18090`（面板）、`:18091`（EasyBot 后台）。
@@ -106,18 +106,28 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 
 ### 4.1 DATA_ROOT 与 .env
 
-**DATA_ROOT 优先级**：命令行 `-d/--data-root` > 环境变量 `ORZMC_DATA_ROOT` > 平台默认值。
-**平台默认值（本文唯一权威说明，其他文档不再重复）**：
+**`DATA_ROOT` 没有默认路径**——它装的是全部数据、密钥与备份源，默认值只会让人
+"不知道数据到底在哪"。必须由你显式给出（二选一）：
 
-| 平台 | 默认 `DATA_ROOT` | 说明 |
-|---|---|---|
-| Linux | `/srv/orzmc` | 生产推荐；需 root 或 docker 组权限 |
-| macOS | `/Users/Shared/orzmc` | Docker Desktop 默认共享目录 |
-| Windows | `E:/orzmc` | 必须 Windows 原生路径；盘符可按需改 |
+```bash
+./orzmc.sh -d /你的/数据目录  <命令>       # 单次/脚本化调用
+export ORZMC_DATA_ROOT=/你的/数据目录      # 长期使用（同一台机器多次操作）
+```
 
-所有脚本（deploy / backup / restore）统一按此解析，并用 `compose_cmd` 显式
-`--env-file $DATA_ROOT/.env` 调用 compose。**换机器/换路径时用 `-d` 或
-`ORZMC_DATA_ROOT` 显式指定即可，无需改仓库文件。**
+优先级：`-d/--data-root` > `ORZMC_DATA_ROOT`；**两者都没给时脚本直接报错**，不回落任何路径。
+后文命令示例为简洁可能省略 `-d`；实际执行时请带上（或先 `export ORZMC_DATA_ROOT=...`）。
+
+选择位置的要点（本项目不预设）：
+
+- **磁盘够大**：等于「平台层数据 + 所有 PaperMC 实例 + 备份」；世界存档增长很快。
+- **三平台路径写法**：Linux/macOS 用 POSIX 路径；Windows 用原生 `E:/...`（不要 MSYS 的 `/e/...`），
+  且该盘要加入 Docker Desktop 的文件共享白名单。
+- **备份在 `DATA_ROOT` 之外**：`backup.sh` 默认输出到其父目录的 `orzmc-backups/`，可 `-o` 改。
+- init 会把你给的路径写进 `.env` 的 `DATA_ROOT`，之后 `validate` 会校验两者一致
+  （防止脚本用一个目录、卷挂到另一个）。
+
+所有脚本（deploy / backup / restore / firewall）统一按此解析，并用 `compose_cmd` 显式
+`--env-file $DATA_ROOT/.env` 调用 compose。**换机器/换路径只需改 `-d` 参数，不用改仓库文件。**
 
 `.env` 是**唯一配置源**（含密钥）。首次由 `init` 从 `templates/env` 生成，之后**改配置 =
 编辑 `.env`**。必需变量清单由 `lib/common.sh` 的 `required_env_list` 定义（`orzmc.sh validate`
@@ -599,9 +609,9 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
 | 打印 DATA_ROOT | `./orzmc.sh -d <DATA_ROOT> print-root` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
-| 防火墙收敛 | `./orzmc.sh firewall show` / `apply` |
+| 防火墙收敛 | `./orzmc.sh -d <DATA_ROOT> firewall show` / `apply` |
 
-- 平台默认 `<DATA_ROOT>` 与优先级见 [§4.1](#41-data_root-与-env)（三平台默认值不同，值是固定的）。
+- `<DATA_ROOT>` **无默认值**，必须用 `-d` 或 `ORZMC_DATA_ROOT` 指定（见 [§4.1](#41-data_root-与-env)）。
 - 非 Windows 平台的 `firewall apply` 需 root/管理员（Linux 走 `ufw`，macOS 只打印 `pf` 规则）。
 
 ## 附录 B 端口约定
@@ -677,7 +687,7 @@ PaperMC 实例本身。下表按**同时在线**（不是注册数）：
 
 | 项 | 要求 |
 |---|---|
-| 路径 | `DATA_ROOT` 用 Windows 原生路径 `E:/orzmc`（默认值），不要用 MSYS 的 `/e/orzmc` |
+| 路径 | `DATA_ROOT` 用 Windows 原生路径（如 `E:/<你的目录>`），不要用 MSYS 的 `/e/...`；且该盘须在 Docker Desktop 文件共享白名单内 |
 | 执行位置 | **在 Windows 侧（Git Bash）执行 `up`**。WSL 侧 compose 建不了 `E:/...` 绑定，报 `invalid volume specification`（短语法盘符冒号） |
 | daemon | `DAEMON_PORTS` 为空（docker 型实例）时由 compose 创建；仅**进程模式实例**需注入 `-p` 时才走脚本的 `docker run`（ADR-029）。切换后 `stop && up` 重建 |
 | 防火墙 | 用 `./orzmc.sh firewall apply`（弹 UAC），**不要手写规则、不要 `-RemoteAddress Any`** |

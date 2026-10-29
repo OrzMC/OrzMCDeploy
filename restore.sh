@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
 
-DATA_ROOT="$(resolve_data_root)"
+DATA_ROOT=""
 FORCE=0
 START=0
 ARCHIVE=""
@@ -40,6 +40,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+[ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"   # 无默认路径，ADR-033
 export DATA_ROOT
 [ -f "$ARCHIVE" ] || die "备份文件不存在: $ARCHIVE"
 

@@ -51,9 +51,9 @@ ALLOW_EXTRA_CIDRS=             # 有 VPN 就填 100.64.0.0/10（Tailscale）
 然后应用防火墙（幂等，会先删掉旧的 `OrzMC-*` 规则再重建）：
 
 ```bash
-./orzmc.sh firewall show       # 先看现状
-./orzmc.sh firewall apply      # Windows 会弹 UAC（需管理员）；Linux 走 ufw
-./orzmc.sh firewall apply --dry-run   # 只看将执行的命令
+./orzmc.sh -d <数据目录> firewall show       # 先看现状
+./orzmc.sh -d <数据目录> firewall apply      # Windows 会弹 UAC（需管理员）；Linux 走 ufw
+./orzmc.sh -d <数据目录> firewall apply --dry-run   # 只看将执行的命令
 ```
 
 ### C. 需要公网访问（三选一，按推荐顺序）
@@ -133,7 +133,7 @@ ARI 自动续期。
 
 ```bash
 ./orzmc.sh status                 # 打印"暴露面"摘要（绑定地址 / 建议限源命令）
-./orzmc.sh firewall show          # 列出当前 OrzMC-* 规则的端口与来源
+./orzmc.sh -d <数据目录> firewall show    # 列出当前 OrzMC-* 规则的端口与来源
 docker ps --format '{{.Names}}\t{{.Ports}}' | grep orzmc   # 谁发布了什么端口
 ```
 

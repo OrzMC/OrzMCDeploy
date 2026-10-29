@@ -8,6 +8,8 @@
 
 # ---- 基础 ----
 TZ=Asia/Shanghai
+# DATA_ROOT 由 init 写入你显式指定的路径（无默认值，ADR-033）；之后如需换路径，
+# 用 ./orzmc.sh -d <新路径> 运行，别只改这一行（validate 会校验与生效值一致）。
 DATA_ROOT=<DATA_ROOT>
 
 # ---- 局域网入口：宿主发布端口（改完 up 即生效；init 不会覆盖已存在的 .env）----

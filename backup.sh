@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
 
-DATA_ROOT="$(resolve_data_root)"
+DATA_ROOT=""
 BACKUP_DIR=""
 STOP=0
 KEEP=""
@@ -38,6 +38,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+[ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"   # 无默认路径，ADR-033
 export DATA_ROOT
 [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$(norm_path "${DATA_ROOT%/*}/orzmc-backups")"
 

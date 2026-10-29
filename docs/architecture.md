@@ -12,7 +12,7 @@
 - **局域网内闭环**：平台层只服务可信局域网（纯 HTTP，ADR-027）；**对外访问由站点自备**
   （DDNS + 端口映射 / TLS 反代 / VPN），本仓库不提供也不管理边缘层。
 - **单一控制面**：MCSManager 作为 PaperMC 实例唯一控制入口；本仓库 compose 只管平台层。
-- **可验证、可回滚**：镜像 digest 锁定 + git commit；`./orzmc.sh validate` 做配置门禁。
+- **可验证、可回滚**：镜像 digest 锁定 + git commit；`./orzmc.sh -d <目录> validate` 做配置门禁。
 
 ## 2. 拓扑（局域网单一模式，ADR-027）
 
@@ -376,6 +376,7 @@ daemon 注入 `-p` 时（compose 无法按 `.env` 动态生成端口列表）才
 4. **默认 `DATA_ROOT` 按平台**（`default_data_root`）：Windows `E:/orzmc`、macOS
    `/Users/Shared/orzmc`、Linux `/srv/orzmc`——此前代码恒为 `/srv/orzmc`，与文档/AGENTS
    一直宣称的平台默认值不符（Windows 上会落到 MSYS 的 `/srv/orzmc`）。
+   **本条已被 ADR-033 取代**：平台默认值整体取消，`DATA_ROOT` 必须显式指定。
 5. **`read_env_value` 语义固定并容错**：同名键**首次出现优先**（写入注释）、剥除 CRLF
    （Windows 编辑器写出的 `\r` 会让 `ENABLE_EASYBOT` / `LAN_BIND_ADDR` 静默失效）。
 6. **删 `ensure_data_dirs` 里的 `caddy/`**：ADR-027 后无边缘层，新装不再建这个空目录。
@@ -478,6 +479,40 @@ daemon 注入 `-p` 时（compose 无法按 `.env` 动态生成端口列表）才
   README 文档表、各文档互链、`lib/common.sh` 与 CI 内的路径注释同步更新。
 - 维护成本：改一处行为只需更新 usage 一个章节 + 对应 ADR，不再要求 3–4 份文档同步措辞。
 - **回退**：`git revert` 即可恢复拆分（无代码/数据影响）。
+
+### ADR-033：取消 `DATA_ROOT` 默认路径，必须显式指定（2026-10-30）
+
+**背景**：ADR-030 为"消除文档与代码不一致"引入平台默认值（Linux `/srv/orzmc`、
+macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"是负收益：
+
+- `DATA_ROOT` 装的是**全部数据、密钥与备份源**，猜错/沿用别人机器的路径代价很高
+  （卷挂到意外磁盘、备份找不到、迁移漏数据）；
+- 有默认值就必须在 README/文档里写死具体路径，而这些值来源于作者机器的磁盘布局，
+  对其他部署是**误导性示例**；
+- "不给路径也能跑"让人跳过"数据放哪、磁盘够不够、是否在 Docker 文件共享白名单内"
+  这些本该在 init 前想清楚的决策。
+
+**决策**：
+
+1. 删除 `lib/common.sh` 的 `default_data_root`；`resolve_data_root` 只接受
+   `-d/--data-root <路径>` 或 `ORZMC_DATA_ROOT`，**两者都没有时 `die` 并打印两种指定方式**。
+2. 入口脚本（`orzmc.sh` / `deploy.sh` / `backup.sh` / `restore.sh`）改为**先解析 `-d`、
+   再解析环境变量**，避免"还没读到参数就因缺默认值报错"；`lib/firewall.sh` 单独调用时
+   同样解析。
+3. `init` 把生效路径写入 `.env` 的 `DATA_ROOT`，`validate` 继续校验「env 内值与生效值一致」
+   （防脚本用一个目录、卷挂到另一个）。
+4. 文档与 README 不再列任何默认路径：只说明「必须显式指定」+ 选择要点（磁盘容量、
+   Windows 原生路径与文件共享白名单、备份落在 `DATA_ROOT` 之外）。
+
+**影响**：
+
+- 行为变更（**有意**）：以前不带 `-d` 会回落到平台路径，现在直接报错退出。旧部署的
+  `.env` 里已有 `DATA_ROOT`，但每次命令仍需 `-d`；长期使用建议 `export ORZMC_DATA_ROOT=...`。
+- 代码：`lib/common.sh`、4 个入口脚本、`lib/firewall.sh`；测试删除平台默认断言，新增
+  「ORZMC_DATA_ROOT 生效」「未指定时报错且给出指引」两项。
+- 文档：README 快速开始与命令表全部带 `-d <你的数据目录>`；AGENTS 铁律、usage §3.2/§4.1/
+  附录 A/附录 F 同步；`install.sh` 的手把手提示同样带 `-d`。
+- **回退**：`git revert` 本 ADR 对应提交即可恢复平台默认（但文档里的路径示例会一并回来）。
 
 ### 已归档 ADR 索引（正文见 git 历史）
 

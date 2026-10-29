@@ -13,6 +13,22 @@
 
 ## [Unreleased]
 
+### 变更（ADR-033：取消 DATA_ROOT 默认路径）
+
+- **`DATA_ROOT` 必须显式指定**：删除平台默认值（原先 Linux `/srv/orzmc`、macOS
+  `/Users/Shared/orzmc`、Windows `E:/orzmc`）。现在必须用 `-d/--data-root <路径>` 或
+  `export ORZMC_DATA_ROOT=<路径>`，两者都没有时脚本**直接报错**并给出指定方式。
+  理由：该目录装全部数据/密钥/备份源，默认值会让人"不知道数据放哪"，也让文档必须写死
+  作者机器的路径。
+- **行为变更（有意）**：以前不带 `-d` 的命令现在会失败。旧部署 `.env` 里的 `DATA_ROOT`
+  仍在，但每次调用需带 `-d`；长期使用建议 `export ORZMC_DATA_ROOT=...`。
+- 入口脚本（`orzmc.sh` / `deploy.sh` / `backup.sh` / `restore.sh`）改为先解析 `-d` 再读
+  环境变量；`lib/firewall.sh` 直接调用时同样要求。
+- 文档：README/AGENTS/usage 删除全部默认路径；快速开始与命令表统一为
+  `-d <你的数据目录>`，并补充"选位置要点"（磁盘容量、Windows 原生路径与 Docker 共享
+  白名单、备份落在 `DATA_ROOT` 之外）。`install.sh` 的手把手提示同步。
+- 测试：删除平台默认断言，新增「`ORZMC_DATA_ROOT` 生效」「未指定时报错并给出指引」。
+
 ### 文档（ADR-032：文档收敛，10 → 8 个文件）
 
 - **README 回归落地页**（169 → 68 行）：是什么 / 快速开始 / 常用命令 / 关键约束 / 文档表 /

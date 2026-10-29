@@ -28,8 +28,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
 
+# DATA_ROOT 无默认值（ADR-033）：直接用本脚本时也要能解析出来。
+[ -n "${DATA_ROOT:-}" ] || DATA_ROOT="$(resolve_data_root)"
+export DATA_ROOT
 # 端口/来源全取自 .env，缺文件会静默回落到缺省值——直接拦下更安全。
-[ -f "$(env_file)" ] || die "缺少 $(env_file)，请先执行 ./orzmc.sh init"
+[ -f "$(env_file)" ] || die "缺少 $(env_file)，请先执行 ./orzmc.sh -d ${DATA_ROOT} init"
 
 ACTION="${1:-show}"
 shift || true

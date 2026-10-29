@@ -16,16 +16,16 @@ Minecraft 服务器的最小容器化部署方案：用 Docker Compose 跑**平�
 
 ```bash
 git clone <仓库地址> orzmc-deploy && cd orzmc-deploy
-./orzmc.sh init        # 建目录树 + 生成 $DATA_ROOT/.env
-vi $DATA_ROOT/.env     # 改 LAN_HOST_IP / EASYBOT_ADMIN_PASSWORD / QQBOT_*
-./orzmc.sh validate    # 必需变量 + compose 配置校验
-./orzmc.sh up          # 启动平台层
-./orzmc.sh status      # 打印访问地址 + 容器状态
+./orzmc.sh -d <你的数据目录> init    # 必填：数据/密钥/备份都落在这里（无默认路径）
+vi <你的数据目录>/.env              # 改 LAN_HOST_IP / EASYBOT_ADMIN_PASSWORD / QQBOT_*
+./orzmc.sh -d <你的数据目录> validate
+./orzmc.sh -d <你的数据目录> up
+./orzmc.sh -d <你的数据目录> status  # 打印访问地址 + 容器状态
 ```
 
-`DATA_ROOT` 默认按平台：Linux `/srv/orzmc`、macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`
-（`-d` 或 `ORZMC_DATA_ROOT` 覆盖）。三平台命令一致；Windows 额外注意点见
-[usage 附录 F](docs/usage.md#附录-f-windows-平台要点)。
+`DATA_ROOT` **没有默认值**：必须用 `-d <路径>` 或 `export ORZMC_DATA_ROOT=<路径>` 显式指定，
+脚本不回落到任何平台路径（先确认数据放哪、磁盘够不够，再 init）。三平台命令一致；
+Windows 注意 `DATA_ROOT` 要用原生路径（见 [usage 附录 F](docs/usage.md#附录-f-windows-平台要点)）。
 
 免克隆安装（下载 Release tarball + sha256 校验）：`curl -fsSL .../install.sh | bash`，
 详见 [`install.sh`](install.sh)。
@@ -34,13 +34,13 @@ vi $DATA_ROOT/.env     # 改 LAN_HOST_IP / EASYBOT_ADMIN_PASSWORD / QQBOT_*
 
 | 场景 | 命令 |
 |---|---|
-| 初始化 / 启动 / 停止 | `./orzmc.sh init` · `./orzmc.sh up` · `./orzmc.sh stop` |
-| 状态 / 校验 | `./orzmc.sh status` · `./orzmc.sh validate` |
-| 防火墙限源（ADR-028） | `./orzmc.sh firewall apply`（`show` 查看） |
+| 初始化 / 启动 / 停止 | `./orzmc.sh -d <数据目录> init` · `up` · `stop` |
+| 状态 / 校验 | `./orzmc.sh -d <数据目录> status` · `validate` |
+| 防火墙限源（ADR-028） | `./orzmc.sh -d <数据目录> firewall apply`（`show` 查看） |
 | 备份 / 还原 | `./orzmc.sh backup [--stop] [--keep N]` · `./restore.sh -d <目标> <归档> [--force]` |
 | 升级镜像 | `./update-image-digests.sh` → `git commit` → `stop && up`（禁止面板内自助升级） |
 
-`DATA_ROOT` 优先级：`-d` > `ORZMC_DATA_ROOT` > 平台默认值。
+`DATA_ROOT` 优先级：`-d` > `ORZMC_DATA_ROOT`（**两者都没有时报错**，无默认路径）。
 
 ## 关键约束
 

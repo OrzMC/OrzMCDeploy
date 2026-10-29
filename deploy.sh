@@ -10,8 +10,7 @@
 #   deploy.sh [-d DATA_ROOT] validate
 #   deploy.sh print-root
 #
-# DATA_ROOT 优先级：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量 > 平台默认值
-# （Windows E:/orzmc、macOS /Users/Shared/orzmc、Linux /srv/orzmc；见 common.sh default_data_root）
+# DATA_ROOT 无默认路径：-d/--data-root 参数 > ORZMC_DATA_ROOT 环境变量，都没有则报错（ADR-033）
 # 运行模型见 ADR-027（只有局域网模式）；compose 调用统一走 compose_cmd。
 # ===========================================================================
 
@@ -21,7 +20,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
 
-DATA_ROOT="$(resolve_data_root)"
+DATA_ROOT=""
 TEMPLATE="$DEFAULT_TEMPLATE"
 
 usage() {
@@ -53,6 +52,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+[ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"   # 无默认路径，ADR-033
 export DATA_ROOT   # 确保 compose 替换使用与脚本一致的值（shell env 优先于 --env-file）
 [ "$#" -ge 1 ] || { usage; exit 1; }
 CMD="$1"; shift

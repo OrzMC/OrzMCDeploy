@@ -94,11 +94,25 @@ COMPOSE_FILE="${COMPOSE_FILE:-$REPO_ROOT/compose.yaml}"
 section "detect_os / is_windows"
 MODE=windows
 check "detect_os=MINGW 返回 windows" "windows" "$(detect_os)"
-check "默认 DATA_ROOT（Windows）= E:/orzmc" "E:/orzmc" "$(MODE=windows default_data_root)"
 MODE=posix
 check "detect_os=Linux 返回 posix" "posix" "$(detect_os)"
-check "默认 DATA_ROOT（Linux）= /srv/orzmc" "/srv/orzmc" "$(MODE=posix default_data_root)"
-check "默认 DATA_ROOT（macOS）= /Users/Shared/orzmc" "/Users/Shared/orzmc" "$(MODE=darwin default_data_root)"
+MODE=darwin
+check "detect_os=Darwin 仍为 posix（不区分平台默认值）" "posix" "$(detect_os)"
+
+# ===========================================================================
+section "DATA_ROOT 必须显式指定（无默认路径，ADR-033）"
+check "ORZMC_DATA_ROOT 生效" "/tmp/explicit" "$(ORZMC_DATA_ROOT=/tmp/explicit/ resolve_data_root)"
+if ( unset ORZMC_DATA_ROOT; MODE=posix; DATA_ROOT=""; resolve_data_root ) >/dev/null 2>&1; then
+    fail "未指定 DATA_ROOT 时 resolve_data_root 应报错退出"
+else
+    ok "未指定 DATA_ROOT 时报错（不回落到任何平台默认路径）"
+fi
+# 子进程里跑（die 会 exit，当前 shell 直接捕获会触发 set -e）
+err="$( bash -c 'source "$1"; resolve_data_root' _ "$LIB" 2>&1 || true )"
+case "$err" in
+    *"-d/--data-root"*) ok "报错信息给出显式指定方式" ;;
+    *) fail "报错信息缺少指引: $err" ;;
+esac
 
 # ===========================================================================
 section "win_path（MSYS/原生路径 → Windows 原生正斜杠）"
