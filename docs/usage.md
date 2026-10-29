@@ -155,6 +155,7 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `LAN_BIND_ADDR` | 可选 | 端口绑定地址（缺省 `0.0.0.0`；`127.0.0.1` 仅本机，ADR-028） |
 | `LAN_CIDR` / `ALLOW_EXTRA_CIDRS` | 可选 | 防火墙放行来源（只需 `firewall` 时关心） |
 | `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | 可选 | 实例进服端口的防火墙放行清单（仅 `firewall` 使用） |
+| `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP` | 可选 | **对公网开放**的游戏端口（缺省空 = 全限源；见 §8 与 [security.md](security.md) §4） |
 | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | 可选 | daemon 容器/堆上限（缺省 512M / 384） |
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
@@ -537,6 +538,9 @@ platforms:
 - **默认限源三层**（ADR-028）：`LAN_BIND_ADDR`（绑定地址）+ `LAN_CIDR`（防火墙来源）+
   daemon 不发布。落地 `./orzmc.sh firewall apply`，自检 `./orzmc.sh firewall show`。
   设计、三档配置与常见误配见 [security.md](security.md)。
+- **公网游戏端口是第二类有意 `Any`**（可选）：只有写进 `.env` 的 `MC_PUBLIC_TCP` /
+  `MC_PUBLIC_UDP` 才会由 `firewall apply` 生成 `OrzMC-MC-Public-*`；`RCON` 永不进这两个清单。
+  端口清单、路由器转发与风险见 [security.md](security.md) §4。
 - **可信边界**：daemon 挂 `/var/run/docker.sock`，宿主机必须视为可信环境。
 - **git 卫生**：`.env`、`.local-data/`、`.local-backups/` 已在 `.gitignore`，勿 `git add -f`。
 
@@ -555,6 +559,7 @@ platforms:
 | EasyBot 报 `SQLITE_CORRUPT`（code 11） | 用外部 `sqlite3` CLI 读了运行中的 `gateway.db`（WAL 并发） | **勿用外部 sqlite3 读活跃库**；停网关正常关库 checkpoint 后可无损恢复；日常查询走后台/API |
 | 实例容器"消失" | 直接 `docker restart MCSM-<uuid>` 被 daemon 当作停止并回收 | 实例生命周期一律走面板/daemon API |
 | 玩家进不去 `25565` | 实例未启动 / 端口映射错 / `online-mode` 阻挡 | 面板启动实例；核对 `docker.ports`；离线服把 `server.properties` 的 `online-mode` 设 `false` |
+| 局域网能连、域名/公网连不上 | 防火墙只放行 `LAN_CIDR`；或路由器未转发该端口 | `.env` 配 `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP` 后 `firewall apply`；核对路由器转发（TCP/UDP 都要） |
 | 改了实例 JSON 又回退 | 实例运行中直接改被内存副本覆盖；先改后 `docker restart` 也会被退出刷盘覆盖 | 按[第 6.5 节](#65-生命周期与配置持久化)正确顺序：**停 daemon → 改 → 启 daemon** |
 
 ---
@@ -621,9 +626,11 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | `24444` | MCSManager Daemon | 容器内端口，不发布到宿主；面板服务端经内网名 `mcsmanager-daemon` 连接，浏览器数据面走面板中转（ADR-026） |
 | `23333` | MCSManager Web | 容器内端口（宿主经 `LAN_MCS_WEB_PORT` 映射） |
 | `8080` | EasyBot | 容器内端口（宿主经 `LAN_EASYBOT_PORT` 映射）；插件内网直连 |
-| `25565` | PaperMC 正式服 | 由 MCSManager 实例映射，玩家局域网直连 |
-| `25566` | PaperMC 测试服 | 同上 |
-| `25575` / `25576` | RCON（可选） | 参考，默认关 |
+| `25565` / `25566` | Java 版（Paper / Folia） | TCP，由 MCSManager 实例映射；公网直连需 `MC_PUBLIC_TCP` + 路由器转发 |
+| `19132` / `19133` | 基岩版 Geyser | UDP（RakNet）+ TCP（NetherNet 信令）；公网需 `MC_PUBLIC_UDP` / `MC_PUBLIC_TCP` |
+| `19134` / `19135` | 基岩 NetherNet 媒体（WebRTC） | UDP；同上 |
+| `24454` | Simple Voice Chat（可选） | UDP；先在实例端口映射里加 `24454:24454/udp` |
+| `25575` / `25576` | RCON（可选） | 仅局域网，**永不公网** |
 
 > 除上面两个 `LAN_*_PORT` 源站端口外，其余端口都不发布到宿主（仅容器网络内可达）。
 > PaperMC 实例端口由 MCSManager 按实例配置发布，供局域网玩家直连。
@@ -689,7 +696,7 @@ PaperMC 实例本身。下表按**同时在线**（不是注册数）：
 | 路径 | `DATA_ROOT` 用 Windows 原生路径（`<盘符>:/<目录>`），不要用 MSYS 的 `/e/...`；且该盘须在 Docker Desktop 文件共享白名单内 |
 | 执行位置 | **在 Windows 侧（Git Bash）执行 `up`**。WSL 侧 compose 建不了 `E:/...` 绑定，报 `invalid volume specification`（短语法盘符冒号） |
 | daemon | `DAEMON_PORTS` 为空（docker 型实例）时由 compose 创建；仅**进程模式实例**需注入 `-p` 时才走脚本的 `docker run`（ADR-029）。切换后 `stop && up` 重建 |
-| 防火墙 | 用 `./orzmc.sh firewall apply`（弹 UAC），**不要手写规则、不要 `-RemoteAddress Any`** |
+| 防火墙 | 用 `./orzmc.sh firewall apply`（弹 UAC），**不要手写规则**；`Any` 只允许出现在 `MC_PUBLIC_*` 生成的 `OrzMC-MC-Public-*` |
 | 端口验证 | Docker 发布端口在 WSL 网络栈里，Windows `netstat` 看不到监听属正常；用手机/另一台机器验证 |
 | 实例属主 | 一般无需 `chown`；报 `Permission denied` 时检查 Docker Desktop 文件共享白名单、`cwd` 是否存在 |
 

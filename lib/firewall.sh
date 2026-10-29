@@ -12,9 +12,13 @@
 #   firewall.sh apply           # 幂等应用：删掉旧的 OrzMC-* 规则后按 LAN_CIDR 重建
 #   firewall.sh apply --dry-run # 只打印将要执行的命令
 #
-# 规则命名：OrzMC-<用途>（Panel / EasyBot / MC-TCP / MC-UDP / RCON）
+# 规则命名：OrzMC-<用途>（Panel / EasyBot / MC-TCP / MC-UDP / RCON / MC-Public-TCP|UDP）
 # 端口来源：.env 的 LAN_MCS_WEB_PORT / LAN_EASYBOT_PORT / MC_TCP_PORTS / MC_UDP_PORTS /
 #           RCON_PORTS（后三者可选，缺省按本仓库常用值：25565,25566 / 19132 / 25575,25576）
+#
+# 公网游戏端口（第二类有意 Any，见 docs/security.md §4）：.env 的
+#   MC_PUBLIC_TCP / MC_PUBLIC_UDP（逗号分隔，缺省空 = 不开放）
+# 仅这两个清单会生成 OrzMC-MC-Public-*（RemoteAddress Any）；RCON 永不进该清单。
 #
 # 平台：
 #   Windows（Git Bash / MSYS）→ 通过 powershell.exe 调 New-NetFirewallRule（**需要管理员**）
@@ -63,6 +67,15 @@ port_specs() {
         "OrzMC-RCON:TCP:${rcon}"
 }
 
+# 公网游戏端口（有意 Any）：只有显式写进 .env 的端口才会放行给公网。
+public_specs() {
+    local tcp udp
+    tcp="$(env_val MC_PUBLIC_TCP)"
+    udp="$(env_val MC_PUBLIC_UDP)"
+    if [ -n "$tcp" ]; then printf '%s\n' "OrzMC-MC-Public-TCP:TCP:${tcp}"; fi
+    if [ -n "$udp" ]; then printf '%s\n' "OrzMC-MC-Public-UDP:UDP:${udp}"; fi
+}
+
 sources() { # 输出 RemoteAddress 的逗号列表
     local out; out="$(lan_cidr)"
     local e; e="$(extra_cidrs)"
@@ -87,6 +100,9 @@ win_apply() {
     while IFS=':' read -r name proto ports; do
         cmds+="New-NetFirewallRule -DisplayName '${name}' -Direction Inbound -Action Allow -Protocol ${proto} -LocalPort ${ports//,/','} -RemoteAddress ${src} -Profile Any | Out-Null; "
     done < <(port_specs)
+    while IFS=':' read -r name proto ports; do
+        cmds+="New-NetFirewallRule -DisplayName '${name}' -Direction Inbound -Action Allow -Protocol ${proto} -LocalPort ${ports//,/','} -RemoteAddress Any -Profile Any | Out-Null; "
+    done < <(public_specs)
     cmds+='Write-Output "APPLIED"'
     if [ "$DRY_RUN" = 1 ]; then
         echo "  [dry-run] powershell -NoProfile -Command \"${cmds}\""
@@ -118,6 +134,15 @@ linux_apply() {
                 done
             done
         done < <(port_specs)
+        while IFS=':' read -r name proto ports; do
+            for p in ${ports//,/ }; do
+                if [ "$DRY_RUN" = 1 ]; then
+                    echo "  [dry-run] ufw allow proto $proto from any to any port $p comment '$name'"
+                else
+                    ufw allow proto "$(printf '%s' "$proto" | tr '[:upper:]' '[:lower:]')" from any to any port "$p" comment "$name"
+                fi
+            done
+        done < <(public_specs)
     else
         echo "  未找到 ufw；请手工应用以下 iptables 规则（来源: ${src}）"
         while IFS=':' read -r name proto ports; do
@@ -127,6 +152,11 @@ linux_apply() {
                 done
             done
         done < <(port_specs)
+        while IFS=':' read -r name proto ports; do
+            for p in ${ports//,/ }; do
+                echo "  iptables -A INPUT -p $(printf '%s' "$proto" | tr '[:upper:]' '[:lower:]') --dport $p -j ACCEPT  # $name（公网，有意）"
+            done
+        done < <(public_specs)
     fi
 }
 
@@ -142,6 +172,11 @@ macos_apply() {
             done
         done
     done < <(port_specs)
+    while IFS=':' read -r name proto ports; do
+        for p in ${ports//,/ }; do
+            echo "  pass in quick proto $(printf '%s' "$proto" | tr '[:upper:]' '[:lower:]') from any to any port ${p}  # ${name}（公网，有意）"
+        done
+    done < <(public_specs)
 }
 
 # Linux/macOS 的 show：把端口清单拼成精确正则（逐端口，不能用 '25565,25566' 字面）。
@@ -152,6 +187,11 @@ posix_show() {
             pat="${pat:+${pat}|}${p}"
         done
     done < <(port_specs)
+    while IFS=':' read -r _ _ spec; do
+        for p in ${spec//,/ }; do
+            pat="${pat:+${pat}|}${p}"
+        done
+    done < <(public_specs)
     if command -v ufw >/dev/null 2>&1; then
         echo "当前 ufw 规则（与项目端口相关，含 ${pat//|/,}）:"
         ufw status 2>/dev/null | grep -E "(${pat})" || echo "  （未匹配到相关端口规则）"
@@ -165,6 +205,11 @@ echo "项目端口与来源策略："
 echo "  绑定地址 LAN_BIND_ADDR = $(bind_addr)"
 echo "  允许来源             = $(sources)"
 echo "  端口                 = $(port_specs | tr '\n' ' ')"
+if [ -n "$(public_specs)" ]; then
+    echo "  公网游戏端口（Any）   = $(public_specs | tr '\n' ' ')"
+else
+    echo "  公网游戏端口（Any）   = 未开放（.env 的 MC_PUBLIC_TCP / MC_PUBLIC_UDP 留空）"
+fi
 echo
 
 case "$ACTION" in
@@ -184,3 +229,4 @@ esac
 echo
 echo "提示：公网暴露不要靠放开 Any —— 优先 VPN（Tailscale/WireGuard），"
 echo "      其次 TLS 反代（后端绑 127.0.0.1），最后才是路由器端口映射。"
+echo "      唯一例外是游戏端口：显式写进 .env 的 MC_PUBLIC_TCP / MC_PUBLIC_UDP（RCON 永不外露）。"

@@ -50,6 +50,14 @@ MCS_DAEMON_PORT=24444
 # MC_UDP_PORTS=
 # RCON_PORTS=
 
+# ---- 公网游戏端口（第二类有意 Any；留空 = 只允许 LAN_CIDR，见 docs/security.md §4）----
+# 只有写进下面两行的端口才由 firewall apply 生成 OrzMC-MC-Public-*（RemoteAddress Any）；
+# 需同时在路由器把相同端口转发到宿主机。RCON 永不写进这里。
+# 清单 = Java(25565,25566) + 基岩 RakNet(UDP 19132,19133) + NetherNet 信令(TCP 19132,19133)
+#      + NetherNet 媒体(UDP 19134,19135) + 语音(UDP 24454，需实例映射该端口)
+# MC_PUBLIC_TCP=25565,25566,19132,19133
+# MC_PUBLIC_UDP=19132,19133,19134,19135,24454
+
 # ---- QQ 开放平台凭据（EasyBot QQ 适配器用；无真实账号可留占位）----
 QQBOT_APP_ID=lan_app_id
 QQBOT_CLIENT_SECRET=lan_client_secret

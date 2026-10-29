@@ -514,6 +514,36 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
   附录 A/附录 F 同步；`install.sh` 的手把手提示同样带 `-d`。
 - **回退**：`git revert` 本 ADR 对应提交即可恢复平台默认（但文档里的路径示例会一并回来）。
 
+### ADR-034：公网游戏端口显式声明（第二类 `Any` 例外）（2026-10-29）
+
+**背景**：ADR-028 默认把 `OrzMC-*` 规则限在 `LAN_CIDR`，只有站点自备的 TLS 反代端口
+（80/443）可以 `Any`。实际使用中出现了一个新场景：**玩家要从公网直连 Minecraft**
+（Java TCP / 基岩 UDP + NetherNet 信令 TCP / 语音 UDP）。游戏协议无法经 HTTP 反代，
+只能端口映射；而端口映射要被防火墙放行，就必然出现第二类 `Any` 规则。此前只能手工
+`New-NetFirewallRule`，既不在 `firewall show` 里可见，也会被下一次 `firewall apply`
+（删除全部 `OrzMC-*` 后重建）静默清掉。
+
+**决策**：
+
+1. `.env` 新增两个**可选**变量：`MC_PUBLIC_TCP` / `MC_PUBLIC_UDP`（逗号分隔，缺省空）。
+2. `firewall apply` 只在变量非空时生成 `OrzMC-MC-Public-TCP` / `OrzMC-MC-Public-UDP`，
+   `RemoteAddress Any`；变量清空后重跑即删除（幂等）。
+3. 原有 5 组规则（Panel / EasyBot / MC-TCP / MC-UDP / RCON）仍限 `LAN_CIDR`；
+   **RCON 永不进公网清单**（它等于服务器控制权）。
+4. `firewall show` / dry-run 把公网清单单独打印为「公网游戏端口（Any）」，便于复核；
+   `docs/security.md` §4 记为第二类例外并给出典型清单（Java / 基岩 RakNet / NetherNet
+   信令 + WebRTC 媒体 / 语音）与风险（游戏端口无鉴权，白名单是唯一门槛）。
+5. 公网可达仍需要路由器把**相同端口与协议**转发到宿主机；本仓库只负责宿主防火墙。
+
+**影响**：
+
+- 安全边界（**有意放宽**）：只有显式写进 `.env` 的端口会 `Any`；`firewall apply` 不再
+  把手工公网规则当成"未知残留"清掉——一切以 `.env` 为唯一事实来源。
+- 代码：`lib/firewall.sh`（`public_specs` + 各平台 apply/show）、`templates/env`。
+- CI：新增用例断言「声明后生成公网规则且其余规则仍限 CIDR」「未声明时不生成」。
+- 文档：`docs/security.md` §4、`docs/usage.md` §4.1/§8/附录 B、`AGENTS.md` 安全约束。
+- **回退**：清空两个变量并 `firewall apply`，或 `git revert` 本 ADR 对应提交。
+
 ### 已归档 ADR 索引（正文见 git 历史）
 
 下列决策已废止或被取代，仅留索引避免后来者重复踩坑：

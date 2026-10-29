@@ -111,10 +111,28 @@ chunk 加载失败」，但 curl 正常（不走 h3）。最简单是在 Caddyfi
 `servers { protocols h1 h2 }`（或让路由器也转发 UDP 443）。改完需完全退出浏览器（或
 `chrome://net-internals/#sockets` flush）才会丢掉缓存的 alt-svc。
 
-**反代端口是唯一允许“非 LAN_CIDR 来源”的规则**：80/443 本身就要对公网开放，属站点有意
-暴露。做法是给它们单独命名（如 `OrzMC-Web-TLS`）并保留 `RemoteAddress` 按需（甚至 `Any`），
-而 **不要**把 `OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-*` 改成 `Any`。`./orzmc.sh firewall apply`
-会重建的 5 组规则均限 `LAN_CIDR`，与反代规则互不覆盖（只删重建 `OrzMC-*` 同名项）。
+**反代端口**（80/443）本身要对公网开放，属站点有意暴露：单独命名（如 `OrzMC-Web-TLS`）
+并保留 `RemoteAddress` 按需（甚至 `Any`）。
+
+**游戏端口是第二类有意 `Any`**（玩家要直连，无法经反代）：在 `.env` 写
+`MC_PUBLIC_TCP` / `MC_PUBLIC_UDP`（逗号分隔），`./orzmc.sh firewall apply` 会生成
+`OrzMC-MC-Public-TCP` / `OrzMC-MC-Public-UDP`（`RemoteAddress Any`）；留空则完全不生成。
+典型清单：
+
+| 协议 | 端口 | 用途 |
+|---|---|---|
+| TCP | `25565,25566` | Java 版 |
+| TCP | `19132,19133` | 基岩 NetherNet 信令（`signaling.mode: builtin` 跑在 Bedrock 端口上） |
+| UDP | `19132,19133` | 基岩 RakNet |
+| UDP | `19134,19135` | 基岩 NetherNet 媒体（WebRTC） |
+| UDP | `24454` | Simple Voice Chat（需实例映射该端口） |
+
+路由器需把**相同端口、相同协议**转发到宿主机。`RCON`（`25575/25576`）与 `Query`（`9898`）
+**不得**进这两个清单。游戏端口没有鉴权：公网开放后白名单就是唯一门槛，
+`online-mode=false` 时更要管控名单。
+
+**`OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-TCP` / `OrzMC-MC-UDP` / `OrzMC-RCON` 永远限
+`LAN_CIDR`**（`firewall apply` 每次重建，只删重建 `OrzMC-*` 同名项，不会碰 `OrzMC-Web-TLS`）。
 
 **反代一律整站透传**：站点 Caddyfile 里只写 `reverse_proxy <服务>:<端口>`（面板加
 `flush_interval -1` 保 WebSocket），不要加 `handle` / `respond` / `rewrite` / `@matcher`

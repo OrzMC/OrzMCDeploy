@@ -154,6 +154,28 @@ jobs:
           fi
           echo "防火墙 dry-run 来源限定正常"
 
+      - name: 公网游戏端口由 MC_PUBLIC_* 生成 Any 规则（第二类例外）
+        run: |
+          d="$RUNNER_TEMP/orzmc-public"
+          ./orzmc.sh -d "$d" init
+          printf 'MC_PUBLIC_TCP=25565,25566,19132,19133\nMC_PUBLIC_UDP=19132,19133,19134,19135,24454\n' >> "$d/.env"
+          out="$(./orzmc.sh -d "$d" firewall apply --dry-run)"
+          echo "$out"
+          echo "$out" | grep -q 'OrzMC-MC-Public-TCP:TCP:25565,25566,19132,19133' \
+            || { echo "!! 公网 TCP 清单未按 MC_PUBLIC_TCP 生成"; exit 1; }
+          echo "$out" | grep -q 'OrzMC-MC-Public-UDP:UDP:19132,19133,19134,19135,24454' \
+            || { echo "!! 公网 UDP 清单未按 MC_PUBLIC_UDP 生成"; exit 1; }
+          echo "$out" | grep -q 'from any\|公网，有意' \
+            || { echo "!! 公网规则来源不是 Any"; exit 1; }
+          echo "$out" | grep -q '192.168.0.0/24' \
+            || { echo "!! 其余规则未限 LAN_CIDR"; exit 1; }
+          d2="$RUNNER_TEMP/orzmc-nopublic"
+          ./orzmc.sh -d "$d2" init
+          if ./orzmc.sh -d "$d2" firewall apply --dry-run | grep -q 'OrzMC-MC-Public'; then
+            echo "!! 未声明 MC_PUBLIC_* 时不应生成公网规则"; exit 1
+          fi
+          echo "MC_PUBLIC_* 公网规则生成/关闭均正常"
+
   windows-branch:
     name: Windows branch logic (ADR-016 / ADR-029)
     runs-on: ubuntu-latest

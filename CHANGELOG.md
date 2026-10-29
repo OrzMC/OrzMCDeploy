@@ -13,6 +13,18 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-29
+
+### 新功能
+
+- **公网游戏端口显式声明**：`.env` 新增 `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP`（逗号分隔；
+  缺省空 = 仍只允许 `LAN_CIDR`）。写进去的端口由 `./orzmc.sh firewall apply` 生成
+  `OrzMC-MC-Public-TCP` / `OrzMC-MC-Public-UDP` 入站规则（`RemoteAddress Any`），
+  `firewall show` 标注「公网（有意）」，`apply` 幂等重建（含关闭：清空变量后重跑即删除）；
+  `RCON` 永不进该清单。覆盖 Java（TCP）、基岩（UDP RakNet + TCP NetherNet 信令 +
+  UDP WebRTC 媒体）与语音（UDP）等玩家直连场景；路由器仍需把相同端口/协议转发到宿主机。
+  规则说明见 `docs/security.md` §4，配置说明见 `docs/usage.md` §4.1 / §8。
+
 ### 文档
 
 - `docs/security.md`：明确**反代一律整站透传**（`reverse_proxy` + 面板 `flush_interval -1`，

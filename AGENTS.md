@@ -41,7 +41,9 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   （DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**。
 - **默认限源（ADR-028）**：`LAN_BIND_ADDR` 控制端口绑定地址，`LAN_CIDR` /
   `ALLOW_EXTRA_CIDRS` 控制防火墙放行来源；`./orzmc.sh firewall apply` 幂等应用。
-  默认只信任局域网，**禁止把规则来源改成 Any**（面板是 HTTP + 口令登录）。
+  默认只信任局域网，**禁止把规则来源改成 Any**（面板是 HTTP + 口令登录）；
+  仅两类例外：站点自备 TLS 反代端口、`.env` 明确声明的 `MC_PUBLIC_TCP`/`MC_PUBLIC_UDP`
+  （游戏端口，RCON 永不进该清单）。
 - 可选服务仅 easybot；平台层不含数据库/状态页（ADR-025）。
 - 历史 ADR（多边缘层时代）只在 `docs/architecture.md` 保留一行索引，正文在 git 历史。
 
@@ -134,11 +136,11 @@ bash tests/docs_check.sh      # 文档链接/锚点
 ```
 
 CI 另跑：compose/模板/CI YAML 解析 · **可执行位守卫** · `ENABLE_EASYBOT=false` 开关用例 · `LAN_BIND_ADDR` 生效 ·
-`firewall apply --dry-run` 来源限源 · 禁入路径守卫。打 `v*` tag 时打包 Release tarball
+`firewall apply --dry-run` 来源限源 + `MC_PUBLIC_*` 公网规则 · 禁入路径守卫。打 `v*` tag 时打包 Release tarball
 （ADR-018）——`ci.yml` 的 tar 清单必须与仓库实际文件一致，删脚本时要同步删。
 
-**待办**：对外访问前加 TLS 反代或改走 VPN；公网 TLS 端口是「不得为 `Any`」的唯一例外
-（见安全约束）；旧 `.env` 里的 `EDGE`/`CLOUDFLARE_*`/`DOMAIN_*`/`LAN_MCS_DAEMON_PORT`
+**待办**：对外访问前加 TLS 反代或改走 VPN；「不得为 `Any`」的两类例外 = 公网 TLS 端口 +
+`.env` 显式声明的 `MC_PUBLIC_TCP`/`MC_PUBLIC_UDP`（见安全约束）；旧 `.env` 里的 `EDGE`/`CLOUDFLARE_*`/`DOMAIN_*`/`LAN_MCS_DAEMON_PORT`
 已无消费者、可清理；升级镜像后按「digest → commit → `stop && up`」回归。
 
 ## 代码约定
@@ -198,9 +200,12 @@ CI 另跑：compose/模板/CI YAML 解析 · **可执行位守卫** · `ENABLE_E
 - daemon 端口**不发布**（ADR-026）；daemon key（可管理 docker.sock）仍属最高权限密钥。
 - **防火墙默认限源**（ADR-028）：`OrzMC-*` 入站规则的 `RemoteAddress` 应为 `LAN_CIDR`
   （+ 显式追加的 VPN 网段），**不得为 `Any`**；改动后用 `./orzmc.sh firewall show` 复核。
-  唯一例外：站点自备的**公网 TLS 反代端口**（如 80/443）本身就要对公网开放，
-  该规则必须单独命名（如 `OrzMC-Web-TLS`）并在 `docs/security.md` 与本节「基线与门禁」
-  的待办中记录，不得把已有的 `OrzMC-Panel` / `OrzMC-EasyBot` 规则改成 `Any`。
+  仅两类例外，都必须在 `docs/security.md` §4 有记录：
+  1. 站点自备的**公网 TLS 反代端口**（如 80/443），单独命名（如 `OrzMC-Web-TLS`）；
+  2. `.env` 里 `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP` 显式声明的**游戏端口**（由
+     `firewall apply` 生成 `OrzMC-MC-Public-*`，`RemoteAddress Any`）。
+  不得把已有的 `OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-TCP` / `OrzMC-MC-UDP` /
+  `OrzMC-RCON` 规则改成 `Any`，`RCON` 永不进公网清单。
 
 ## 修改守则（智能体改动前必读）
 
