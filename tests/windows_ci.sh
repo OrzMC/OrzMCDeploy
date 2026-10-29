@@ -334,6 +334,22 @@ check "CRLF 下 profile 为空（开关生效）" "" "$(enabled_profiles)"
 check "CRLF 值不带 \\r" "127.0.0.1" "$(read_env_value LAN_BIND_ADDR)"
 
 # ===========================================================================
+section "firewall apply —— 只重建受管规则，不碰站点自建（OrzMC-Web-TLS）"
+FW_DIR="$TMP/fw"; mkdir -p "$FW_DIR"
+cp "$REPO_ROOT/templates/env" "$FW_DIR/.env"
+printf 'MC_PUBLIC_TCP=25565,19132\nMC_PUBLIC_UDP=19132,24454\n' >> "$FW_DIR/.env"
+FAKEBIN="$TMP/fakebin"; mkdir -p "$FAKEBIN"
+printf '#!/bin/sh\necho MINGW64_NT-10.0-22631\n' > "$FAKEBIN/uname"; chmod +x "$FAKEBIN/uname"
+fwout="$(PATH="$FAKEBIN:$PATH" DATA_ROOT="$FW_DIR" bash "$REPO_ROOT/lib/firewall.sh" apply --dry-run 2>&1)"
+check "删除按规则名精确匹配（无 -like 通配删除）" "0" "$(printf '%s' "$fwout" | grep -c 'DisplayName -like')"
+check "公网规则按 MC_PUBLIC_* 生成（RemoteAddress Any）" "1" \
+    "$(printf '%s' "$fwout" | grep -c "OrzMC-MC-Public-TCP.*RemoteAddress Any")"
+check "站点自建 Web-TLS 规则不在删除列表" "0" \
+    "$(printf '%s' "$fwout" | grep -c "Remove-NetFirewallRule.*OrzMC-Web-TLS")"
+check "LAN 规则仍限 LAN_CIDR" "1" \
+    "$(printf '%s' "$fwout" | grep -c "OrzMC-Panel.*RemoteAddress 192.168.0.0/24")"
+
+# ===========================================================================
 echo ""
 echo "=============================================="
 echo "结果: $PASS 通过, $FAIL 失败"

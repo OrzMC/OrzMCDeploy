@@ -20,6 +20,8 @@
 #   MC_PUBLIC_TCP / MC_PUBLIC_UDP（逗号分隔，缺省空 = 不开放）
 # 仅这两个清单会生成 OrzMC-MC-Public-*（RemoteAddress Any）；RCON 永不进该清单。
 #
+# apply 只删除/重建下面 MANAGED_RULES 里的规则，**不碰**站点自建规则（如 OrzMC-Web-TLS）。
+#
 # 平台：
 #   Windows（Git Bash / MSYS）→ 通过 powershell.exe 调 New-NetFirewallRule（**需要管理员**）
 #   Linux  → 优先 ufw，其次打印 iptables 命令
@@ -37,6 +39,9 @@ source "${SCRIPT_DIR}/common.sh"
 export DATA_ROOT
 # 端口/来源全取自 .env，缺文件会静默回落到缺省值——直接拦下更安全。
 [ -f "$(env_file)" ] || die "缺少 $(env_file)，请先执行 ./orzmc.sh -d ${DATA_ROOT} init"
+
+# apply 管理（删除并重建）的规则名；顺序无关。站点自建的公网 TLS 规则不在此列。
+MANAGED_RULES="OrzMC-Panel OrzMC-EasyBot OrzMC-MC-TCP OrzMC-MC-UDP OrzMC-RCON OrzMC-MC-Public-TCP OrzMC-MC-Public-UDP"
 
 ACTION="${1:-show}"
 shift || true
@@ -96,7 +101,9 @@ win_apply() {
     local src; src="$(sources)"
     local cmds=""
     cmds+='$ErrorActionPreference = "Stop"; '
-    cmds+='Get-NetFirewallRule -Direction Inbound | Where-Object { $_.DisplayName -like "OrzMC-*" } | Remove-NetFirewallRule; '
+    for n in $MANAGED_RULES; do
+        cmds+="Get-NetFirewallRule -DisplayName '${n}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; "
+    done
     while IFS=':' read -r name proto ports; do
         cmds+="New-NetFirewallRule -DisplayName '${name}' -Direction Inbound -Action Allow -Protocol ${proto} -LocalPort ${ports//,/','} -RemoteAddress ${src} -Profile Any | Out-Null; "
     done < <(port_specs)

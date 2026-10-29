@@ -13,6 +13,18 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-29
+
+### 修复
+
+- **`firewall apply` 会误删站点自建规则**：Windows 分支原来用
+  `Where-Object { $_.DisplayName -like "OrzMC-*" } | Remove-NetFirewallRule` 清场，
+  会把站点自建的 `OrzMC-Web-TLS`（公网 80/443/18443）一起删掉，执行一次即**公网入口失联**。
+  现改为只按名字删除脚本自己管理的 7 个规则（Panel / EasyBot / MC-TCP / MC-UDP / RCON /
+  MC-Public-TCP / MC-Public-UDP）再重建；站点自建规则（含 Web-TLS）不再受影响。
+- `tests/windows_ci.sh` 新增 4 项回归断言：删除命令不含 `-like` 通配、公网规则按
+  `MC_PUBLIC_*` 生成、`OrzMC-Web-TLS` 不在删除列表、LAN 规则仍限 `LAN_CIDR`（49 → 53 项）。
+
 ## [0.1.1] - 2026-10-29
 
 ### 新功能

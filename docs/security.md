@@ -132,7 +132,8 @@ chunk 加载失败」，但 curl 正常（不走 h3）。最简单是在 Caddyfi
 `online-mode=false` 时更要管控名单。
 
 **`OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-TCP` / `OrzMC-MC-UDP` / `OrzMC-RCON` 永远限
-`LAN_CIDR`**（`firewall apply` 每次重建，只删重建 `OrzMC-*` 同名项，不会碰 `OrzMC-Web-TLS`）。
+`LAN_CIDR`**（`firewall apply` 只删重建它自己管理的 7 个规则名，不会碰站点自建的
+`OrzMC-Web-TLS`）。
 
 **反代一律整站透传**：站点 Caddyfile 里只写 `reverse_proxy <服务>:<端口>`（面板加
 `flush_interval -1` 保 WebSocket），不要加 `handle` / `respond` / `rewrite` / `@matcher`
