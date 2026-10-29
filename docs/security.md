@@ -72,6 +72,12 @@ ALLOW_EXTRA_CIDRS=             # 有 VPN 就填 100.64.0.0/10（Tailscale）
 站点若要给面板配 `https://<域名>`，推荐 **Caddy + Let's Encrypt DNS-01**：证书靠 Cloudflare
 API 写 `_acme-challenge` TXT 记录验证，**不依赖入站 80/443**，因此家宽/端口被封也能签发。
 
+> **家宽常见：运营商封入站 80/443**（表现为域名在国内/外网都连不上，但局域网用公网 IP
+> 能通、MC 端口能通）。DNS-01 证书不受影响；做法是给 Caddy 多加一个高位端口（如
+> `18443:443`），路由器把**外部高位端口转发到宿主 443**，访问用
+> `https://<域名>:<高位端口>`。同一份 Caddyfile 自动生效、证书复用，不需要改站点配置
+> 或防火墙（该端口与 80/443 同属 `OrzMC-Web-TLS` 的 `Any` 例外）。
+
 ```yaml
 # $DATA_ROOT/compose.site.yaml（站点增量，升级不丢）
 services:

@@ -39,6 +39,8 @@
 
 ### 文档
 
+- `docs/security.md`：补「家宽运营商封入站 80/443」的判别与做法（DNS-01 证书不受影响，
+  用高位端口如 `18443` 转发到宿主 443，访问 `https://<域名>:<端口>`）。
 - `docs/security.md`：明确**反代一律整站透传**（`reverse_proxy` + 面板 `flush_interval -1`，
   不加 `handle`/`respond`/`rewrite`/`@matcher`）：同一服务经公网与局域网访问必须功能一致
   （路径、静态资源、WebSocket、API 全同）；要收窄暴露面就整站不给公网域名，不在反代里挑路径挡。
