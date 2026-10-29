@@ -51,24 +51,14 @@
 
 ## 已验证的最小可运行组合
 
-以下组合已经在本地 `macOS + Docker Desktop + MCSManager Docker 实例` 模式下验证通过：
+macOS + Docker Desktop + MCSManager Docker 实例实测：
 
-- 镜像：`eclipse-temurin:25-jre`（Paper 26.2 / Java 25；Paper 1.21.1 用 `eclipse-temurin:21-jre`）
-- 工作目录：`/server`
-- 宿主机服务目录：`<server-dir>`（生产 macOS 建议属主改为宿主用户，见下文"Docker 实例字段格式"）
-- 启动命令：`java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui`
-  （正式服可用 `-Xms4G -Xmx4G`）
-- 端口映射：`25566:25566/tcp`（测试服） / `25565:25565/tcp`（正式服）；启用 Geyser 时
-  另加 `19133:19133/udp`（测试服） / `19132:19132/udp`（正式服）
-- `paper.jar`：预先下载到宿主机服务目录
-- `eula.txt`：预先写入 `eula=true`
-- 正版验证：需要离线进服时把 `server.properties` 的 `online-mode` 设为 `false`
-
-建议的最小宿主机预置文件：
-
-- `paper.jar`
-- `eula.txt`
-- `server.properties`
+- 镜像 `eclipse-temurin:25-jre`（Paper 26.2；1.21.x 用 `21-jre`），工作目录 `/server`
+- 启动命令 `java -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Xms2G -Xmx2G -jar paper.jar --nogui`
+  （正式服 `-Xms4G -Xmx4G`）
+- 端口 `25566:25566/tcp`（测试）/ `25565:25565/tcp`（正式）；Geyser 再加 `19132:19132/udp`
+- 宿主机预置：`paper.jar`、`eula.txt`（`eula=true`）、`server.properties`；
+  离线进服把 `online-mode` 设 `false`
 
 ## Docker 模式注意事项
 
@@ -78,32 +68,18 @@
 
 ## Docker 实例字段格式（实测踩坑）
 
-以下为本仓库生产实例（`papermc-main`，uuid `e92495...`）实测结论（MCSManager v10）：
-
-- **端口映射必须为字符串数组**：`docker.ports` 填 `["25565:25565/tcp", "19132:19132/udp"]`
-  （`host:container/protocol` 字符串，daemon 内部 `split("/")` + `split(":")` 解析）；
-  **不要**用对象数组 `[{"host":..., "container":..., "protocol":...}]`，否则启动报
-  `此容器的开放端口配置有误！`。**启用 Geyser 时必须显式写 `.../udp` 条目**（详见
-  「端口映射与多实例分配」）。
-- **内存单位为 MB**：`docker.memory: 4096` 即 4G（daemon 内部 `*1024*1024` 换算成字节）；
-  填字节值（如 `4294967296`）会让容器内存配额错乱。
-- **强烈建议 `terminalOption.pty: true`**：docker 实例非 pty 时 stdout/stderr 是两路独立
-  流，Docker 用 8 字节帧头复用，MCSManager 解复用错位导致**每行日志首字符乱码**
-  （如 `D[10:52:13 ...`）。开启 pty 后容器分配伪终端（`Tty=true`），单路文本流，日志
-  干净且 Paper 自动启用 ANSI 彩色输出（面板终端为 xterm 渲染，能正确处理 `\r`/`[K`/颜色）。
-- **修改实例配置的姿势**：实例**运行中**直接改 `InstanceConfig/<uuid>.json` 会被 daemon
-  用内存副本覆盖（stop/start 会写回磁盘，`pty` 变回 `false`）。而且**先改 JSON 再
-  `docker restart daemon` 也会丢**——daemon 退出时把内存副本刷回磁盘。正确顺序：先停
-  **daemon 容器** → 改 JSON → 再启 daemon（启动时以磁盘为准）→ 面板启动实例。详见
-  [usage.md §6.5](usage.md#65-生命周期与配置持久化)。
-- **实例 `cwd` 由面板默认写入 daemon 的 `data/InstanceData/<uuid>/`**；该目录经
-  `daemon/data` bind 落到宿主 `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/`，文件管理器
-  能读到真实文件（ADR-019 取代了 ADR-007 的 instances 自挂载方案）。
-- **macOS 目录属主**：容器内 `runAs 1000:1000` 但磁盘写入由宿主用户进程执行，实例目录
-  属主需改为宿主用户（`sudo chown -R joker:staff <instance-dir>`）；Linux 生产保持
-  `1000:1000`（见 ADR-006）。
-- **网络挂 `orzmc_default`**：实例需与 easybot 同网才能内网直连 `http://easybot:8080`
-  （见下文"插件数据库"）。
+- **端口映射必须是字符串数组**：`"ports": ["25565:25565/tcp", "19132:19132/udp"]`
+  （`宿主:容器/协议`）；对象数组会报 `此容器的开放端口配置有误！`。
+- **内存单位是 MB**：`docker.memory: 4096` = 4G（填字节值会让配额错乱）。
+- **`terminalOption.pty: true` 必开**：非 pty 时 stdout/stderr 两路复用错位，日志每行首字符
+  乱码（`D[10:52…`）；开 pty 后单路文本流，日志干净且 Paper 输出 ANSI 彩色。
+- **改配置必须停机**：`InstanceConfig/<uuid>.json` 是 daemon 内存副本 + 刷盘，运行中改会被
+  覆盖、先改后 `docker restart` 也会被退出刷盘回写。顺序：停 daemon → 改 JSON → 启 daemon
+  （详见 [usage §6.5](usage.md#65-生命周期与配置持久化)）。
+- **实例 `cwd` 落面板默认位置**：`data/InstanceData/<uuid>/`（经 bind 落宿主），文件管理器可读；
+  macOS 需把实例目录属主改为宿主用户（ADR-006）。
+- **网络挂 `orzmc_default`**：插件才能内网直连 `http://easybot:8080`。
+- 同目录 `extraVolumes` 不要再挂 `/server`（`Duplicate mount point`）；额外目录用 `/backups` 等。
 
 ## 端口映射与多实例分配（Geyser/基岩必读）
 
@@ -160,75 +136,37 @@
   仅在无法使用面板 / 无 admin key 时采用；常规仍推荐 [usage.md §6.5](usage.md#65-生命周期与配置持久化)
   的停机改写姿势（语义清晰、可审计）。
 
-## 选填字段
+## 选填字段（按玩法/资源调整）
 
-| 字段 | 建议 | 说明 |
-|---|---|---|
-| RCON 开关 | 默认 `false` | 没有远程控制需求时先关闭 |
-| RCON 端口 | `25576/25575` | 测试服和正式服分开 |
-| 备份目录 | `.../backups` | 建议尽早规划 |
-| 导入目录 | `.../import` | 用于导入地图或插件 |
-| CPU 限额 | `2/4` | 按宿主机资源分配 |
-| 难度 | `normal` | 按玩法调整 |
-| 默认模式 | `survival` | 按玩法调整 |
-| 视距 | `8/10` | 正式服可略高 |
-| 模拟距离 | `6/8` | 配合视距控制性能 |
-| PvP | `true` | 按服务器规则调整 |
-| 白名单 | `false` | 活动或内测期可切换为 `true` |
-| 出生点保护 | `16` | 常用起始值 |
-| 自动备份 | `true` | 正式服强烈建议开启 |
-| 备份计划 | `0 6 * * *` / `0 5 * * *` | 测试服和正式服错峰备份 |
-| 维护窗口 | `04:00-05:00` / `03:00-05:00` | 用于约束计划维护时段 |
-| 地图模板 | `default-test` / `default-survival` | 仅在有初始化模板时使用 |
-| EasyBot 联动 | `false` | 后续再扩展；插件经 `easybot.yml` 连接 EasyBot 网关，配置见 `docs/easybot.md` |
+RCON 开关 `false`（端口 `25575` 正式 / `25576` 测试）· 备份目录 `.../backups` 与计划
+`0 5 * * *` / `0 6 * * *` · 导入目录 `.../import` · CPU 限额 `4`（测试 2）· 难度 `normal` ·
+模式 `survival` · 视距 `10`（测试 8）· 模拟距离 `8`（测试 6）· PvP `true` · 白名单 `false` ·
+出生点保护 `16` · 自动备份 `true`。
 
 ## 插件数据库（默认用本地存储）
 
-平台层自 **ADR-025（v0.1.0）起不再内置 MariaDB**——实测并不需要：本机两个实例的
-LuckPerms 用 `storage-method: h2`，AuthMe / EzShops / GriefPrevention / CoreProtect
-类插件默认全部落本地文件（sqlite / yaml / h2），`papermc` 库始终 0 张表。
+平台层不内置 MariaDB（ADR-025）：LuckPerms 用 h2，AuthMe / EzShops / GriefPrevention 等默认落
+本地文件，插件数据随实例目录被 `backup.sh` 整包带走，零额外组件。
 
-**默认建议**：插件保持各自的本地存储，`world/plugins/` 随实例目录一起被 `backup.sh`
-整机打包，迁移时一并搬走，零额外组件。
+确需 MySQL/MariaDB（多实例共享、大存档）时：在 `$DATA_ROOT/compose.site.yaml` 加回服务
+（站点增量，升级不丢；`MARIADB_*` 写 `.env`）：
 
-**确需 MySQL/MariaDB 时**（多实例共享数据、Dynmap 大存档等），两步：
+```yaml
+services:
+  mariadb:
+    image: mariadb@sha256:<digest>
+    container_name: orzmc-mariadb
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ}"
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
+      MARIADB_DATABASE: "${MARIADB_DATABASE}"
+      MARIADB_USER: "${MARIADB_USER}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
+    volumes:
+      - "${DATA_ROOT}/database/mariadb:/var/lib/mysql"
+```
 
-1. 在 `$DATA_ROOT/compose.site.yaml` 加回数据库服务（站点增量，升级换包不丢；
-   注意 ADR-027 后 `compose.yaml` 只有 3 个服务，该增量不会被覆盖）：
-
-   ```yaml
-   services:
-     mariadb:
-       image: mariadb@sha256:<digest>        # 用 update-image-digests.sh 刷新
-       container_name: orzmc-mariadb
-       restart: unless-stopped
-       environment:
-         TZ: "${TZ}"
-         MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD}"
-         MARIADB_DATABASE: "${MARIADB_DATABASE}"
-         MARIADB_USER: "${MARIADB_USER}"
-         MARIADB_PASSWORD: "${MARIADB_PASSWORD}"
-       volumes:
-         - "${DATA_ROOT}/database/mariadb:/var/lib/mysql"
-   ```
-
-   四个 `MARIADB_*` 变量写在 `$DATA_ROOT/.env`（`validate` 不强制校验，站点自担）。
-
-2. 插件里指向 `jdbc:mysql://mariadb:3306/<库名>`（主机名 `mariadb` 由 compose 服务名
-   解析），并把实例**网络挂 `orzmc_default`**（与 easybot 同网）。
-
-> ⚠️ 站点级加回的数据库**不在** `backup.sh` 的自动逻辑 dump 范围内（ADR-025 已移除该
-> 分支）——冷数据目录 `$DATA_ROOT/database/mariadb` 仍随整机 tar 打包；需要逻辑快照请
-> 自行 `docker exec orzmc-mariadb mariadb-dump --all-databases > dump.sql`。
-
-## 建议的录入顺序
-
-1. 先录入实例名、镜像、端口、目录和内存
-2. 再录入 `MOTD`、玩家数、`online-mode`
-3. 最后补备份、RCON、维护窗口等运维项
-
-## 第一阶段建议
-
-- 先只创建 `PaperMC Test`
-- 验证 `启动 / 停止 / 重启 / 数据持久化 / 插件目录 / 日志目录`
-- 跑通后再按同样模板创建 `PaperMC Prod`
+插件指向 `jdbc:mysql://mariadb:3306/<库名>`，实例网络挂 `orzmc_default`。
+⚠️ 站点加回的库**不在**备份的逻辑 dump 范围内（冷目录随 tar 打包）；要逻辑快照请自行
+`docker exec orzmc-mariadb mariadb-dump --all-databases > dump.sql`。

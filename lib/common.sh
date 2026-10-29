@@ -42,7 +42,7 @@ die()  { printf '[error] %s\n' "$*" >&2; exit 1; }
 norm_path() { printf '%s\n' "${1%/}"; }
 
 # ---- 平台检测 -------------------------------------------------------------
-# Windows 与 macOS/Linux 的主要差异（详见 docs/windows-deployment.md）：
+# Windows 与 macOS/Linux 的主要差异（详见 docs/usage.md 附录 F）：
 #   1) 路径：MSYS 路径（/c/...）必须转 Windows 原生正斜杠（win_path）；
 #   2) WSL 侧 compose 无法创建 `E:/...` 绑定（短语法盘符冒号），`up` 须在 Windows 侧执行；
 #   3) 仅**进程模式实例**需要给 daemon 注入 `DAEMON_PORTS` 的 `-p` 时才退回
@@ -245,7 +245,7 @@ find_docker_instance() {
 # 先占 25565/19132，实例启动即报 `port is already allocated`——表现为「实例起不来」而非
 # 「端口冲突」，排查易被带偏。故检测到 docker 型实例时**自动忽略** DAEMON_PORTS（幂等且
 # 安全：进程模式与 docker 型实例互斥），仅留一条 info 让行为可见；无 docker 型实例时原样
-# 输出。详见 docs/windows-deployment.md §4。
+# 输出。详见 docs/usage.md 附录 F。
 win_effective_daemon_ports() {
     local root="$1" ports docker_inst
     ports="$(read_env_value DAEMON_PORTS)"
@@ -388,7 +388,7 @@ compose_cmd() {
     base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" \
         ${extra[@]+"${extra[@]}"} ${profiles_flags[@]+"${profiles_flags[@]}"})
     # Windows：COMPOSE_FILE / override / env-file 是 MSYS 路径（/c/...），docker compose
-    # 无法解析（会转成 C:\c\...）。须转 Windows 原生正斜杠路径（docs/windows-deployment.md §7）。
+    # 无法解析（会转成 C:\c\...）。须转 Windows 原生正斜杠路径（docs/usage.md 附录 F）。
     if is_windows; then
         file="$(win_path "$file")"
         local -a extra_win=()

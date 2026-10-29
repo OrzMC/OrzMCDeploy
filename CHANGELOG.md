@@ -13,6 +13,20 @@
 
 ## [Unreleased]
 
+### 文档（ADR-032：文档收敛，10 → 8 个文件）
+
+- **README 回归落地页**（169 → 68 行）：是什么 / 快速开始 / 常用命令 / 关键约束 / 文档表 /
+  安全一句话，不再复述使用手册。
+- **删除 `docs/easybot.md`**（与 usage §7 大段重复）：内容并入 `docs/usage.md` §7
+  （后台与密钥、插件 `easybot.yml`、验证与 403、可选适配器与微信、运维注意）。
+- **删除 `docs/windows-deployment.md`**：压成 `docs/usage.md` 附录 F「Windows 平台要点」。
+- **删除 `EXECUTION_PATH.md`**：基线/本地门禁/待办并入 `AGENTS.md`「基线与门禁」，
+  状态记录由 CHANGELOG 与 git 历史承担。
+- **`docs/papermc-template.md`**（234 → 172 行）只留字段与坑，删掉流程性废话。
+- **`docs/architecture.md`** 压缩 ADR-001…022 的历史叙事（保留决策与影响），
+  ADR-024…032 保持完整；新增 ADR-032。
+- 总量 2567 → ~1800 行，全部互链与锚点已校验（0 失效）。
+
 ### 变更（ADR-031：配置最小化）
 
 - **compose 去掉无运行时作用的字段**：删全部 `expose:`（本就不生效，发布端口由 `ports`

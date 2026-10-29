@@ -38,7 +38,7 @@ LAN_BIND_ADDR=127.0.0.1
 此时端口只监听 `127.0.0.1`，局域网/外网都进不来。访问方式：
 
 - 本机浏览器：`http://127.0.0.1:18090`
-- 手机/别的设备：走 **Tailscale serve** 或本机反代（见 §5）
+- 手机/别的设备：走 **Tailscale serve** 或本机反代（见 §4）
 
 ### B. 局域网可用（默认）
 
@@ -66,7 +66,7 @@ ALLOW_EXTRA_CIDRS=             # 有 VPN 就填 100.64.0.0/10（Tailscale）
 
 > 注意 WebSocket：面板与终端都走 WS，反代必须放行 `Upgrade`（Caddy 默认支持）。
 
-## 3.1 TLS 反代实操配方（DNS-01，适合家宽）
+## 4. TLS 反代配方（DNS-01，家宽适用）
 
 站点若要给面板配 `https://<域名>`，推荐 **Caddy + Let's Encrypt DNS-01**：证书靠 Cloudflare
 API 写 `_acme-challenge` TXT 记录验证，**不依赖入站 80/443**，因此家宽/端口被封也能签发。
@@ -104,47 +104,32 @@ mcs.example.com {
 | 防火墙 | 只额外放行 Caddy 的端口（80/443）；面板 23333、EasyBot 18091 仍限 `LAN_CIDR` |
 | 路由器 | `外部 443 → 宿主 443`；若 ISP 封 443，可改映射高位端口（如 18443 → 宿主 443），证书与端口无关 |
 
-**反代务必关掉 HTTP/3，或同时转发 UDP 443**：Caddy 默认启用 QUIC 并返回
-`alt-svc: h3=":443"`。家用路由器一般**只转发 TCP 443**，于是浏览器会先试 QUIC →
-UDP 被丢 → 再回退，表现为「偶尔打不开 / 白屏 / 懒加载 chunk 失败」，而用 curl 测又
-一切正常（curl 不走 h3）。两种解法取其一：
-
-```text
-# 方案 A（推荐，最简单）：只开 h1/h2，不再广告 h3
-{
-    servers {
-        protocols h1 h2
-    }
-}
-
-# 方案 B：路由器同时把 UDP 443 转发到宿主，保留 h3（QUIC 更快）
-```
-
-改完后浏览器可能仍缓存了旧的 alt-svc：需要**完全退出浏览器**，或在
-`chrome://net-internals/#sockets` 点 Flush socket pools、`#dns` 清 host cache。
+**关掉 HTTP/3，或同时转发 UDP 443**：Caddy 默认启用 QUIC 并返回 `alt-svc: h3=":443"`，
+而家用路由器通常只转发 TCP 443 → 浏览器试 QUIC 被丢包再回退，表现为「偶尔打不开/白屏/
+chunk 加载失败」，但 curl 正常（不走 h3）。最简单是在 Caddyfile 全局块加
+`servers { protocols h1 h2 }`（或让路由器也转发 UDP 443）。改完需完全退出浏览器（或
+`chrome://net-internals/#sockets` flush）才会丢掉缓存的 alt-svc。
 
 **反代端口是唯一允许“非 LAN_CIDR 来源”的规则**：80/443 本身就要对公网开放，属站点有意
 暴露。做法是给它们单独命名（如 `OrzMC-Web-TLS`）并保留 `RemoteAddress` 按需（甚至 `Any`），
 而 **不要**把 `OrzMC-Panel` / `OrzMC-EasyBot` / `OrzMC-MC-*` 改成 `Any`。`./orzmc.sh firewall apply`
 会重建的 5 组规则均限 `LAN_CIDR`，与反代规则互不覆盖（只删重建 `OrzMC-*` 同名项）。
 
-**反代不要顺带暴露开发文档**：EasyBot 的 `/docs`、`/swagger` 是开发调试页面，
-公网无必要。注意 **容器内 `remote_ip` 已被 Docker 改写成网桥网关**，靠 IP 匹配区分
-内外网并不可靠——直接在反代里无条件挡掉、局域网改走宿主端口即可：
+**反代不要顺带暴露 EasyBot 开发文档**（`/docs`、`/swagger`）：容器内 `remote_ip` 已被
+Docker 改写成网桥网关，靠 IP 区分内外网不可靠 → 直接在反代里无条件挡掉：
 
 ```text
 @devdocs path /docs* /swagger*
 respond @devdocs "404 page not found" 404
 ```
 
-同理：EasyBot 的插件 API（`/api/v1/*`）与管理后台同端口，一旦把该域名反代出去，
-插件 API 也随之外露（有 API key 鉴权）。若不需要公网管理 EasyBot，最省事的是
-**不给它配公网域名**，只保留面板一个公网入口。
+EasyBot 的插件 API（`/api/v1/*`）与后台同端口，反代该域名即一并外露（有 API key 鉴权）。
+不需要公网管理 EasyBot 时，最省事是不给它配公网域名。
 
-验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer 是否为 Let's Encrypt；
-`curl -I https://<域名>/` 200；证书到期前 Caddy 会按 ARI 自动续期，无需人工干预。
+验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer；证书由 Caddy 按
+ARI 自动续期。
 
-## 4. 自检
+## 5. 自检
 
 ```bash
 ./orzmc.sh status                 # 打印"暴露面"摘要（绑定地址 / 建议限源命令）
@@ -158,7 +143,7 @@ docker ps --format '{{.Names}}\t{{.Ports}}' | grep orzmc   # 谁发布了什么�
 - `firewall show` 里所有 `OrzMC-*` 规则的 `remote` 是 `LAN_CIDR`（不是 `Any`）；
 - `status` 的暴露面提示与你的预期一致（`127.0.0.1` / `0.0.0.0` / 具体 IP）。
 
-## 5. 常见暴露错误（不要这么干）
+## 6. 常见暴露错误
 
 | 错误 | 后果 |
 |---|---|
@@ -168,16 +153,14 @@ docker ps --format '{{.Names}}\t{{.Ports}}' | grep orzmc   # 谁发布了什么�
 | 用 `docker run -p 24444` 之类把 daemon 暴露出去 | daemon key = 宿主机 Docker 控制权，等于交出整机 |
 | 给 `ALLOW_EXTRA_CIDRS` 填 `0.0.0.0/0` | 等于关闭防火墙 |
 
-## 6. 平台差异
+## 7. 平台差异
 
-- **Windows**：`firewall apply` 通过 PowerShell 的 `New-NetFirewallRule` 建规则（需要管理员，
-  脚本会弹 UAC）。Docker 发布端口在 WSL 网络栈里，Windows 侧 `netstat` 看不到监听属正常；
-  **验证要用手机/另一台机器**。
-- **Linux**：优先用 `ufw`（未安装时脚本打印等价 `iptables` 命令）。
-- **macOS**：脚本只打印等价 `pf` 规则（不自动改，避免误伤系统 pf 配置），实际用
-  `LAN_BIND_ADDR` 控制更可靠。
+- **Windows**：`firewall apply` 走 PowerShell `New-NetFirewallRule`（弹 UAC）；发布端口在 WSL
+  网络栈里，`netstat` 看不到监听属正常，用另一台设备验证（其余见 usage 附录 F）。
+- **Linux**：优先 `ufw`，未安装时脚本打印等价 `iptables` 命令。
+- **macOS**：只打印等价 `pf` 规则（不自动改），实际用 `LAN_BIND_ADDR` 收紧更可靠。
 
-## 7. 凭据加固（配合做）
+## 8. 凭据加固
 
 - `.env` 权限收紧、永不入库；
 - `EASYBOT_ADMIN_PASSWORD` / 面板管理员口令用强口令（12 位以上、非字典词）；

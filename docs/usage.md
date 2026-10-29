@@ -5,27 +5,14 @@
 >
 > - 想快速看看这个项目是什么、怎么跑 —— 先读 [README](../README.md)
 > - 想在 MCSManager 面板里录入 PaperMC 实例 —— 对照 [docs/papermc-template.md](papermc-template.md)
-> - 想深入 EasyBot 网关与插件配置 —— 读 [docs/easybot.md](easybot.md)
 > - 想了解架构原理与决策记录（维护者向）—— 读 [docs/architecture.md](architecture.md)
 
 ## 目录
 
-- [1 认识项目](#1-认识项目)
-- [2 前置条件](#2-前置条件)
-- [3 快速开始（三路径）](#3-快速开始三路径)
-- [4 配置详解](#4-配置详解)
-- [5 日常运维](#5-日常运维)
-- [6 管理 PaperMC 实例](#6-管理-papermc-实例)
-- [7 EasyBot 接入](#7-easybot-接入)
-- [8 安全基线](#8-安全基线)
-- [9 故障排查](#9-故障排查)
-- [10 迁移到新主机](#10-迁移到新主机)
-- [附录 A 命令速查](#附录-a-命令速查)
-- [附录 B 端口约定](#附录-b-端口约定)
-- [附录 C DATA_ROOT 目录树](#附录-c-data_root-目录树)
-- [附录 D 服务与镜像](#附录-d-服务与镜像)
-- [附录 E 术语表](#附录-e-术语表)
-- [附录 F 硬件选型（按在线人数）](#附录-f-硬件选型按在线人数)
+- [1 认识项目](#1-认识项目) · [2 前置条件](#2-前置条件) · [3 快速开始](#3-快速开始)
+- [4 配置详解](#4-配置详解) · [5 日常运维](#5-日常运维) · [6 管理 PaperMC 实例](#6-管理-papermc-实例)
+- [7 EasyBot 接入](#7-easybot-接入) · [8 安全基线](#8-安全基线) · [9 故障排查](#9-故障排查) · [10 迁移](#10-迁移到新主机)
+- 附录：[A 命令速查](#附录-a-命令速查) · [B 端口](#附录-b-端口约定) · [C 目录树](#附录-c-data_root-目录树) · [D 服务镜像](#附录-d-服务与镜像) · [E 硬件选型](#附录-e-硬件选型按在线人数) · [F Windows 要点](#附录-f-windows-平台要点)
 
 ---
 
@@ -37,46 +24,11 @@
 再由平台层里的 **MCSManager** 创建和管理实际的 **PaperMC** 游戏实例，并内置
 **EasyBot** 统一 IM 网关让服内插件可以收发 QQ / Telegram / Discord / 飞书 / 微信消息。
 
-一次部署能得到：
+一次部署能得到：**面板**（管理 PaperMC 的启停/控制台/文件）、**EasyBot 网关**（QQ/Telegram/
+Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家局域网 `IP:25565` 直连）。
+运行形态只有局域网直连（ADR-027）；仓库只承载运行时，配置与数据全落 `$DATA_ROOT`。
 
-| 能力 | 说明 |
-|---|---|
-| **MCSManager 面板** | Web 界面管理 PaperMC 实例：启动/停止/控制台/文件/配置 |
-| **EasyBot 网关** | 统一 IM 网关 + 管理后台，插件经它收发聊天平台消息 |
-| **PaperMC 游戏服** | 由面板创建，可多实例，玩家局域网 `IP:25565` 直连 |
-| **局域网直连** | 面板与 EasyBot 发布宿主端口、纯 HTTP，局域网设备直连（唯一运行形态，ADR-027） |
-| **运行时与数据分离** | 仓库只承载"运行时"，全部配置与数据落宿主机 `$DATA_ROOT`，随数据整体备份/迁移 |
-
-### 1.2 架构一图流
-
-```mermaid
-flowchart TB
-    subgraph 局域网（可信内网，纯 HTTP）
-        U1[浏览器/手机] -- "http://LAN_HOST_IP:18090" --> WEB
-        U2[浏览器/手机] -- "http://LAN_HOST_IP:18091" --> EB
-        P[玩家] -- "LAN_HOST_IP:25565" --> PLG
-    end
-    subgraph 宿主机 Docker（orzmc_default 网络）
-        WEB["MCSManager Web :23333"]
-        DAE["MCSManager Daemon :24444<br/>（挂 docker.sock）"]
-        EB["EasyBot :8080"]
-        PLG["PaperMC 实例容器<br/>（插件 OrzMC）"]
-    end
-    WEB -- "数据面中转<br/>（dataPlane=proxy）" --> DAE
-    DAE -- 创建 / 管理 --> PLG
-    PLG -- "http://easybot:8080<br/>（REST + WS 内网直连）" --> EB
-```
-
-要点（详见 [docs/architecture.md](architecture.md)）：
-
-- **只有局域网模式**（ADR-027）：面板与 EasyBot 发布到宿主端口、纯 HTTP，局域网设备直连。
-  对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN），本项目不参与。
-- **daemon 不发布端口**（ADR-026）：节点地址固定 `ws://mcsmanager-daemon:24444`；MCSManager
-  10.22 起面板自己中转浏览器↔daemon 的数据流（`dataPlane=proxy`），终端/控制台/文件管理
-  都经面板端口走。daemon 业务路由仍要 **daemon key** 鉴权。
-- **插件 API 仅内网**：PaperMC 插件挂 `orzmc_default` 网络，直连 `http://easybot:8080`。
-
-### 1.3 术语表
+### 1.2 术语表
 
 | 术语 | 含义 |
 |---|---|
@@ -87,44 +39,27 @@ flowchart TB
 | **digest 锁定** | `compose.yaml` 里镜像用 `image:xxx@sha256:...` 固定版本，升级/回滚走 git |
 | **dataPlane** | MCSManager 面板设置（`SystemConfig.dataPlane=proxy\|direct`）：proxy 时面板中转浏览器↔daemon 数据流 |
 
-### 1.4 文档地图
-
-| 文档 | 什么时候读 |
-|---|---|
-| **本篇 `docs/usage.md`** | 日常使用：安装、配置、运维、排障、迁移 |
-| `README.md` | 30 秒了解项目、快速上手、命令速查 |
-| `docs/papermc-template.md` | 在 MCSManager 里录入 PaperMC 实例的字段参考 |
-| `docs/easybot.md` | EasyBot 网关与插件 `easybot.yml` 的深度配置 |
-| `docs/architecture.md` | 架构原理、ADR 决策记录（维护者/贡献者） |
-| `AGENTS.md` / `CLAUDE.md` | AI 智能体与协作者守则（改仓库代码前必读） |
 
 ---
 
 ## 2 前置条件
 
-| 项 | 要求 | 说明 |
-|---|---|---|
-| 系统 | macOS（Docker Desktop）或 Linux（Docker Engine） | 本指南以 macOS 为例，Linux 差异有标注 |
-| 软件 | 已装 **docker**、**git** | `docker info` 能正常输出 |
-| 网络 | 局域网可达；宿主有固定/保留 IP 更稳 | 对外访问由路由器/反代/VPN 负责 |
-| 账号（按需） | **QQ 开放平台** AppID / ClientSecret | 仅接入 EasyBot QQ 需要 |
+- **系统**：macOS（Docker Desktop）/ Linux（Docker Engine）/ Windows（Docker Desktop + WSL2，
+  见附录 F）；已装 `docker`（`docker info` 正常）与 `git`。
+- **网络**：宿主有固定/保留局域网 IP 更稳（`LAN_HOST_IP` 会随 DHCP 变化而失效）。
+- **按需**：QQ 开放平台 AppID / ClientSecret（仅接入 EasyBot QQ 时需要）。
 
-> 提示：本项目**不需要域名、不需要 Cloudflare 账号、不需要证书**（ADR-027）。
-> 要从外网访问，见 §3.4 的三条路子（VPN 最省心）。
+> 本项目**不需要域名、Cloudflare 账号或证书**（ADR-027）；要从外网访问见 §3.4（VPN 最省心）。
 
 ---
 
-## 3 快速开始（单一路径）
+## 3 快速开始
 
 ### 3.1 先做决定：入口只要局域网
 
-本项目自 ADR-027 起**只提供局域网模式**：面板与 EasyBot 发布到宿主端口，纯 HTTP，
-局域网设备直连。**对外访问由你自备**——DDNS + 端口映射、反向代理、或 VPN（Tailscale 等），
-本仓库不参与。
-
-- 只在自己电脑上用 → 直接用 `http://127.0.0.1:<端口>`
-- 家里手机/平板/其它电脑都要用 → 把 `LAN_HOST_IP` 设成宿主局域网 IP
-- 要从外网访问 → 路由器做 DDNS + 端口映射（⚠️ 面板无 TLS，公网暴露前请加 TLS 反代或改用 VPN）
+本项目只提供局域网模式（ADR-027）：面板与 EasyBot 发布宿主端口、纯 HTTP，局域网设备直连；
+**对外访问由你自备**（DDNS + 端口映射 / 反代 / VPN）。只本机用可直接访问 `127.0.0.1:<端口>`，
+家里多设备就把 `LAN_HOST_IP` 设成宿主局域网 IP。
 
 ### 3.2 初始化与启动（15 分钟）
 
@@ -142,19 +77,10 @@ flowchart TB
 省略 `-d` 时用平台默认 DATA_ROOT（Linux `/srv/orzmc`、macOS `/Users/Shared/orzmc`、
 Windows `E:/orzmc`）。
 
-**预期看到**：
-
-- `up`：compose 拉起 `mcsmanager-web`、`mcsmanager-daemon`、`easybot`
-  （`ENABLE_EASYBOT=false` 时只有前两个）。
-- `status` 打印：
-
-  | 地址 | 用途 |
-  |---|---|
-  | `http://<LAN_HOST_IP>:18090` | MCSManager 面板（`LAN_MCS_WEB_PORT`） |
-  | `http://<LAN_HOST_IP>:18091` | EasyBot 管理后台（`LAN_EASYBOT_PORT`） |
-
-- 端口发布核对：`docker compose --env-file <DATA_ROOT>/.env -f compose.yaml --profile easybot config`
-  应只看到 `published: "18090"` 与 `"18091"`（**没有** 24444——daemon 不发布）。
+`up` 会拉起 `mcsmanager-web` / `mcsmanager-daemon`（+ `easybot`，除非 `ENABLE_EASYBOT=false`）；
+`status` 打印两个入口：`http://<LAN_HOST_IP>:18090`（面板）、`:18091`（EasyBot 后台）。
+核对发布端口：`docker compose ... --profile easybot config | grep published` 只应有 18090/18091
+（没有 24444——daemon 不发布）。
 
 ### 3.3 建管理员、加节点、建实例
 
@@ -210,9 +136,7 @@ $DATA_ROOT/.env` 调用 compose。
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
 | `COMPOSE_FILE_EXTRA` | 可选 | 追加任意路径 compose 文件（空格/逗号分隔） |
 
-可选适配器：EasyBot 支持 Telegram / Discord / 飞书，在 `.env` 按需启用对应变量即可
-（模板里已有注释示例）。微信为扫码登录、默认自动启用，不需要时禁用，见
-[docs/easybot.md](easybot.md)（`gateway.local.yaml`）。
+EasyBot 的可选适配器（Telegram / Discord / 飞书）与微信禁用见 [§7.4](#74-可选适配器与微信)。
 
 **插件数据库默认用本地存储**：平台层不内置 MariaDB（ADR-025）。需要 MySQL/MariaDB 时
 在 `$DATA_ROOT/compose.site.yaml` 用站点增量加回，升级换包不丢（见
@@ -220,19 +144,9 @@ $DATA_ROOT/.env` 调用 compose。
 
 ### 4.2 运行模型：局域网模式（ADR-027）
 
-只有一个运行集：面板与 EasyBot 发布宿主端口，纯 HTTP。全部配置在 `$DATA_ROOT/.env`，
-唯一入口 `orzmc.sh`：
-
-| 维度 | 配置（`.env`） | 说明 |
-|---|---|---|
-| 局域网入口 | `LAN_HOST_IP` / `LAN_MCS_WEB_PORT`(18090) / `LAN_EASYBOT_PORT`(18091) | `compose.yaml` 直接把这两个端口发布到宿主 |
-| 可选服务 | `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即从 `--profile` 移除；核心 web/daemon 常驻 |
-| 入口命令 | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status\|validate\|backup\|firewall` | 三平台一致 |
-
-- **没有边缘层服务**：不跑 cloudflared / Caddy，也没有 `compose.edge.*.yaml`。
-  历史上按 `EDGE=cloudflare|local|lan|none` 切换的四档已随 ADR-027 移除。
-- **daemon 不发布端口**（ADR-026）：面板中转浏览器↔daemon 数据流，节点地址固定内网名。
-- **对外访问**：DDNS + 端口映射 / 反代 / VPN，均由站点自备（见 §3.4）。
+只有一个运行集：`compose.yaml` 把面板与 EasyBot 发布到宿主端口（纯 HTTP），核心
+web/daemon 常驻、easybot 由 `ENABLE_EASYBOT` 开关；没有边缘层服务（不跑 cloudflared/Caddy）。
+对外访问、TLS 都由站点自备（§3.4）。
 
 ### 4.3 入口与端口约定
 
@@ -265,16 +179,11 @@ $DATA_ROOT/.env` 调用 compose。
 Release tarball）会整体替换。站点特有增量（如飞书 `FEISHU_*`、额外环境变量、额外挂载）
 直接写进包内文件，升级后必丢（表现为「升级后机器人不工作了」）。
 
-为此提供官方**站点增量挂载点** `$DATA_ROOT/compose.site.yaml`（`init` 生成模板，绝不覆盖）：
-
-- `compose_cmd` 检测到该文件即自动追加 `-f`，与包内文件彻底解耦；文件在 `$DATA_ROOT`
-  （随数据备份/迁移），升级/换包不丢。
-- 另支持 `.env` 的 `COMPOSE_FILE_EXTRA=`（空格/逗号分隔）追加**任意路径**的 compose 文件
-  （可放仓库/数据目录之外）。
-- 合并语义是 Docker Compose 原生 override：同名字段「后加载覆盖先加载」，`environment` 等
-  map 逐键合并，`volumes` 列表追加。
-- 值优先放 `.env`（密钥不入库），site 文件用 `${VAR}` 引用。改完 `./orzmc.sh validate`
-  校验、`./orzmc.sh up` 生效。
+官方**站点增量挂载点** `$DATA_ROOT/compose.site.yaml`（`init` 生成模板、绝不覆盖）：
+`compose_cmd` 检测到即自动 `-f` 追加，文件在 `$DATA_ROOT` 里随数据备份/迁移，升级换包不丢。
+也可用 `.env` 的 `COMPOSE_FILE_EXTRA=`（空格/逗号分隔）追加任意路径的 compose 文件。
+合并语义是 Compose 原生 override（同名字段后加载覆盖，`environment` 逐键合并，`volumes` 追加）。
+值优先放 `.env`（密钥不入库），site 文件用 `${VAR}` 引用；改完 `validate` → `up` 生效。
 
 例：给 `easybot` 增加飞书适配器（`FEISHU_APP_ID` / `FEISHU_APP_SECRET` 填 `$DATA_ROOT/.env`）：
 
@@ -335,14 +244,9 @@ git push
 
 **回滚**：`git revert <commit>` 后重新 `up`。升级/回滚**不触碰 `$DATA_ROOT`**，数据不变。
 
-> 🚫 **不要使用面板内置的「自助升级」**（MCSManager 10.19+ 新增，默认取 GitHub release
-> manifest，备用源 mcsmanager.com）。原因：
-> 1. 它在**容器内**替换程序文件，偏离 `compose.yaml` 里锁定的 digest——`git revert` 无法回滚；
-> 2. 任何 `stop && up` / 改 digest / `docker compose down` 都会把它抹掉，状态不可复现；
-> 3. 与备份/还原假设不一致（归档里是自升级后的文件，换机重放得到不同版本）。
->
-> 升级唯一路径：`update-image-digests.sh` → git commit → `stop && up`（附回滚）。
-> 面板里看到「有新版本」提示时，把版本号记下来，按上面流程改 digest 即可。
+> 🚫 **不要用面板内置的「自助升级」**（10.19+）：它在容器内替换程序文件，偏离 digest 锁定
+> （`git revert` 无效）、重建即丢、备份重放会得到不同版本。面板提示有新版本时，记下版本号
+> 按上面流程改 digest 即可。
 
 ### 5.4 PaperMC 实例版本升级
 
@@ -352,17 +256,9 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
 1. **先备份**（跨版本必做）：面板停止实例 → `backup.sh -d <DATA_ROOT> --stop` →
    校验归档含 `world/`。
-2. **确认新版本的 Java 要求**：
-
-   | Paper 版本 | 需要的 Java | 对应镜像 |
-   |---|---|---|
-   | 26.2（本仓库当前） | Java 25 | `eclipse-temurin:25-jre` |
-   | 1.21.1 | Java 21 | `eclipse-temurin:21-jre` |
-
-   - 同代小版本：镜像不用动。
-   - 跨代升 Java：需改 `InstanceConfig/<uuid>.json` 的 `docker.image`，走
-     [第 6.5 节](#65-生命周期与配置持久化)的正确姿势（**先停 daemon → 改 JSON → 再启
-     daemon**），运行中改会被内存副本覆盖。
+2. **确认 Java 要求**：Paper 26.2 → Java 25（`eclipse-temurin:25-jre`）；1.21.x → Java 21。
+   同代小版本不用动镜像；跨代升 Java 要改 `InstanceConfig/<uuid>.json` 的 `docker.image`，
+   按 [§6.5](#65-生命周期与配置持久化)的顺序（先停 daemon → 改 JSON → 再启）。
 
 3. **替换 jar 并重启**（面板文件管理或宿主机目录均可，先停实例）：
 
@@ -396,12 +292,10 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 ./backup.sh -d <DATA_ROOT> -o /mnt/backups   # 指定归档目录
 ```
 
-- 归档**整个 `$DATA_ROOT`**（含 `.env`、面板与 EasyBot 数据、
-  `mcsmanager/daemon/data/InstanceData/`（面板实例数据）），默认输出到
-  `$(dirname $DATA_ROOT)/orzmc-backups`（在 DATA_ROOT 之外，避免自我包含）。
-- 归档名：`orzmc-backup-YYYYmmdd-HHMMSS.tar.gz`。
-- ⚠️ **重要**：PaperMC 实例**不在 compose 内**（由 MCSManager 管理），`--stop` 只保证
-  compose 一致性。要完全一致的快照，请先在面板**停止实例**再备份。
+归档**整个 `$DATA_ROOT`**（`.env`、面板/EasyBot 数据、`InstanceData/`），默认落在
+`$(dirname $DATA_ROOT)/orzmc-backups`（避免自我包含），名为 `orzmc-backup-<时间戳>.tar.gz`。
+⚠️ PaperMC 实例不由 compose 管理，`--stop` 只保证平台层一致——要完全一致的快照请先
+在面板**停止实例**再备份。
 - 迁移基线建议：先面板停实例 → `backup.sh --stop` → 校验归档（`tar tzf`）确认含
   `world/` 与各密钥文件。
 
@@ -455,17 +349,11 @@ MCSManager 需要把 **daemon** 作为"节点"接入 Web 端：
 | `ip` | `ws://mcsmanager-daemon` |
 | `port` | `24444` |
 
-原理：10.22 引入「面板中转数据模式」（`SystemConfig.dataPlane=proxy`，**新装默认**），
-面板自己中转浏览器↔daemon 的数据流：
-
-- 下载/上传/断点上传（`/download/*`、`/upload-*/*`）由面板的数据面网关代理，浏览器只拿到
-  面板签发的短时 token；
-- 终端/控制台数据通道（`POST /stream_channel`）返回**面板自己的地址 + token**；
-- 节点地址只在面板服务端使用，浏览器**再也不需要**能解析或直连 daemon。
-
-**收益**：daemon 端口不发布、不设额外入口；局域网只有面板 / EasyBot 两个入口；
-终端/控制台/文件管理在 macOS/Linux/Windows 三平台行为一致（历史上 ADR-011/013/014/020
-反复纠错的三档地址表已取消）。
+原理：10.22 的「面板中转数据模式」（`SystemConfig.dataPlane=proxy`，**新装默认**）由面板
+代理下载/上传（浏览器只拿面板签发的短时 token），终端/控制台的 `POST /stream_channel`
+返回**面板自己的地址 + token**。所以节点地址只被面板服务端使用，浏览器无需解析 daemon。
+收益：daemon 端口不发布、局域网只有两个入口，三平台/终端行为一致（ADR-011/013/014/020
+那套「哪档填什么地址」的表已作废）。
 
 **旧部署一次性动作**（新装跳过）：面板配置里没有 `dataPlane` 键时按 direct 处理，
 需要手工切换（面板退出会回写配置，必须停机改）：
@@ -555,30 +443,29 @@ docker start orzmc-mcsmanager-daemon
 
 ## 7 EasyBot 接入
 
-EasyBot 是统一 IM 网关。QQ 走 **QQ 开放平台**官方 bot 凭据
-（`.env` 的 `QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET`），非个人账号扫码登录。
+EasyBot 是统一 IM 网关：QQ 走 **QQ 开放平台**官方 bot 凭据（`.env` 的
+`QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET`），不是个人账号扫码登录。
 
-### 7.1 后台初始化
+**插件怎么连**：PaperMC 实例挂 `orzmc_default` 网络（创建实例时设置，见 §6.4），
+插件直连 `http://easybot:8080`（REST + WS 同端口，内网无 TLS）。不存在 `easybot-api`
+公网域名，也不需要对公网暴露。
 
-1. 打开后台：`http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`（缺省 18091）。
-2. 用 `.env` 的 `EASYBOT_ADMIN_PASSWORD` 登录/初始化。
-3. 确认 QQ 适配器在线：`docker logs orzmc-easybot` 出现 `QQ Gateway ready` / `bot 在线`。
+### 7.1 后台初始化与密钥
 
-### 7.2 API Key 与会话
+1. 打开 `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`，用 `.env` 的 `EASYBOT_ADMIN_PASSWORD` 登录/初始化。
+2. **API 密钥** → 创建**客服类**密钥（`sk-xxxx…`），填进插件 `api_key`。
+3. **会话管理** → 为各平台建会话，复制**会话 key**（如 `qq:conv_xxxx`）填进插件。
+   注意：这是 EasyBot 分配的会话 key，**不是**平台原生 ID（QQ 群号等）。
+4. 确认适配器在线：`docker logs orzmc-easybot` 出现 `QQ Gateway ready`。
 
-1. 后台 → **API 密钥** → 创建**客服类**密钥，得到 `sk-xxxxxxxx` / `eb_xxxxxxxx`，
-   记下来填进插件 `easybot.yml`。
-2. 后台 → **会话管理** → 为各平台创建会话，复制**会话 key**（如 `qq:conv_xxxxxx`）。
-   - 注意：这些是 EasyBot 后台分配的会话 key，**不是**平台原生 ID（QQ 群号等）。
+### 7.2 插件 `easybot.yml`
 
-### 7.3 插件 easybot.yml
-
-PaperMC 实例在面板打开 `plugins/OrzMC/easybot.yml`（实例须挂 `orzmc_default` 网络）：
+面板 → 实例 → 文件管理 → `plugins/OrzMC/easybot.yml`（密钥，勿入库）：
 
 ```yaml
 api_server: 'http://easybot:8080'
 ws_server: 'ws://easybot:8080'
-api_key: 'sk-xxxxxxxxxxxxxxxx'        # 7.2 创建的客服类 API Key
+api_key: 'sk-xxxxxxxxxxxxxxxx'        # 客服类 API Key
 platforms:
   qq:
     enabled: true
@@ -587,21 +474,35 @@ platforms:
     admin_dm: 'qq:conv_yyyyyyyy'      # 管理员私聊会话 key
 ```
 
-### 7.4 验证
+### 7.3 验证与 403 排查
 
-- 实例日志出现：`[OrzMC] EasyBot WebSocket 认证成功`。
-- 插件启动通知：EasyBot 日志 `POST /api/v1/messages/batch-send status=200`。
-- QQ 测试群收到消息（依赖 QQ 开放平台 bot 审核通过）。
+- 实例日志 `[OrzMC] EasyBot WebSocket 认证成功`；EasyBot 日志 `POST /api/v1/messages/batch-send status=200`。
+- 健康检查：`curl -s http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>/api/v1/live` 应返回 200。
+- 发消息 **403** = 两层授权缺一：① API key 的 `permissions` 需含 `messagessend`
+  （+`websocketconnect`）；② `target_grants` 里该 key 的 `subject_id` 对目标
+  `platform+chat_id` 有 `messages:send` 授权。
 
-### 7.5 权限模型（403 排查入口）
+### 7.4 可选适配器与微信
 
-发送消息需要**两层授权**同时满足：
+- 变量值写 `$DATA_ROOT/.env`，再在 `$DATA_ROOT/compose.site.yaml` 的 `easybot.environment`
+  引用（**不要改包内 `compose.yaml`**，升级换包会丢，见 §4.5）：`TELEGRAM_BOT_TOKEN`、
+  `DISCORD_BOT_TOKEN`、`FEISHU_APP_ID` + `FEISHU_APP_SECRET`。启用即加一行，勿注入空串。
+- 微信为扫码登录、无凭据即**自动启用**（会空转刷码）。不需要时 `init` 已生成的
+  `$DATA_ROOT/easybot/data/gateway.local.yaml` 里已显式关闭；要接入微信就删掉该文件：
 
-1. **API key 权限**：`api_keys.permissions` 需含 `messagessend`（和 `websocketconnect`）。
-2. **会话授权**：`target_grants` 里有该 key 的 `subject_id` 对目标 `platform+chat_id`
-   的 `messages:send` 授权。
+  ```yaml
+  adapters:
+    wechat:
+      enabled: false
+  ```
 
-发消息报 `403` 时，按这两层查（详见 [docs/easybot.md](easybot.md)「运维注意」）。
+  改后 `docker restart orzmc-easybot`，日志应出现 `Skipping adapter 'wechat'`。
+
+### 7.5 运维注意
+
+- **不要用外部 `sqlite3` 读运行中的 `gateway.db`**（WAL 并发 → `SQLITE_CORRUPT` code 11）。
+  日常查询走后台/API；需要直连时先停网关让 SQLite 正常关库。
+- EasyBot 上限刻意保持紧（`EASYBOT_MEMORY_LIMIT`，缺省 512M，ADR-024）：放大只会让内存回归更晚暴露。
 
 ---
 
@@ -610,24 +511,16 @@ platforms:
 | 对象 | 位置 | 处理 |
 |---|---|---|
 | 全部环境变量 + 密钥 | `$DATA_ROOT/.env` | 权限 600，**永不入库** |
-| daemon key | `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` | 等同最高权限（可管理宿主机 Docker），600、随备份、永不入库 |
+| daemon key | `$DATA_ROOT/mcsmanager/daemon/data/Config/global.json` | 等同最高权限（daemon 可管理宿主机 Docker）；600、随备份、永不入库 |
 | EasyBot API key / 会话 key | 插件 `easybot.yml` | 密钥，不入库 |
 
-- **局域网暴露 2 个端口**：面板 `LAN_MCS_WEB_PORT`、EasyBot `LAN_EASYBOT_PORT`
-  （均有登录鉴权）；daemon 端口不发布（ADR-026，面板中转）。
-  **EasyBot 插件 API 仅内网**（`http://easybot:8080`）。明文 HTTP **仅限可信局域网**。
-- ⚠️ **对公网暴露前必须加保护**：面板与 EasyBot 都是 **HTTP + 口令登录**。做 DDNS
-  端口映射前，请至少：换强口令 · 加 TLS 反代 · 或改用 VPN（推荐，无需开放公网端口）。
-- **默认限源三层模型（ADR-028）**：`LAN_BIND_ADDR`（绑定地址）+ `LAN_CIDR`
-  （防火墙来源）+ daemon 不发布端口。落地运行 `./orzmc.sh firewall apply`
-  （Windows 需 UAC），自检 `./orzmc.sh firewall show` 与 `./orzmc.sh status`。
-  详细设计与三档配置见 [security.md](security.md)。
-- **daemon 端口不发布**（ADR-026）：节点的业务路由仍要 **daemon key** 鉴权（daemon 可管理
-  宿主机 Docker，等同最高权限）；端口不出容器网络，不存在“局域网探测面”。
-- **可信边界**：`mcsmanager-daemon` 挂载 `/var/run/docker.sock`，能管理宿主机 Docker——
-  宿主机必须视为可信环境。
-- **git 卫生**：`.env`、`.local-data/`、`.local-backups/`、生产 `DATA_ROOT` 内容都在
-  `.gitignore`，不要 `git add -f`；提交前 `git status` 核对无数据/密钥泄漏。
+- **暴露面只有 2 个 HTTP 端口**（面板 / EasyBot，均有口令登录），daemon 端口不发布；
+  明文 HTTP **仅限可信局域网**。对外访问必须自备 TLS 反代或 VPN（§3.4）。
+- **默认限源三层**（ADR-028）：`LAN_BIND_ADDR`（绑定地址）+ `LAN_CIDR`（防火墙来源）+
+  daemon 不发布。落地 `./orzmc.sh firewall apply`，自检 `./orzmc.sh firewall show`。
+  设计、三档配置与常见误配见 [security.md](security.md)。
+- **可信边界**：daemon 挂 `/var/run/docker.sock`，宿主机必须视为可信环境。
+- **git 卫生**：`.env`、`.local-data/`、`.local-backups/` 已在 `.gitignore`，勿 `git add -f`。
 
 ---
 
@@ -640,17 +533,16 @@ platforms:
 |---|---|---|
 | 面板/后台打不开 | 服务没起 / 端口未发布 / 防火墙拦截 / 用错了 IP | `./orzmc.sh status` 看服务；`docker ps` 核对宿主端口；确认访问的是 `LAN_HOST_IP` 而非 `localhost`（手机/别的机器）；检查 Windows 防火墙入站规则 |
 | 实例日志每行首字符乱码 | `terminalOption.pty: false` | 按[第 6.4 节](#64-创建实例)开启 pty 后重启 |
-| 插件发消息 403 | key 缺 `messagessend` 权限，或会话未授权 | 按[第 7.5 节](#75-权限模型403-排查入口)两层检查 |
+| 插件发消息 403 | key 缺 `messagessend` 权限，或会话未授权 | 按 [§7.3](#73-验证与-403-排查) 两层检查 |
 | EasyBot 报 `SQLITE_CORRUPT`（code 11） | 用外部 `sqlite3` CLI 读了运行中的 `gateway.db`（WAL 并发） | **勿用外部 sqlite3 读活跃库**；停网关正常关库 checkpoint 后可无损恢复；日常查询走后台/API |
 | 实例容器"消失" | 直接 `docker restart MCSM-<uuid>` 被 daemon 当作停止并回收 | 实例生命周期一律走面板/daemon API |
 | 玩家进不去 `25565` | 实例未启动 / 端口映射错 / `online-mode` 阻挡 | 面板启动实例；核对 `docker.ports`；离线服把 `server.properties` 的 `online-mode` 设 `false` |
 | 改了实例 JSON 又回退 | 实例运行中直接改被内存副本覆盖；先改后 `docker restart` 也会被退出刷盘覆盖 | 按[第 6.5 节](#65-生命周期与配置持久化)正确顺序：**停 daemon → 改 → 启 daemon** |
 
-更多实战教训记录在 `EXECUTION_PATH.md`。
 
 ---
 
-## 10 迁移到新主机（整服搬迁）
+## 10 迁移到新主机
 
 整服迁移 = **运行时**（仓库）与**数据**（`$DATA_ROOT`）分开搬：新机装好运行时后，
 `restore.sh` 还原数据目录即可。
@@ -750,82 +642,40 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 镜像版本以 `compose.yaml` 中的 `image:xxx@sha256:...` 为准；刷新用
 `update-image-digests.sh`（三个服务的镜像映射只在该脚本一处维护）。
 
-## 附录 E 术语表
+## 附录 E 硬件选型（按在线人数）
 
-见[第 1.3 节](#13-术语表)（DATA_ROOT、局域网模式、daemon key、会话 key、digest 锁定、dataPlane）。
+平台层（web/daemon/easybot）实测约 **0.2–0.3 GB / 1 核**且不随玩家数变化，资源大头是
+PaperMC 实例本身。下表按**同时在线**（不是注册数）：
 
-## 附录 F 硬件选型（按在线人数）
-
-> 本文档的**平台层**（mcsmanager-web / daemon / easybot，见附录 D）实测占用
-> **固定约 0.2–0.3 GB / 1 核**，不随玩家数变化——
-> 所有档位的资源大头都是 PaperMC 实例本身。
-
-### 前提：档位 = 同时在线
-
-**"20 人服"指同时在线 20 人（concurrent），不是注册 20 人。** 100 个注册玩家同时在线 10 人，
-就按 10 人档算。下表全部按"同时在线"给出。
-
-### 分档最低要求总表
-
-| 同时在线 | CPU（核数/单核） | 整机内存 | 磁盘(SSD) | 网络上行* | 单实例判断 |
+| 同时在线 | CPU | 整机内存 | SSD | 上行* | 单实例判断 |
 |---|---|---|---|---|---|
-| **20** | 2 核 / ≥3.5 GHz | **8 GB** | 20 GB | 20–40 Mbps | 轻松，无压力 |
-| **50** | 4 核 / ≥4 GHz | **12–16 GB** | 40 GB | 50–100 Mbps | 可行，需预生成 + 视距 ≤8 |
-| **100** | 6–8 核 / 顶级单核 | **16–24 GB** | 100 GB | 100–200 Mbps | **单实例临界**，必须调优 |
-| **150** | 8–12 核 / 顶级单核 | **24–32 GB** | 150 GB | 150–300 Mbps | 很吃力，建议分实例 |
-| **200** | 12 核+ / 顶级单核 | **32–48 GB** | 200 GB+ | ≥300 Mbps | 单实例不建议，须 hub+多实例 |
+| 20 | 2 核 / ≥3.5 GHz | 8 GB | 20 GB | 20–40 Mbps | 轻松 |
+| 50 | 4 核 / ≥4 GHz | 12–16 GB | 40 GB | 50–100 Mbps | 可行（预生成 + 视距 ≤8） |
+| 100 | 6–8 核 / 顶级单核 | 16–24 GB | 100 GB | 100–200 Mbps | 单实例临界，必须调优 |
+| 150+ | 8–12 核 | 24–32 GB | 150 GB | 150–300 Mbps | 吃力，建议 hub + 多实例 |
 
-\* 网络上行指"玩家从公网进服"（端口转发/VPN）时的持续上行；本方案默认玩家局域网直连
-25565，那个场景下千兆局域网即可。
+\* 公网进服时的持续上行；局域网直连 25565 时千兆局域网足够。
 
+估算与调优：`堆内存 ≈ 同时在线 × 0.15–0.2 GB`，整机 ≈ 堆 + 0.3G（平台）+ 2G（系统）。
+三个杠杆按收益排序：**视距 10→6**（负载 −40%+）、**预生成世界**（消掉生成区块的 CPU 尖峰）、
+**收紧实体上限**（`mob-spawn-range` / `entity-activation-range`）。单实例天花板约 100–150 人，
+再往上应改架构（Velocity hub + 分实例），超出本仓库模型。
 
-### 为什么是这些数（底层逻辑）
+**实例内存**：`InstanceConfig/<uuid>.json` 的 `docker.memory`（单位 MB）与启动命令
+`-Xms/-Xmx` 保持一致；改法见 [§6.5](#65-生命周期与配置持久化)。
 
-1. **平台层成本固定**：mcsmanager（web+daemon）+ easybot 实测约
-   0.25–0.3 GB / 1 核。20→200 人档平台层开销一样，涨的全是 MC 实例。
-2. **MC 的硬瓶颈是单线程 tick**：20 TPS 主循环只跑在一个核上，**单核主频比核数更重要**——
-   100 人档也要"顶级单核"而不是堆低主频核。核数的用处是 Paper 的**异步区块生成**、GC 线程，
-   以及 150 人以上把世界拆给多个实例。内存随**已加载区块数**涨（约每玩家 100–200 MB），
-   粗略估算：`堆内存 ≈ 同时在线 × 0.15–0.2 GB`，
-   整机内存 ≈ 堆 + 平台约 0.3G + 系统约 2G。
-3. **三个杠杆能压配置，让"临界"档活下来**：
-   - **视距**：10 → 6，实体/区块负载可降 40%+，最有效的旋钮
-   - **预生成世界**（`/pregen` 类工具）：消掉"边玩边生成区块"这个最大的 CPU 尖峰，
-     100 人档常靠这个不卡
-   - **实体上限**：`mob-spawn-range` / `entity-activation-range` 收紧，200 人档刚需
-4. **单实例天花板约 100–150 同时在线**（纯生存 vs 大量红石/刷怪塔差别极大）。150–200 档的
-   最优解不是堆硬件，而是**架构改变**：hub（Velocity 类）+ 多个游戏实例分流，每实例退回
-   50 人档配置。这超出本仓库"单 PaperMC 实例"模型，属架构级改动。
-5. **100 人以上网络变成硬约束**：家用宽带上行普遍 20–40 Mbps，撑不住 100+ 人持续区块流，
-   该档位需要机房裸金属（≥1 Gbps 上行）。
+## 附录 F Windows 平台要点
 
-### 平台层各服务内存上限（可调，issue #16）
+命令三平台一致，只有 Docker Desktop + WSL2 的几个特有约束：
 
-平台层固定占用很小，但**容器内存上限（fuse）与服务实际工作集不匹配**时会变成 OOM 重启风暴。
-可调项收敛到 `.env`，站点级覆盖写 `$DATA_ROOT/compose.site.yaml`（升级换包不丢）：
+| 项 | 要求 |
+|---|---|
+| 路径 | `DATA_ROOT` 用 Windows 原生路径 `E:/orzmc`（默认值），不要用 MSYS 的 `/e/orzmc` |
+| 执行位置 | **在 Windows 侧（Git Bash）执行 `up`**。WSL 侧 compose 建不了 `E:/...` 绑定，报 `invalid volume specification`（短语法盘符冒号） |
+| daemon | `DAEMON_PORTS` 为空（docker 型实例）时由 compose 创建；仅**进程模式实例**需注入 `-p` 时才走脚本的 `docker run`（ADR-029）。切换后 `stop && up` 重建 |
+| 防火墙 | 用 `./orzmc.sh firewall apply`（弹 UAC），**不要手写规则、不要 `-RemoteAddress Any`** |
+| 端口验证 | Docker 发布端口在 WSL 网络栈里，Windows `netstat` 看不到监听属正常；用手机/另一台机器验证 |
+| 实例属主 | 一般无需 `chown`；报 `Permission denied` 时检查 Docker Desktop 文件共享白名单、`cwd` 是否存在 |
 
-| 服务 | `.env` 变量 | 缺省上限 | 说明 |
-|---|---|---|---|
-| `mcsmanager-daemon` | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | `512M` / `384` | 堆须与上限对齐，见 issue #10 |
-| `easybot` | `EASYBOT_MEMORY_LIMIT` | `512M` | 与旧值一致的**紧**上限；v0.0.41 已修空载内存泄漏（上游 #139），放大上限会掩盖回归 |
-| `mcsmanager-web` | —（`compose.yaml` 硬编码） | `512M` | 面板服务，占用平稳 |
-
-> **easybot 上限刻意保持紧**（缺省 `512M`，与原硬编码值一致）：EasyBot v0.0.41 修掉了空载
-> 内存泄漏后，不要为了“保险”把上限放大——放大只会让未来的内存回归更晚暴露。仅当站点确有
-> 更重负载（多适配器/大量插件回传）且确认是**正常**工作集超限时，才 `.env` 写
-> `EASYBOT_MEMORY_LIMIT=1G` 后 `./orzmc.sh up`；下调同理。判断是否 OOM：
-> `docker inspect orzmc-easybot --format '{{.RestartCount}}'` 持续增长 +
-> 宿主 `dmesg` 出现 `Killed process ... easybot`。
-
-### 如何查看/调整实例内存
-
-当前生产实例配置为 `-Xms4G -Xmx4G`（堆 4G），`InstanceConfig/<uuid>.json` 中 `memory: 4096`
-（单位 MB）。调低可压低最低要求（1–3 人小服可降到 2–3G → 整机 4–5G 即可）；调高方法见
-[6.5 节](#65-生命周期与配置持久化)（⚠️ 先停 daemon → 改 → 再启 daemon 的顺序）。
-
-### 一句话买机建议
-
-- **≤50 人**：8–16 GB 高主频 VPS，或家用 Mac/PC（本仓库当前生产即 20 人档：4G 堆，
-  整机 8G 即可——平台层约 0.3G 后仍有 1G+ 余量）
-- **50–100 人**：16–24 GB **独立服务器/裸金属**，优先单核主频，SSD 必须
-- **≥150 人**：别在单实例上堆钱，直接规划 hub + 分实例架构
+常见症状：`up` 报 `invalid volume specification` → 改到 Windows 侧执行；面板能开但终端/
+文件管理打不开 → 面板未启用 `dataPlane=proxy`（§6.3）；本机能访问、手机不能 → 防火墙未放行或用错 IP。

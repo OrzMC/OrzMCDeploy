@@ -163,10 +163,9 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           VERSION="${TAG:-0.0.0}"
           # 打包"运行时"：入口脚本 + lib + templates + compose + 文档。
-          # 显式排除 .git/.github/tests/EXECUTION_PATH.md/数据（铁律：密钥与数据不入包）。
+          # 显式排除 .git/.github/tests/数据（铁律：密钥与数据不入包）。
           # 文件清单必须与仓库实际文件一致（删脚本时同步删这里，否则 tar 直接失败）。
           tar --exclude='./.git' --exclude='./.github' --exclude='./tests' \
-              --exclude='./EXECUTION_PATH.md' \
               --exclude='./.env' --exclude='./.local-data' --exclude='./.local-data-lan' \
               --exclude='./.local-backups' \
               -czf "orzmc-${VERSION}.tar.gz" \
@@ -178,7 +177,7 @@ jobs:
           tar -tzf "orzmc-${VERSION}.tar.gz" | head -20
           echo "..."
           echo "=== 校验：包内不得有 .git / 数据 / 密钥 ==="
-          if tar -tzf "orzmc-${VERSION}.tar.gz" | grep -E '(^|/)(\.git|\.env|\.local-data|\.local-backups|EXECUTION_PATH\.md)(/|$)' ; then
+          if tar -tzf "orzmc-${VERSION}.tar.gz" | grep -E '(^|/)(\.git|\.env|\.local-data|\.local-backups)(/|$)' ; then
             echo "!! 包内发现禁止路径" >&2; exit 1
           fi
           echo "禁止路径守卫 OK"

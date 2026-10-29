@@ -85,13 +85,10 @@ tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
 CHANGELOG.md            版本变更记录（Keep a Changelog；随 Release 打包，ADR-018）
-EXECUTION_PATH.md       执行路径、门禁、checklist、状态记录
-docs/usage.md           用户使用指南（全生命周期分步操作）
-docs/architecture.md    架构设计文档（拓扑/数据流 + 有效 ADR；已废止 ADR 仅留索引）
-docs/easybot.md         EasyBot 网关与插件 easybot.yml 配置指南
-docs/papermc-template.md PaperMC 实例录入参数参考
-docs/windows-deployment.md Windows 平台要点（路径/compose 限制/防火墙/常见症状）
-docs/security.md        暴露面与访问控制设计（三层模型、三档配置、对外暴露清单）
+docs/usage.md           使用手册：安装/配置/运维/实例/EasyBot/排障/迁移 + Windows 要点（附录 F）
+docs/architecture.md    架构与设计决策（拓扑/数据流 + ADR；已废止 ADR 仅留索引）
+docs/security.md        暴露面与访问控制（三层限源模型、对外暴露方案、TLS 反代配方）
+docs/papermc-template.md PaperMC 实例录入字段参考（面板运行数据，不在仓库配置里）
 ```
 
 ## 命令速查（统一 orzmc.sh）
@@ -118,6 +115,29 @@ docs/security.md        暴露面与访问控制设计（三层模型、三档�
 - **站点增量**放 `$DATA_ROOT/compose.site.yaml`（`init` 生成、存在即自动 `-f` 追加），
   或 `.env` 的 `COMPOSE_FILE_EXTRA`（空格/逗号分隔，任意路径）。站点特有 env/挂载
   **不改包内 `compose.yaml`**——升级换包会丢（ADR-022，issue #11）。
+
+## 基线与门禁
+
+**当前基线**：3 个服务（web/daemon 常驻 + easybot 可选，`ENABLE_EASYBOT=false` 时 2 个）；
+入口只有 2 个局域网 HTTP 端口；daemon 不发布端口（节点地址固定 `ws://mcsmanager-daemon:24444`，
+浏览器数据面经面板中转）；全部配置/数据落 `$DATA_ROOT`；镜像 digest 锁定。
+
+**本地门禁**（与 CI 等价，改完必跑）：
+
+```bash
+for f in *.sh lib/*.sh tests/*.sh; do bash -n "$f"; done
+shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
+bash tests/windows_ci.sh
+./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate
+```
+
+CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 · `LAN_BIND_ADDR` 生效 ·
+`firewall apply --dry-run` 来源限源 · 禁入路径守卫。打 `v*` tag 时打包 Release tarball
+（ADR-018）——`ci.yml` 的 tar 清单必须与仓库实际文件一致，删脚本时要同步删。
+
+**待办**：对外访问前加 TLS 反代或改走 VPN；公网 TLS 端口是「不得为 `Any`」的唯一例外
+（见安全约束）；旧 `.env` 里的 `EDGE`/`CLOUDFLARE_*`/`DOMAIN_*`/`LAN_MCS_DAEMON_PORT`
+已无消费者、可清理；升级镜像后按「digest → commit → `stop && up`」回归。
 
 ## 代码约定
 
@@ -155,8 +175,8 @@ docs/security.md        暴露面与访问控制设计（三层模型、三档�
 - **防火墙默认限源**（ADR-028）：`OrzMC-*` 入站规则的 `RemoteAddress` 应为 `LAN_CIDR`
   （+ 显式追加的 VPN 网段），**不得为 `Any`**；改动后用 `./orzmc.sh firewall show` 复核。
   唯一例外：站点自备的**公网 TLS 反代端口**（如 80/443）本身就要对公网开放，
-  该规则必须单独命名（如 `OrzMC-Web-TLS`）并在 `docs/security.md` / `EXECUTION_PATH.md`
-  记录，不得把已有的 `OrzMC-Panel` / `OrzMC-EasyBot` 规则改成 `Any`。
+  该规则必须单独命名（如 `OrzMC-Web-TLS`）并在 `docs/security.md` 与本节「基线与门禁」
+  的待办中记录，不得把已有的 `OrzMC-Panel` / `OrzMC-EasyBot` 规则改成 `Any`。
 
 ## 修改守则（智能体改动前必读）
 
