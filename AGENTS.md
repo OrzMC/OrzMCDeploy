@@ -85,25 +85,26 @@ tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校
 AGENTS.md / CLAUDE.md   本文件 / Claude Code 入口（@import 本文件）
 README.md               用户入口（介绍 + 快速上手 + 命令速查 + 文档导航）
 CHANGELOG.md            版本变更记录（Keep a Changelog；随 Release 打包，ADR-018）
-docs/usage.md           使用手册：安装/配置/运维/实例/EasyBot/排障/迁移 + Windows 要点（附录 F）
-docs/architecture.md    架构与设计决策（拓扑/数据流 + ADR；已废止 ADR 仅留索引）
-docs/security.md        暴露面与访问控制（三层限源模型、对外暴露方案、TLS 反代配方）
-docs/papermc-template.md PaperMC 实例录入字段参考（面板运行数据，不在仓库配置里）
+docs/usage.md           使用手册（唯一操作入口）：安装/配置/运维/实例/EasyBot/排障/迁移 + Windows（附录 F）
+docs/architecture.md    架构与设计决策（拓扑/数据流 + ADR-001…033；已废止仅留索引）
+docs/security.md        暴露面与访问控制（三层限源、三档配置、对外暴露与反代配方）
+docs/papermc-template.md PaperMC 实例字段参考（面板运行数据，不在仓库配置里）
 ```
 
 ## 命令速查（统一 orzmc.sh）
 
 | 场景 | 命令 |
 |---|---|
-| 初始化目录/env | `./orzmc.sh [-d DATA_ROOT] init` |
-| 启动平台层 | `./orzmc.sh [-d DATA_ROOT] up` |
-| 停止 | `./orzmc.sh stop` |
-| 状态与访问地址 | `./orzmc.sh status` |
-| 校验配置 | `./orzmc.sh validate` |
-| 备份数据 | `./orzmc.sh backup [--stop] [--keep N]` |
-| 防火墙收敛（默认限源） | `./orzmc.sh firewall show` / `./orzmc.sh firewall apply` |
-| 还原/迁移 | `./restore.sh -d <root> <归档> [--force]` |
+| 初始化目录/env | `./orzmc.sh -d <数据目录> init` |
+| 启动平台层 | `./orzmc.sh -d <数据目录> up` |
+| 停止 | `./orzmc.sh -d <数据目录> stop` |
+| 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
+| 校验配置 | `./orzmc.sh -d <数据目录> validate` |
+| 备份数据 | `./orzmc.sh -d <数据目录> backup [--stop] [--keep N]` |
+| 防火墙收敛（默认限源） | `./orzmc.sh -d <数据目录> firewall show` / `apply` |
+| 还原/迁移 | `./restore.sh -d <数据目录> <归档> [--force]` |
 
+- 表中 `-d <数据目录>` 必填（或 `export ORZMC_DATA_ROOT=...`），无默认路径。
 - 局域网入口在 `$DATA_ROOT/.env` 里配：`LAN_HOST_IP` + `LAN_MCS_WEB_PORT`(18090) +
   `LAN_EASYBOT_PORT`(18091)；可选服务开关 `ENABLE_EASYBOT` 也在 `.env` 里（缺省 `true`）。
   `-e/--edge` 参数与 `local.sh`/`lan.sh`/`windows.sh` 入口已随 ADR-027 移除。
@@ -157,6 +158,25 @@ CI 另跑：模板/compose YAML 解析 · `ENABLE_EASYBOT=false` 开关用例 ·
   用户时仍会写盘失败（Operation not permitted / AccessDenied）。生产 macOS 将实例目录
   属主改为宿主用户（`sudo chown -R <宿主用户>:staff <instance-dir>`）；Linux 生产无此问题，
   保持 `1000:1000`。
+
+## 文档写作约定（改文档前必读）
+
+一个读者任务 = 一个位置，不复述、不写死设备信息：
+
+- **分工**：`README`=落地页（是什么/怎么跑/去哪读）；`docs/usage.md`=唯一操作手册；
+  `docs/security.md`=暴露面与反代；`docs/papermc-template.md`=字段表；
+  `docs/architecture.md`=设计与 ADR 历史。详细步骤只写在使用手册，其余文档用链接指向。
+- **占位符统一**：命令里用 `<数据目录>`（用户 `-d` 指定的宿主机目录）、`<LAN_HOST_IP>`、
+  `<实例端口>`、`<归档>`；描述变量或目录内部路径时用 `$DATA_ROOT/<子路径>`。
+- **代码块可复制**：块内命令写全（含 `-d <数据目录>`），不用省略号或"同上"；正文叙述中提到
+  命令时可用短形式（如 `firewall apply`、`init`），但不要给出会被误抄的半截命令。
+- **禁止写死站点信息**：具体 IP/域名/端口/路径/用户名/实例 uuid 一律用占位符；
+  示例值必须紧跟"示例"字样（如 `LAN_CIDR=192.168.0.0/24  # 示例，改成你的网段`）。
+- **标题格式**：章 `## 1. 标题`，子节 `### 1.1 标题`，附录 `## 附录 A 标题`；
+  每篇开头一段 `> 定位 / 读者 / 相关文档` 引用块。
+- **篇幅**：单节 ≤ 40 行；重复内容合并到一处，其余位置只留一句 + 链接；
+  历史背景与实测数字只写进 ADR / CHANGELOG，不进操作手册。
+- 改完跑本地门禁（见下节）；CI 的 lint job 会额外校验 markdown 链接与锚点。
 
 ## 安全约束（必须遵守）
 

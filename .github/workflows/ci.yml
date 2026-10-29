@@ -67,6 +67,47 @@ jobs:
           print(f"yaml parse OK: {len(files)} templates")
           EOF
 
+      - name: Markdown links & anchors
+        run: |
+          python3 - <<'EOF'
+          import pathlib, re, unicodedata
+
+          def slug(h):
+              out = []
+              for ch in h.strip().lower():
+                  c = unicodedata.category(ch)
+                  if c.startswith(("P", "S")):
+                      if ch in "-_":
+                          out.append(ch)
+                      continue
+                  out.append(ch)
+              return re.sub(r"\s+", "-", "".join(out))
+
+          files = list(pathlib.Path(".").glob("*.md")) + list(pathlib.Path("docs").glob("*.md"))
+          anchors = {}
+          for f in files:
+              anchors[f.resolve()] = {
+                  slug(m.group(2))
+                  for line in f.read_text().splitlines()
+                  if (m := re.match(r"^(#{1,4})\s+(.*)$", line))
+              }
+          bad = []
+          for f in files:
+              for link in re.findall(r"\]\(([^)\s]+)\)", f.read_text()):
+                  if link.startswith(("http", "mailto:")):
+                      continue
+                  target, _, frag = link.partition("#")
+                  tf = (f.parent / target).resolve() if target else f.resolve()
+                  if target and not tf.exists():
+                      bad.append(f"{f}: missing {link}")
+                  elif frag and tf.suffix == ".md" and frag not in anchors.get(tf, set()):
+                      bad.append(f"{f}: bad anchor {link}")
+          if bad:
+              print("\n".join(bad))
+              raise SystemExit(f"{len(bad)} 处链接/锚点失效")
+          print(f"markdown links OK: {len(files)} files")
+          EOF
+
       - name: Forbidden paths guard (secrets/data must never be tracked)
         run: |
           bad="$(git ls-files | grep -E '(^|/)(\.env|\.env\.local|\.local-data|\.local-data-lan|\.local-backups)(/|$)' || true)"

@@ -510,7 +510,7 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
   `.env` 里已有 `DATA_ROOT`，但每次命令仍需 `-d`；长期使用建议 `export ORZMC_DATA_ROOT=...`。
 - 代码：`lib/common.sh`、4 个入口脚本、`lib/firewall.sh`；测试删除平台默认断言，新增
   「ORZMC_DATA_ROOT 生效」「未指定时报错且给出指引」两项。
-- 文档：README 快速开始与命令表全部带 `-d <你的数据目录>`；AGENTS 铁律、usage §3.2/§4.1/
+- 文档：README 快速开始与命令表全部带 `-d <数据目录>`；AGENTS 铁律、usage §3.1/§4.1/
   附录 A/附录 F 同步；`install.sh` 的手把手提示同样带 `-d`。
 - **回退**：`git revert` 本 ADR 对应提交即可恢复平台默认（但文档里的路径示例会一并回来）。
 

@@ -1,22 +1,32 @@
-# OrzMC 部署使用指南
+# OrzMC 使用手册
 
-> 面向**服主与运维**的全生命周期操作手册：从零开始把 OrzMC 部署栈跑起来、日常维护、
-> 接入聊天机器人、故障排查与整服迁移。
->
-> - 想快速看看这个项目是什么、怎么跑 —— 先读 [README](../README.md)
-> - 想在 MCSManager 面板里录入 PaperMC 实例 —— 对照 [docs/papermc-template.md](papermc-template.md)
-> - 想了解架构原理与决策记录（维护者向）—— 读 [docs/architecture.md](architecture.md)
+> **定位**：把 OrzMC 部署栈跑起来并长期运维的完整操作手册。
+> **读者**：服主 / 运维。第一次部署从 §3 开始；查命令看附录 A；查设备差异看附录 F。
+> **相关**：[README](../README.md)（项目速览）· [security.md](security.md)（暴露面与反代）·
+> [papermc-template.md](papermc-template.md)（实例字段）· [architecture.md](architecture.md)（设计决策）
+
+**占位符约定**（全文同义）：
+
+| 占位符 | 含义 |
+|---|---|
+| `<数据目录>` | 你用 `-d` 指定的宿主机数据目录（`DATA_ROOT`），必须由你选定，无默认值 |
+| `$DATA_ROOT` | 同一目录在 `.env` / compose 里的变量名；其内部路径写作 `$DATA_ROOT/<子路径>` |
+| `<LAN_HOST_IP>` | 宿主局域网 IP（`.env` 的 `LAN_HOST_IP`） |
+| `<实例端口>` / `<归档>` | PaperMC 实例对外端口 / `backup.sh` 产出的 tar.gz 路径 |
+| `<盘符>:/<目录>` | Windows 原生路径写法（如 `D:/orzmc`），不要用 MSYS 的 `/d/...` |
+| `<uuid>` | 面板为实例生成的 ID（用于 `InstanceData/<uuid>/`、`InstanceConfig/<uuid>.json`） |
 
 ## 目录
 
-- [1 认识项目](#1-认识项目) · [2 前置条件](#2-前置条件) · [3 快速开始](#3-快速开始)
-- [4 配置详解](#4-配置详解) · [5 日常运维](#5-日常运维) · [6 管理 PaperMC 实例](#6-管理-papermc-实例)
-- [7 EasyBot 接入](#7-easybot-接入) · [8 安全基线](#8-安全基线) · [9 故障排查](#9-故障排查) · [10 迁移](#10-迁移到新主机)
-- 附录：[A 命令速查](#附录-a-命令速查) · [B 端口](#附录-b-端口约定) · [C 目录树](#附录-c-data_root-目录树) · [D 服务镜像](#附录-d-服务与镜像) · [E 硬件选型](#附录-e-硬件选型按在线人数) · [F Windows 要点](#附录-f-windows-平台要点)
+- [1. 认识项目](#1-认识项目) · [2. 前置条件](#2-前置条件) · [3. 快速开始](#3-快速开始)
+- [4. 配置](#4-配置) · [5. 日常运维](#5-日常运维) · [6. PaperMC 实例](#6-papermc-实例)
+- [7. EasyBot](#7-easybot) · [8. 安全基线](#8-安全基线) · [9. 故障排查](#9-故障排查) · [10. 迁移](#10-迁移到新主机)
+- 附录：[A 命令速查](#附录-a-命令速查) · [B 端口](#附录-b-端口约定) · [C 目录树](#附录-c-data_root-目录树) ·
+  [D 服务与镜像](#附录-d-服务与镜像) · [E 硬件选型](#附录-e-硬件选型按在线人数) · [F Windows](#附录-f-windows-平台要点)
 
 ---
 
-## 1 认识项目
+## 1. 认识项目
 
 ### 1.1 这是什么
 
@@ -42,36 +52,34 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 
 ---
 
-## 2 前置条件
+## 2. 前置条件
 
 - **系统**：macOS（Docker Desktop）/ Linux（Docker Engine）/ Windows（Docker Desktop + WSL2，
   见附录 F）；已装 `docker`（`docker info` 正常）与 `git`。
 - **网络**：宿主有固定/保留局域网 IP 更稳（`LAN_HOST_IP` 会随 DHCP 变化而失效）。
 - **按需**：QQ 开放平台 AppID / ClientSecret（仅接入 EasyBot QQ 时需要）。
 
-> 本项目**不需要域名、Cloudflare 账号或证书**（ADR-027）；要从外网访问见 §3.4（VPN 最省心）。
+> 本项目**不需要域名、Cloudflare 账号或证书**（ADR-027）；要从外网访问见 §3.3（VPN 最省心）。
 
 ---
 
-## 3 快速开始
-
-### 3.1 先做决定：入口只要局域网
+## 3. 快速开始
 
 本项目只提供局域网模式（ADR-027）：面板与 EasyBot 发布宿主端口、纯 HTTP，局域网设备直连；
-**对外访问由你自备**（DDNS + 端口映射 / 反代 / VPN）。只本机用可直接访问 `127.0.0.1:<端口>`，
-家里多设备就把 `LAN_HOST_IP` 设成宿主局域网 IP。
+**对外访问由你自备**（见 §3.3）。只本机用可直接访问 `127.0.0.1:<端口>`，家里多设备就把
+`LAN_HOST_IP` 设成宿主局域网 IP。
 
-### 3.2 初始化与启动（15 分钟）
+### 3.1 初始化与启动
 
 ```bash
 # 在仓库根目录
-./orzmc.sh -d /path/to/orzmc init     # 生成 .env（DATA_ROOT 按实际路径改写）
-# 编辑 /path/to/orzmc/.env：
+./orzmc.sh -d <数据目录> init     # 生成 .env（DATA_ROOT 按实际路径改写）
+# 编辑 <数据目录>/.env：
 #   - LAN_HOST_IP        ← 宿主机局域网 IP（局域网设备访问入口）
 #   - EASYBOT_ADMIN_PASSWORD / QQBOT_*  ← 改强口令 / 填 QQ 凭据
-./orzmc.sh -d /path/to/orzmc validate # 必需变量 + compose 解析校验
-./orzmc.sh -d /path/to/orzmc up       # 启动平台层
-./orzmc.sh -d /path/to/orzmc status   # 打印访问地址 + 容器状态
+./orzmc.sh -d <数据目录> validate # 必需变量 + compose 解析校验
+./orzmc.sh -d <数据目录> up       # 启动平台层
+./orzmc.sh -d <数据目录> status   # 打印访问地址 + 容器状态
 ```
 
 `-d` 必填（或用 `ORZMC_DATA_ROOT`）：**DATA_ROOT 没有默认路径**，理由与选择建议见 §4.1。
@@ -81,19 +89,19 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 核对发布端口：`docker compose ... --profile easybot config | grep published` 只应有 18090/18091
 （没有 24444——daemon 不发布）。
 
-### 3.3 建管理员、加节点、建实例
+### 3.2 建管理员、加节点、建实例
 
 1. 浏览器打开面板 → 首次访问创建管理员账号。
 2. 节点管理 → 添加节点：`ip = ws://mcsmanager-daemon`，`port = 24444`，key 见 §6.3。
 3. 创建实例（字段参考 [`docs/papermc-template.md`](papermc-template.md)），玩家用
    `<LAN_HOST_IP>:25565` 进服。
 
-### 3.4 对外访问（由你自备）
+### 3.3 对外访问（由你自备）
 
 | 方式 | 做法 | 注意 |
 |---|---|---|
-| DDNS + 端口映射 | 路由器把公网端口映射到 `<宿主IP>:18090` | ⚠️ 面板是 HTTP + 口令登录：**必须**在前面加 TLS 反代（Caddy/Nginx/域名证书），并换强口令 |
-| VPN（推荐） | Tailscale / WireGuard 组网，手机直接访问 `<宿主IP>:18090` | 无需开公网端口，链路加密，最省心 |
+| DDNS + 端口映射 | 路由器把公网端口映射到 `<LAN_HOST_IP>:18090` | ⚠️ 面板是 HTTP + 口令登录：**必须**在前面加 TLS 反代（Caddy/Nginx/域名证书），并换强口令 |
+| VPN（推荐） | Tailscale / WireGuard 组网，手机直接访问 `<LAN_HOST_IP>:18090` | 无需开公网端口，链路加密，最省心 |
 | 反向代理 | 任意带 TLS 的反代放在本机/旁路设备 | 注意 WebSocket 要放行（面板与终端都用 WS） |
 
 > **安全前提**：局域网明文 HTTP，仅限可信内网。`LAN_HOST_IP` 变化（DHCP 重新分配）需
@@ -102,7 +110,7 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 
 ---
 
-## 4 配置详解
+## 4. 配置
 
 ### 4.1 DATA_ROOT 与 .env
 
@@ -110,17 +118,16 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 "不知道数据到底在哪"。必须由你显式给出（二选一）：
 
 ```bash
-./orzmc.sh -d /你的/数据目录  <命令>       # 单次/脚本化调用
-export ORZMC_DATA_ROOT=/你的/数据目录      # 长期使用（同一台机器多次操作）
+./orzmc.sh -d <数据目录> <命令>       # 单次 / 脚本化调用
+export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多次操作）
 ```
 
 优先级：`-d/--data-root` > `ORZMC_DATA_ROOT`；**两者都没给时脚本直接报错**，不回落任何路径。
-后文命令示例为简洁可能省略 `-d`；实际执行时请带上（或先 `export ORZMC_DATA_ROOT=...`）。
 
 选择位置的要点（本项目不预设）：
 
 - **磁盘够大**：等于「平台层数据 + 所有 PaperMC 实例 + 备份」；世界存档增长很快。
-- **三平台路径写法**：Linux/macOS 用 POSIX 路径；Windows 用原生 `E:/...`（不要 MSYS 的 `/e/...`），
+- **三平台路径写法**：Linux/macOS 用 POSIX 路径；Windows 用原生 `<盘符>:/...`（不要 MSYS 的 `/e/...`），
   且该盘要加入 Docker Desktop 的文件共享白名单。
 - **备份在 `DATA_ROOT` 之外**：`backup.sh` 默认输出到其父目录的 `orzmc-backups/`，可 `-o` 改。
 - init 会把你给的路径写进 `.env` 的 `DATA_ROOT`，之后 `validate` 会校验两者一致
@@ -159,13 +166,7 @@ EasyBot 的可选适配器（Telegram / Discord / 飞书）与微信禁用见 [�
 在 `$DATA_ROOT/compose.site.yaml` 用站点增量加回，升级换包不丢（见
 [papermc-template.md](papermc-template.md) 的「插件数据库」一节）。
 
-### 4.2 运行模型：局域网模式（ADR-027）
-
-只有一个运行集：`compose.yaml` 把面板与 EasyBot 发布到宿主端口（纯 HTTP），核心
-web/daemon 常驻、easybot 由 `ENABLE_EASYBOT` 开关；没有边缘层服务（不跑 cloudflared/Caddy）。
-对外访问、TLS 都由站点自备（§3.4）。
-
-### 4.3 入口与端口约定
+### 4.2 入口与端口约定
 
 | 入口 | 地址 | 说明 |
 |---|---|---|
@@ -174,10 +175,10 @@ web/daemon 常驻、easybot 由 `ENABLE_EASYBOT` 开关；没有边缘层服务�
 | 插件 API | `http://easybot:8080` | 仅 `orzmc_default` 内网可达，不对外 |
 | PaperMC 实例 | `<LAN_HOST_IP>:<实例端口>` | 由 MCSManager 按实例配置发布（如 25565） |
 
-- 本项目**不使用域名、不配置 TLS**（ADR-027）。需要对外访问时自备反代/VPN，见 §3.4。
+- 本项目**不使用域名、不配置 TLS**（ADR-027）。需要对外访问时自备反代/VPN，见 §3.3。
 - 端口冲突时改 `.env` 的 `LAN_*_PORT` 后 `up` 重建即可。
 
-### 4.4 引导文件与模板
+### 4.3 init 生成的文件与模板
 
 `init` 会生成/补齐这些运行文件（**绝不覆盖已有文件**，`ensure_*` 系列）：
 
@@ -187,10 +188,10 @@ web/daemon 常驻、easybot 由 `ENABLE_EASYBOT` 开关；没有边缘层服务�
 | `$DATA_ROOT/compose.site.yaml` | 站点增量模板（`templates/compose.site.yaml`） |
 | `$DATA_ROOT/easybot/data/gateway.local.yaml` | EasyBot 本地覆盖（`templates/gateway.local.yaml`） |
 
-想用仓库新模板重建某个文件时：先备份/删除旧文件，再 `./orzmc.sh init`（`ensure_*`
-永不覆盖已有文件）。
+想用仓库新模板重建某个文件时：先备份/删除旧文件，再 `./orzmc.sh -d <数据目录> init`
+（`ensure_*` 永不覆盖已有文件）。
 
-### 4.5 站点增量 override：`compose.site.yaml`（升级不丢）
+### 4.4 站点增量 `compose.site.yaml`（升级不丢）
 
 `compose.yaml` 是**包内运行时文件**，升级换包（`git pull` 或重下
 Release tarball）会整体替换。站点特有增量（如飞书 `FEISHU_*`、额外环境变量、额外挂载）
@@ -217,17 +218,17 @@ services:
 
 ---
 
-## 5 日常运维
+## 5. 日常运维
 
 ### 5.1 启停与状态
 
 | 场景 | 命令 |
 |---|---|
-| 启动平台层 | `./orzmc.sh -d <DATA_ROOT> up` |
-| 停止 | `./orzmc.sh -d <DATA_ROOT> stop` |
-| 状态与访问地址 | `./orzmc.sh -d <DATA_ROOT> status` |
-| 校验配置 | `./orzmc.sh -d <DATA_ROOT> validate` |
-| 备份 | `./orzmc.sh -d <DATA_ROOT> backup [--stop]` |
+| 启动平台层 | `./orzmc.sh -d <数据目录> up` |
+| 停止 | `./orzmc.sh -d <数据目录> stop` |
+| 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
+| 校验配置 | `./orzmc.sh -d <数据目录> validate` |
+| 备份 | `./orzmc.sh -d <数据目录> backup [--stop]` |
 
 `stop` 内部就是 `compose down --remove-orphans`，`status` 打印访问地址后再跑 `compose ps`，
 `validate` 跑必需变量检查 + `compose config -q`。看服务日志：
@@ -236,8 +237,8 @@ services:
 ### 5.2 改配置
 
 1. 编辑 `$DATA_ROOT/.env`。
-2. `./orzmc.sh -d <DATA_ROOT> validate` 校验。
-3. 让改动生效：`./orzmc.sh -d <DATA_ROOT> up`（端口等字段变更会重建容器）。
+2. `./orzmc.sh -d <数据目录> validate` 校验。
+3. 让改动生效：`./orzmc.sh -d <数据目录> up`（端口等字段变更会重建容器）。
 
 ### 5.3 平台层升级与回滚
 
@@ -256,7 +257,7 @@ git add compose.yaml && git commit -m "chore: update docker image digests"
 git push
 
 # 3. 重新拉起（digest 变了必须重建容器，up -d 会识别并重建）
-./orzmc.sh stop && ./orzmc.sh up
+./orzmc.sh -d <数据目录> stop && ./orzmc.sh -d <数据目录> up
 ```
 
 **回滚**：`git revert <commit>` 后重新 `up`。升级/回滚**不触碰 `$DATA_ROOT`**，数据不变。
@@ -271,7 +272,7 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 **手动升级**。本质是**替换 `server/paper.jar` + 重启实例**（paperclip 结构：`paper.jar`
 是启动器，实际服务端 jar 在 `versions/<版本>/`，首次启动自动拉取）。
 
-1. **先备份**（跨版本必做）：面板停止实例 → `backup.sh -d <DATA_ROOT> --stop` →
+1. **先备份**（跨版本必做）：面板停止实例 → `backup.sh -d <数据目录> --stop` →
    校验归档含 `world/`。
 2. **确认 Java 要求**：Paper 26.2 → Java 25（`eclipse-temurin:25-jre`）；1.21.x → Java 21。
    同代小版本不用动镜像；跨代升 Java 要改 `InstanceConfig/<uuid>.json` 的 `docker.image`，
@@ -281,7 +282,7 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
    ```bash
    # 实例 cwd 由 MCSManager 面板管理，落 daemon/data/InstanceData/<uuid>/
-   SRV=$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<实例uuid>
+   SRV=$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>
    mv "$SRV/paper.jar" "$SRV/paper.jar.bak-$(date +%Y%m%d)"   # 备份旧启动器（回滚用）
    # 从 papermc.io/downloads 下载目标版本的 paperclip jar，命名为 paper.jar 放入 $SRV/
    ```
@@ -303,24 +304,24 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 ### 5.5 备份
 
 ```bash
-./backup.sh -d <DATA_ROOT> --stop      # 先停 compose 再打包再拉起（更一致）
-./backup.sh -d <DATA_ROOT>             # 在线打包（best-effort）
-./backup.sh -d <DATA_ROOT> --keep 7    # 只保留最近 7 份
-./backup.sh -d <DATA_ROOT> -o /mnt/backups   # 指定归档目录
+./backup.sh -d <数据目录> --stop      # 先停 compose 再打包再拉起（更一致）
+./backup.sh -d <数据目录>             # 在线打包（best-effort）
+./backup.sh -d <数据目录> --keep 7    # 只保留最近 7 份
+./backup.sh -d <数据目录> -o /mnt/backups   # 指定归档目录
 ```
 
-归档**整个 `$DATA_ROOT`**（`.env`、面板/EasyBot 数据、`InstanceData/`），默认落在
-`$(dirname $DATA_ROOT)/orzmc-backups`（避免自我包含），名为 `orzmc-backup-<时间戳>.tar.gz`。
-⚠️ PaperMC 实例不由 compose 管理，`--stop` 只保证平台层一致——要完全一致的快照请先
-在面板**停止实例**再备份。
-- 迁移基线建议：先面板停实例 → `backup.sh --stop` → 校验归档（`tar tzf`）确认含
-  `world/` 与各密钥文件。
+- 归档**整个 `$DATA_ROOT`**（`.env`、面板/EasyBot 数据、`InstanceData/`），默认落在
+  `$(dirname $DATA_ROOT)/orzmc-backups`（避免自我包含），名为 `orzmc-backup-<时间戳>.tar.gz`。
+- ⚠️ PaperMC 实例不由 compose 管理：`--stop` 只保证平台层一致，要完全一致的快照请先在
+  面板**停止实例**再备份。
+- 迁移前基线：面板停实例 → `./orzmc.sh -d <数据目录> backup --stop` → `tar tzf` 确认归档
+  含 `world/` 与各密钥文件。
 
 ### 5.6 还原
 
 ```bash
-./restore.sh -d <目标DATA_ROOT> <归档.tar.gz>       # 还原
-./restore.sh -d <目标DATA_ROOT> <归档.tar.gz> --force --start   # 覆盖非空目标并拉起
+./restore.sh -d <数据目录> <归档>       # 还原
+./restore.sh -d <数据目录> <归档> --force --start   # 覆盖非空目标并拉起
 ```
 
 - 目标目录非空时默认拒绝，`--force` 把旧目录移为 `.old-<时间>`（不删除）。
@@ -331,7 +332,7 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
 ---
 
-## 6 管理 PaperMC 实例
+## 6. PaperMC 实例
 
 PaperMC 实例**不是** `compose.yaml` 的常驻服务，而是在 MCSManager 面板里创建的
 **实例**，由 MCSManager Daemon 管理，生命周期与平台层解耦。好处：加第二个服不用改
@@ -369,8 +370,7 @@ MCSManager 需要把 **daemon** 作为"节点"接入 Web 端：
 原理：10.22 的「面板中转数据模式」（`SystemConfig.dataPlane=proxy`，**新装默认**）由面板
 代理下载/上传（浏览器只拿面板签发的短时 token），终端/控制台的 `POST /stream_channel`
 返回**面板自己的地址 + token**。所以节点地址只被面板服务端使用，浏览器无需解析 daemon。
-收益：daemon 端口不发布、局域网只有两个入口，三平台/终端行为一致（ADR-011/013/014/020
-那套「哪档填什么地址」的表已作废）。
+收益：daemon 端口不发布、局域网只有两个入口，三平台/终端行为一致（历史的多档地址表已作废，见 ADR-026）。
 
 **旧部署一次性动作**（新装跳过）：面板配置里没有 `dataPlane` 键时按 direct 处理，
 需要手工切换（面板退出会回写配置，必须停机改）：
@@ -381,7 +381,7 @@ docker stop orzmc-mcsmanager-web
 docker start orzmc-mcsmanager-web
 ```
 
-改完后把节点地址改成上表的值（或删掉节点重新添加）。`./orzmc.sh init` 会检测并提示
+改完后把节点地址改成上表的值（或删掉节点重新添加）。`./orzmc.sh -d <数据目录> init` 会检测并提示
 （`warn_legacy_data_plane`），不会自动改你的运行数据。
 
 daemon 全部业务路由仍要求 daemon key 鉴权，无 key 无权限——这是有意的安全边界；
@@ -459,7 +459,7 @@ docker start orzmc-mcsmanager-daemon
 
 ---
 
-## 7 EasyBot 接入
+## 7. EasyBot
 
 EasyBot 是统一 IM 网关：QQ 走 **QQ 开放平台**官方 bot 凭据（`.env` 的
 `QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET`），不是个人账号扫码登录。
@@ -503,7 +503,7 @@ platforms:
 ### 7.4 可选适配器与微信
 
 - 变量值写 `$DATA_ROOT/.env`，再在 `$DATA_ROOT/compose.site.yaml` 的 `easybot.environment`
-  引用（**不要改包内 `compose.yaml`**，升级换包会丢，见 §4.5）：`TELEGRAM_BOT_TOKEN`、
+  引用（**不要改包内 `compose.yaml`**，升级换包会丢，见 §4.4）：`TELEGRAM_BOT_TOKEN`、
   `DISCORD_BOT_TOKEN`、`FEISHU_APP_ID` + `FEISHU_APP_SECRET`。启用即加一行，勿注入空串。
 - 微信为扫码登录、无凭据即**自动启用**（会空转刷码）。不需要时 `init` 已生成的
   `$DATA_ROOT/easybot/data/gateway.local.yaml` 里已显式关闭；要接入微信就删掉该文件：
@@ -524,7 +524,7 @@ platforms:
 
 ---
 
-## 8 安全基线
+## 8. 安全基线
 
 | 对象 | 位置 | 处理 |
 |---|---|---|
@@ -533,7 +533,7 @@ platforms:
 | EasyBot API key / 会话 key | 插件 `easybot.yml` | 密钥，不入库 |
 
 - **暴露面只有 2 个 HTTP 端口**（面板 / EasyBot，均有口令登录），daemon 端口不发布；
-  明文 HTTP **仅限可信局域网**。对外访问必须自备 TLS 反代或 VPN（§3.4）。
+  明文 HTTP **仅限可信局域网**。对外访问必须自备 TLS 反代或 VPN（§3.3）。
 - **默认限源三层**（ADR-028）：`LAN_BIND_ADDR`（绑定地址）+ `LAN_CIDR`（防火墙来源）+
   daemon 不发布。落地 `./orzmc.sh firewall apply`，自检 `./orzmc.sh firewall show`。
   设计、三档配置与常见误配见 [security.md](security.md)。
@@ -542,14 +542,14 @@ platforms:
 
 ---
 
-## 9 故障排查
+## 9. 故障排查
 
-> 通用诊断顺序：`./orzmc.sh -d <DATA_ROOT> status`（看服务状态）→ `validate`（看配置）
+> 通用诊断顺序：`./orzmc.sh -d <数据目录> status`（看服务状态）→ `validate`（看配置）
 > → `docker logs orzmc-<服务名>`（看日志）。
 
 | 症状 | 原因 | 解决 |
 |---|---|---|
-| 面板/后台打不开 | 服务没起 / 端口未发布 / 防火墙拦截 / 用错了 IP | `./orzmc.sh status` 看服务；`docker ps` 核对宿主端口；确认访问的是 `LAN_HOST_IP` 而非 `localhost`（手机/别的机器）；检查 Windows 防火墙入站规则 |
+| 面板/后台打不开 | 服务没起 / 端口未发布 / 防火墙拦截 / 用错了 IP | `./orzmc.sh -d <数据目录> status` 看服务；`docker ps` 核对宿主端口；确认访问的是 `LAN_HOST_IP` 而非 `localhost`（手机/别的机器）；检查 Windows 防火墙入站规则 |
 | 实例日志每行首字符乱码 | `terminalOption.pty: false` | 按[第 6.4 节](#64-创建实例)开启 pty 后重启 |
 | 插件发消息 403 | key 缺 `messagessend` 权限，或会话未授权 | 按 [§7.3](#73-验证与-403-排查) 两层检查 |
 | EasyBot 报 `SQLITE_CORRUPT`（code 11） | 用外部 `sqlite3` CLI 读了运行中的 `gateway.db`（WAL 并发） | **勿用外部 sqlite3 读活跃库**；停网关正常关库 checkpoint 后可无损恢复；日常查询走后台/API |
@@ -557,37 +557,36 @@ platforms:
 | 玩家进不去 `25565` | 实例未启动 / 端口映射错 / `online-mode` 阻挡 | 面板启动实例；核对 `docker.ports`；离线服把 `server.properties` 的 `online-mode` 设 `false` |
 | 改了实例 JSON 又回退 | 实例运行中直接改被内存副本覆盖；先改后 `docker restart` 也会被退出刷盘覆盖 | 按[第 6.5 节](#65-生命周期与配置持久化)正确顺序：**停 daemon → 改 → 启 daemon** |
 
-
 ---
 
-## 10 迁移到新主机
+## 10. 迁移到新主机
 
 整服迁移 = **运行时**（仓库）与**数据**（`$DATA_ROOT`）分开搬：新机装好运行时后，
 `restore.sh` 还原数据目录即可。
 
-### 分步流程
+### 10.1 分步流程
 
 ```bash
 # 源机：
 # 1. 先在 MCSManager 面板停止所有 PaperMC 实例（保证世界一致快照）
 # 2. 备份（含数据目录与密钥）
-./backup.sh -d <DATA_ROOT> --stop
+./backup.sh -d <数据目录> --stop
 # 3. 拷贝归档到新机（scp / U 盘 / 对象存储均可）
 
 # 新机：
 # 4. 装好 docker + git，克隆本仓库（运行时）
 git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 # 5. 还原到目标目录（覆盖非空目标用 --force，想还原后直接拉起加 --start）
-./restore.sh -d <新DATA_ROOT> <归档.tar.gz> --force --start
-# 6. 校验：validate → 三个入口可达 → 面板启动实例
+./restore.sh -d <数据目录> <归档> --force --start
+# 6. 校验：validate → 面板与 EasyBot 可访问 → 面板内启动实例
 ```
 
-### 差异清单（迁移注意）
+### 10.2 差异清单（迁移注意）
 
 | 项 | 说明 |
 |---|---|
 | **建议同路径** | 实例 `InstanceConfig/*.json` 的 `cwd` 是**绝对路径**，`restore.sh` 只改写 `.env` 的 `DATA_ROOT`，不改写 `cwd`。**新机建议用与源机相同的 `DATA_ROOT` 路径**，否则需手动改实例 `cwd` |
-| macOS → Linux | 实例目录属主改为 `chown -R 1000:1000 <mcsmanager/daemon/data/InstanceData>`（Linux 容器内 uid 写盘）；反之 Linux → macOS 改为宿主用户属主（ADR-006） |
+| macOS → Linux | 实例目录属主改为 `chown -R 1000:1000 $DATA_ROOT/mcsmanager/daemon/data/InstanceData`（Linux 容器内 uid 写盘）；反之 Linux → macOS 改为宿主用户属主（ADR-006） |
 | 实例自启 | `eventTask.autoStart` 默认 `false`，还原后需在面板手动启动实例 |
 | 实例镜像 | `eclipse-temurin:25-jre` 等实例镜像是 **tag 不是 digest**，新机需 `docker pull` |
 | 平台层镜像 | `compose.yaml` 已 digest 锁定，还原后 `up` 自动拉取 |
@@ -600,18 +599,18 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 
 | 场景 | 命令 |
 |---|---|
-| 初始化目录/env | `./orzmc.sh -d <DATA_ROOT> init` |
-| 启动平台层 | `./orzmc.sh -d <DATA_ROOT> up` |
-| 停止 | `./orzmc.sh -d <DATA_ROOT> stop` |
-| 状态与访问地址 | `./orzmc.sh -d <DATA_ROOT> status` |
-| 校验配置 | `./orzmc.sh -d <DATA_ROOT> validate` |
-| 备份数据 | `./orzmc.sh -d <DATA_ROOT> backup [--stop] [--keep N]` |
-| 还原/迁移 | `./restore.sh -d <目标> <归档> [--force]` |
-| 打印 DATA_ROOT | `./orzmc.sh -d <DATA_ROOT> print-root` |
+| 初始化目录/env | `./orzmc.sh -d <数据目录> init` |
+| 启动平台层 | `./orzmc.sh -d <数据目录> up` |
+| 停止 | `./orzmc.sh -d <数据目录> stop` |
+| 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
+| 校验配置 | `./orzmc.sh -d <数据目录> validate` |
+| 备份数据 | `./orzmc.sh -d <数据目录> backup [--stop] [--keep N]` |
+| 还原/迁移 | `./restore.sh -d <数据目录> <归档> [--force]` |
+| 打印 DATA_ROOT | `./orzmc.sh -d <数据目录> print-root` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
-| 防火墙收敛 | `./orzmc.sh -d <DATA_ROOT> firewall show` / `apply` |
+| 防火墙收敛 | `./orzmc.sh -d <数据目录> firewall show` / `apply` |
 
-- `<DATA_ROOT>` **无默认值**，必须用 `-d` 或 `ORZMC_DATA_ROOT` 指定（见 [§4.1](#41-data_root-与-env)）。
+- `<数据目录>` **无默认值**，必须用 `-d` 或 `ORZMC_DATA_ROOT` 指定（见 [§4.1](#41-data_root-与-env)）。
 - 非 Windows 平台的 `firewall apply` 需 root/管理员（Linux 走 `ufw`，macOS 只打印 `pf` 规则）。
 
 ## 附录 B 端口约定
@@ -687,7 +686,7 @@ PaperMC 实例本身。下表按**同时在线**（不是注册数）：
 
 | 项 | 要求 |
 |---|---|
-| 路径 | `DATA_ROOT` 用 Windows 原生路径（如 `E:/<你的目录>`），不要用 MSYS 的 `/e/...`；且该盘须在 Docker Desktop 文件共享白名单内 |
+| 路径 | `DATA_ROOT` 用 Windows 原生路径（`<盘符>:/<目录>`），不要用 MSYS 的 `/e/...`；且该盘须在 Docker Desktop 文件共享白名单内 |
 | 执行位置 | **在 Windows 侧（Git Bash）执行 `up`**。WSL 侧 compose 建不了 `E:/...` 绑定，报 `invalid volume specification`（短语法盘符冒号） |
 | daemon | `DAEMON_PORTS` 为空（docker 型实例）时由 compose 创建；仅**进程模式实例**需注入 `-p` 时才走脚本的 `docker run`（ADR-029）。切换后 `stop && up` 重建 |
 | 防火墙 | 用 `./orzmc.sh firewall apply`（弹 UAC），**不要手写规则、不要 `-RemoteAddress Any`** |

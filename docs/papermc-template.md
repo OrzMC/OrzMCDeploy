@@ -1,14 +1,15 @@
-# PaperMC 实例模板建议
+# PaperMC 实例字段参考
 
-本文档是在 `MCSManager` 面板创建 `PaperMC` Docker 实例时的逐项字段参考（唯一来源；
-这些字段属**运行数据**，由面板写入 `InstanceConfig/<uuid>.json`，不在仓库配置里）。
+> **定位**：在 MCSManager 面板创建 PaperMC Docker 实例时逐项照抄的字段表（唯一来源）。
+> **读者**：正在建实例的服主。这些字段属**运行数据**，由面板写入
+> `InstanceConfig/<uuid>.json`，不在仓库配置里；操作流程见 [usage §6](usage.md#6-papermc-实例)。
 
-## 建议的实例拆分（示例命名/端口，可自定）
+## 1. 实例拆分（示例命名/端口，可自定）
 
 - 测试服（如 `papermc-test`）：功能验证 / 插件测试 / 临时活动服，错开正式服端口
 - 正式服（如 `papermc-main`）：对玩家的生存服
 
-## 必填字段
+## 2. 必填字段
 
 | 字段 | 测试服示例 | 正式服示例 | 说明 |
 |---|---|---|---|
@@ -16,7 +17,7 @@
 | 显示名 | `OrzMC Test` | `OrzMC Main` | 面板显示名称 |
 | 镜像名 | `eclipse-temurin:25-jre` | `eclipse-temurin:25-jre` | 按 Paper 版本选 Java（Paper 26.2→Java 25；1.21.x→`eclipse-temurin:21-jre`） |
 | 服务端口 | `25566` | `25565` | 测试服避开正式服默认端口 |
-| 端口映射 | `25566:25566/tcp`（启用 Geyser 再加 `19133:19133/udp`） | `25565:25565/tcp`（启用 Geyser 再加 `19132:19132/udp`） | `宿主:容器/协议`，一个对外端口一条；启用 Geyser 必须**显式发布 UDP**，仅写 TCP 时基岩通道在容器外不可达（见「端口映射与多实例分配」） |
+| 端口映射 | `25566:25566/tcp`（启用 Geyser 再加 `19133:19133/udp`） | `25565:25565/tcp`（启用 Geyser 再加 `19132:19132/udp`） | `宿主:容器/协议`，一个对外端口一条；启用 Geyser 必须**显式发布 UDP**，仅写 TCP 时基岩通道在容器外不可达（见 §7） |
 | 服务目录 | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | `$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>` | 面板实例 cwd（持久化世界、插件、配置）；`$DATA_ROOT` 由你部署时指定（无默认值，见 usage §4.1） |
 | 挂载定义 | `.../InstanceData/<uuid>:/server` | `.../InstanceData/<uuid>:/server` | 核心数据挂载（`<uuid>` 由面板生成） |
 | Java 版本 | `25` | `25` | 根据目标 Paper 版本选择（同上一行） |
@@ -30,7 +31,7 @@
 | MOTD | `OrzMC Test Server` | `OrzMC Survival Server` | 列表描述 |
 | 最大玩家数 | `10` | `20` | 按定位调整 |
 
-## 建议固定字段
+## 3. 建议固定字段
 
 | 字段 | 推荐值 | 说明 |
 |---|---|---|
@@ -49,7 +50,7 @@
 | Ready 关键字 | `Done` | 用于判断启动完成 |
 | 更新策略 | `manual` | 服务端和插件升级建议手动确认 |
 
-## 已验证的最小可运行组合
+## 4. 已验证的最小可运行组合
 
 macOS + Docker Desktop + MCSManager Docker 实例实测：
 
@@ -60,13 +61,13 @@ macOS + Docker Desktop + MCSManager Docker 实例实测：
 - 宿主机预置：`paper.jar`、`eula.txt`（`eula=true`）、`server.properties`；
   离线进服把 `online-mode` 设 `false`
 
-## Docker 模式注意事项
+## 5. Docker 模式注意事项
 
 - 如果 `cwd` 已经指向宿主机服务目录，且容器工作目录设为 `/server`，MCSManager 会自动把工作目录挂到容器内。
 - 不要再把同一个宿主机目录通过 `extraVolumes` 重复挂载到 `/server`，否则会报错：`Duplicate mount point: /server`。
 - 如果要额外挂载备份目录或导入目录，请确保容器目标路径与工作目录挂载目标不同，例如 `/backups`、`/import`。
 
-## Docker 实例字段格式（实测踩坑）
+## 6. Docker 实例字段格式（实测踩坑）
 
 - **端口映射必须是字符串数组**：`"ports": ["25565:25565/tcp", "19132:19132/udp"]`
   （`宿主:容器/协议`）；对象数组会报 `此容器的开放端口配置有误！`。
@@ -81,7 +82,7 @@ macOS + Docker Desktop + MCSManager Docker 实例实测：
 - **网络挂 `orzmc_default`**：插件才能内网直连 `http://easybot:8080`。
 - 同目录 `extraVolumes` 不要再挂 `/server`（`Duplicate mount point`）；额外目录用 `/backups` 等。
 
-## 端口映射与多实例分配（Geyser/基岩必读）
+## 7. 端口映射与多实例分配（Geyser/基岩必读）
 
 > 现象锚点（issue #15）：容器内 Geyser 正常监听、日志 `Started Geyser on UDP port 19132`，
 > 但宿主机/局域网探测返回 `WinError 10054`（ICMP 端口不可达）——**docker 型实例的容器端口
@@ -136,14 +137,14 @@ macOS + Docker Desktop + MCSManager Docker 实例实测：
   仅在无法使用面板 / 无 admin key 时采用；常规仍推荐 [usage.md §6.5](usage.md#65-生命周期与配置持久化)
   的停机改写姿势（语义清晰、可审计）。
 
-## 选填字段（按玩法/资源调整）
+## 8. 选填字段（按玩法/资源调整）
 
 RCON 开关 `false`（端口 `25575` 正式 / `25576` 测试）· 备份目录 `.../backups` 与计划
 `0 5 * * *` / `0 6 * * *` · 导入目录 `.../import` · CPU 限额 `4`（测试 2）· 难度 `normal` ·
 模式 `survival` · 视距 `10`（测试 8）· 模拟距离 `8`（测试 6）· PvP `true` · 白名单 `false` ·
 出生点保护 `16` · 自动备份 `true`。
 
-## 插件数据库（默认用本地存储）
+## 9. 插件数据库（默认用本地存储）
 
 平台层不内置 MariaDB（ADR-025）：LuckPerms 用 h2，AuthMe / EzShops / GriefPrevention 等默认落
 本地文件，插件数据随实例目录被 `backup.sh` 整包带走，零额外组件。
