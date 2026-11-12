@@ -163,6 +163,14 @@ required server teleport*——服务端要求传送、Bedrock/Geyser 没确认�
 处置：给基岩玩家免掉该检查（它支持 bypass 权限 `grim.badpackets.invalid_teleport`）：
 `lp creategroup bedrock` → `lp group bedrock permission set grim.badpackets.invalid_teleport true`
 → `lp user <名字> parent add bedrock`（顺带给该组加 `[基岩]` 前缀便于识别）。
+**紧接着还会撞上 `Simulation`（移动预测）**：Bedrock 的移动语义与 Java 不同，GrimAC 的
+`Simulation/GroundSpoof/Timer/NoFall` 组会在十几秒内累计到 100 → 踢（提示「检测到移动作弊」）。
+根因是**架构性的**：Geyser 装在代理上，Paper 侧的 GrimAC 拿不到 Geyser/Floodgate 的"这是基岩玩家"
+信号（GrimAC 内置了 Geyser/Floodgate 识别，但需要插件在**后端**可见）。三条路：
+① 测试服：把该组踢人也注释掉（只留 log/alert）——最快；
+② 正式服推荐：装 **Floodgate**（代理 + 后端），GrimAC 即可识别基岩玩家并按其 Bedrock 逻辑处理，
+   顺带获得基岩专属前缀/皮肤；
+③ 给基岩玩家加检查 bypass 权限（`grim.prediction.simulation` 等），仅作兜底。
 
 **LoginSecurity 是共用名字空间的唯一门槛，必须单独跑完（缺一不可）**：
 
