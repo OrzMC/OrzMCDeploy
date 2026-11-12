@@ -157,6 +157,10 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | 可选 | 实例进服端口的防火墙放行清单（仅 `firewall` 使用） |
 | `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP` | 可选 | **对公网开放**的游戏端口（缺省空 = 全限源；见 §8 与 [security.md](security.md) §4） |
 | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | 可选 | daemon 容器/堆上限（缺省 512M / 384） |
+| `EAGLER_MODE` | 可选 | Eaglercraft Web 开关：`off`（缺省，零影响）/ `direct`（实例直挂 EaglerXPaper）/ `proxy`（Velocity 代理，支持 Folia）。见 [eaglercraft-deploy.md](eaglercraft-deploy.md) |
+| `EAGLER_JAVA_PORT` / `EAGLER_BACKEND_PORT` / `EAGLER_WS_PORT` | 可选 | 缺省 `25565` / `25566` / `18444`；只有 `proxy` 用到后端端口 |
+| `EAGLER_PUBLIC_HOST` | 可选 | 只影响提示文案（如 `dev.jokerhub.cn`）；留空打印占位符，域名可随时换 |
+| `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | 可选 | 代理容器/堆上限（缺省 1024M / 768） |
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
 | `COMPOSE_FILE_EXTRA` | 可选 | 追加任意路径 compose 文件（空格/逗号分隔） |
@@ -631,6 +635,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | `19134` / `19135` | 基岩 NetherNet 媒体（WebRTC） | UDP；同上 |
 | `24454` | Simple Voice Chat（可选） | UDP；先在实例端口映射里加 `24454:24454/udp` |
 | `25575` / `25576` | RCON（可选） | 仅局域网，**永不公网** |
+| `18444` | Eaglercraft WSS（可选，`EAGLER_MODE≠off`） | 站点自备 TLS 反代端口（Caddy `8443`）；公网需路由器转发 + 站点 TLS 防火墙规则，**不要**写进 `MC_PUBLIC_TCP` |
 
 > 除上面两个 `LAN_*_PORT` 源站端口外，其余端口都不发布到宿主（仅容器网络内可达）。
 > PaperMC 实例端口由 MCSManager 按实例配置发布，供局域网玩家直连。
@@ -647,8 +652,13 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 │       ├── data/Config/global.json    # daemon key（密钥）
 │       ├── data/InstanceData/<uuid>/  # 面板创建的实例数据（cwd，含 world/plugins/...）
 │       └── logs/
-└── easybot/
-    └── data/                      # gateway.db 等网关数据
+├── easybot/
+│   └── data/                      # gateway.db 等网关数据
+└── eagler/                        # EAGLER_MODE≠off 才有（ADR-035）
+    ├── proxy/                     # proxy 模式：velocity.jar + plugins/ + velocity.toml
+    ├── jars/                      # direct 模式：EaglerXPaper-<版本>.jar
+    ├── instance-setup.md          # 实例侧待办（每次 up 刷新，含转发密钥）
+    └── caddy-eagler.snippet       # 站点反代片段（TLS 归站点自备）
 ```
 
 > ADR-025/027 之前的旧部署可能还留有 `database/`、`status/`、`caddy/`、`cloudflared/`，

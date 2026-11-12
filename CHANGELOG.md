@@ -13,6 +13,35 @@
 
 ## [Unreleased]
 
+### 新功能
+
+- **Eaglercraft Web 接入做成可选单开关**（ADR-035）：`.env` 新增 `EAGLER_MODE=off|direct|proxy`
+  （缺省 `off`，对现有部署零影响）。
+  - `direct`：实例直挂 EaglerXPaper，同端口兼任 WSS，Java 连接方式不变（不支持 Folia）；
+  - `proxy`：compose 追加 `eagler` profile（Velocity 4.3.1 + EaglerXServer 1.1.1，镜像 digest
+    锁定）接管玩家端口，支持 Folia / 多后端 / 代理层改写用户名与 UUID。
+  - 版本锁 `templates/eagler/versions.env`（版本 + sha256），`up` 时校验后下载到
+    `$DATA_ROOT/eagler/`；生成 `velocity.toml` / `forwarding.secret`（600）/
+    `instance-setup.md`（实例侧待办）/ `caddy-eagler.snippet`（站点反代片段）。
+  - 首启后自动修正 EaglerXServer 的 `forward_ip`（缺 `X-Real-IP` 即拒，等于只允许反代入口）
+    与 WebSocket 帧长；`validate` 拦端口冲突与非法模式；`firewall` 把 proxy 玩家端口并入
+    `MC-TCP` 口径（不新增规则名/变量）。
+  - 实测：真 26.3 浏览器客户端经 TLS 反代进服、Folia 26.3 后端进服、`EAGLER_MODE` 三态
+    渲染与回退均通过；`tests/windows_ci.sh` 49 → 69 项。
+  - 身份策略：**Web 与 Java 共用名字空间**（同名 = 同 UUID = 同账号），不引入改名插件；
+    门槛是 LoginSecurity 口令，上线前须关闭开放注册 + 开启白名单（ADR-035 第 6 条）。
+
+### 文档
+
+- **Eaglercraft Web 接入调研（未实施）**：新增 `docs/eaglercraft.md`
+  （26.3 客户端实测协议证据 = MC 777 / 握手 v5、四种方案对比、推荐方案 B = Velocity +
+  EaglerXServer、兼容矩阵、身份与安全口径）与 `docs/eaglercraft-deploy.md`
+  （站点增量实施步骤、Caddy WSS 片段、T1–T12 验收表、回滚）。
+  实测记录：EaglerXPaper 1.1.1-S2 在 Paper 26.3 build 249 上加载并进服；
+  Velocity 4.3.1 + EaglerXServer 1.1.1 经 MODERN 转发进 Paper 26.3 与 Folia 26.3 均成功。
+- 新增手工工具 `tests/eaglercraft_probe.py`（握手协商 / 登录放行 / 抓客户端首帧），
+  不进 CI；`AGENTS.md` 本地门禁补一条 `py_compile` 语法检查。
+
 ## [0.1.2] - 2026-10-29
 
 ### 修复

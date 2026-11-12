@@ -161,6 +161,19 @@ respond @devdocs "404 page not found" 404
 验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer；证书由 Caddy 按
 ARI 自动续期。
 
+### 4.5 Eaglercraft 的 WSS 入口（可选，ADR-035）
+
+浏览器客户端**只认 `wss://`**，所以它必须经反代终结 TLS，属于本节「站点自备 TLS 端口」的
+第一类例外（不是游戏端口）：
+
+| 项 | 口径 |
+|---|---|
+| 端口 | 站点自建规则放行（如现有 `OrzMC-Web-TLS` 增加 `<EAGLER_WS_PORT>`，缺省 18444），**不要**塞进 `MC_PUBLIC_TCP` |
+| 证书 | 通配证书（如 `*.jokerhub.cn`），换子域名不用改配置；家宽 80/443 被封时仍走 DNS-01 |
+| 头 | 反代必须写 `X-Real-IP`（EaglerXServer 的 `forward_ip=true` 会**拒绝**没有该头的 WS 连接，这是有意的：只允许反代一条入口） |
+| 路径 | 整站透传（`flush_interval -1`），不要做路径级拦截；客户端路径恒为 `/`，所以**不能同域名同端口**靠路径区分面板与游戏 |
+| 直连 | 代理端口仍接受 Java 原生 TCP（双栈）；Web 玩家绕过反代直连 `ws://` 会被拒，属预期 |
+
 ## 5. 自检
 
 ```bash

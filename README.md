@@ -67,6 +67,8 @@ vi <数据目录>/.env                # 改 LAN_HOST_IP、EASYBOT_ADMIN_PASSWORD
 | [`docs/usage.md`](docs/usage.md) | **使用手册**：安装、配置、运维、实例、EasyBot、排障、迁移、Windows 要点 |
 | [`docs/security.md`](docs/security.md) | 暴露面与访问控制：三层限源、对外暴露方案、TLS 反代配方 |
 | [`docs/papermc-template.md`](docs/papermc-template.md) | 面板录入 PaperMC 实例的字段参考 |
+| [`docs/eaglercraft.md`](docs/eaglercraft.md) | Eaglercraft Web（浏览器）接入调研：26.3 协议证据、方案对比、推荐架构、兼容矩阵 |
+| [`docs/eaglercraft-deploy.md`](docs/eaglercraft-deploy.md) | 上面的实施方案：代理 + 反代 + 实例插件、验收表、回滚 |
 | [`docs/architecture.md`](docs/architecture.md) | 架构与设计决策（ADR-001 … ADR-033） |
 | [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) | 智能体与协作者守则（改仓库前必读） |
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |

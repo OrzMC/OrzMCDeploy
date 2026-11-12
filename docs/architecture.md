@@ -544,6 +544,49 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
 - 文档：`docs/security.md` §4、`docs/usage.md` §4.1/§8/附录 B、`AGENTS.md` 安全约束。
 - **回退**：清空两个变量并 `firewall apply`，或 `git revert` 本 ADR 对应提交。
 
+### ADR-035：Eaglercraft Web 接入做成可选（单开关 `EAGLER_MODE`）（2026-11-12）
+
+**背景**：站点要引入第三种客户端（浏览器 / Eaglercraft 26.3），但绝大多数站点不需要它。
+调研（`docs/eaglercraft.md`）实测结论：26.3 客户端 = 真 MC 26.3（协议 777）+ Eaglercraft
+握手 v5；桥接层（EaglerXServer / EaglerXPaper）**不支持在线模式后端**，Eagler 玩家一律是
+名字派生的离线 UUID；Bukkit 平台**不能**改写 UUID，只有 Velocity/BungeeCord 能。
+
+**决策**：
+
+1. `.env` 只加**一个开关** `EAGLER_MODE=off|direct|proxy`（缺省 `off` = 零影响）。
+   - `direct`：实例直挂 EaglerXPaper，同端口兼任 WSS；Java 连接方式不变；**不支持 Folia**。
+   - `proxy`：compose 追加 `eagler` profile（Velocity 4.3.1 + EaglerXServer 1.1.1，
+     镜像 digest 锁定）接管玩家端口；后端仍是面板管理的实例（`EAGLER_BACKEND_PORT`）；
+     支持 Folia、多后端，并可在代理层改写用户名/UUID。
+2. 其余值都有缺省（`EAGLER_JAVA_PORT=25565` / `EAGLER_BACKEND_PORT=25566` /
+   `EAGLER_WS_PORT=18444`）；`EAGLER_PUBLIC_HOST` 仅影响提示文案，**域名不进入任何配置**。
+3. 运行时（jar / 配置 / 密钥）落 `$DATA_ROOT/eagler/`，版本锁在
+   `templates/eagler/versions.env`（版本 + sha256，`up` 时校验后下载）；配置与密钥
+   `ensure_*` 语义（绝不覆盖），只有生成说明会刷新。
+4. **TLS 反代归站点**（沿用 ADR-027）：仓库只生成 `caddy-eagler.snippet`（通配证书 +
+   `flush_interval -1` + `X-Real-IP`）与 `instance-setup.md`（实例侧待办），不起 Caddy。
+5. 实例侧的两步（端口映射、`proxies.velocity.secret`）**不由仓库自动改**：实例归面板管理。
+   `instance-setup.md` 给出可直接粘贴的片段，避免"仓库偷偷改实例"。
+6. **身份策略：Web 与 Java 共用名字空间**（同名 = 同 UUID = 同账号）。因此不引入改名/
+   前缀插件；门是**白名单 + LoginSecurity 口令**（该插件 `/lac` 无建号命令，故不关闭
+   开放注册，改用「加名单即须立即首登注册」收敛抢注窗口，`/lac rmpass` 兜底）。
+   代价：无法给 Web 端单独 LuckPerms 权限组。详见 `docs/eaglercraft-deploy.md` §6/§7.1。
+
+**影响**：
+
+- 拓扑：`proxy` 模式下多一个可选服务，玩家 Java 入口从"实例直连"变为"代理接管"；
+  实例端口必须让出（`validate` 拦 `EAGLER_JAVA_PORT == EAGLER_BACKEND_PORT`）。
+- 安全：整链必须 `online-mode=false`（桥接层限制）；WS 入口要求反代注入 `X-Real-IP`
+  （`forward_ip=true` 时缺头即拒，等于只允许反代一条入口）。
+- 代码：`lib/eagler.sh`（新）、`lib/common.sh`（开关/派生/校验/提示）、`compose.yaml`
+  （`eagler-proxy` 服务 + profile）、`lib/firewall.sh`（proxy 玩家端口并入 `MC-TCP`）、
+  `deploy.sh`（init/up/validate 挂钩）、`templates/eagler/*`。
+- CI：`tests/windows_ci.sh` 新增开关/派生/端口冲突/firewall 并入断言（69 项）。
+- 文档：`docs/eaglercraft.md`、`docs/eaglercraft-deploy.md`、`docs/security.md` §4.5、
+  `docs/usage.md` §4/附录 B/C、`AGENTS.md`、`README.md`。
+- **回退**：`EAGLER_MODE=off` → `up`（代理不再创建）→ 实例端口与 `paper-global.yml`
+  按 `docs/eaglercraft-deploy.md` §9 还原；或 `git revert` 本 ADR 对应提交。
+
 ### 已归档 ADR 索引（正文见 git 历史）
 
 下列决策已废止或被取代，仅留索引避免后来者重复踩坑：
