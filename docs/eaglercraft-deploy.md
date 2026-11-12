@@ -158,6 +158,11 @@ Simple Voice Chat（**Java 端**正常，Web 端预期不可用）、
 `BadPackets`/`PacketOrder` 误判**，`punishments.yml` 里 30 次就踢（提示「检测到数据包滥用」）。
 测试服做法：把该组的 kick 行注释掉、保留 `[log]`/`[alert]`，`/grim reload`；要严格时再放开。
 被踢后立刻重连还会撞上代理的连接节流（`You must wait N seconds before logging-in again`），等十几秒即可。
+**「能登录但完全不能移动」**（实测）：GrimAC 的 `BadPacketsN` = *Ignored or failed to accept a
+required server teleport*——服务端要求传送、Bedrock/Geyser 没确认，GrimAC 会把人按住。
+处置：给基岩玩家免掉该检查（它支持 bypass 权限 `grim.badpackets.invalid_teleport`）：
+`lp creategroup bedrock` → `lp group bedrock permission set grim.badpackets.invalid_teleport true`
+→ `lp user <名字> parent add bedrock`（顺带给该组加 `[基岩]` 前缀便于识别）。
 
 **LoginSecurity 是共用名字空间的唯一门槛，必须单独跑完（缺一不可）**：
 
