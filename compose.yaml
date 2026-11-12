@@ -63,6 +63,37 @@ services:
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
       - /var/run/docker.sock:/var/run/docker.sock
 
+  eagler-proxy:
+    # 可选服务（EAGLER_MODE=proxy 时由 compose_cmd 追加 --profile eagler，ADR-035）：
+    # Velocity + EaglerXServer 接管玩家 Java 端口（EAGLER_JAVA_PORT），
+    # 后端是面板管理的实例（发布到宿主 EAGLER_BACKEND_PORT）。
+    # 运行时（jar/配置/密钥）落 $DATA_ROOT/eagler/proxy，随数据备份。
+    profiles: ["eagler"]
+    deploy:
+      resources:
+        limits:
+          memory: "${EAGLER_PROXY_MEMORY_LIMIT:-1024M}"
+    image: eclipse-temurin:25-jre@sha256:f9e65324a37f28209ce7dd0e5149a7aa954520ed936fb87813cf6ded2400a112
+    container_name: orzmc-eagler-proxy
+    restart: unless-stopped
+    stdin_open: true          # 允许 docker attach 进控制台
+    environment:
+      TZ: "${TZ}"
+    command:
+      - java
+      - -Xms256M
+      - -Xmx${EAGLER_PROXY_HEAP_MB:-768}m
+      - -jar
+      - /srv/velocity.jar
+    ports:
+      # 玩家 Java 入口（与 EAGLER_BACKEND_PORT 必须不同，validate 会拦）
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_JAVA_PORT:-25565}:25565"
+    extra_hosts:
+      # 后端实例发布在宿主，容器内经 host.docker.internal 访问（Linux 需要这条）
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - "${DATA_ROOT}/eagler/proxy:/srv"
+
   easybot:
     # 可选服务：ENABLE_EASYBOT=true 时由 compose_cmd 追加 --profile easybot。
     # 上限刻意保持紧（ADR-024）：放大只会让未来的内存回归更晚暴露。

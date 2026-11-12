@@ -2,3 +2,6 @@
 .env
 .local-data/
 .local-backups/
+
+# Python 缓存（tests/eaglercraft_probe.py 手工工具）
+__pycache__/

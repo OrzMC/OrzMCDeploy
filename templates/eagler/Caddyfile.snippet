@@ -1,0 +1,23 @@
+# ===========================================================================
+# Eaglercraft 的 WSS 入口（**站点自备**，不在包内 compose 里；ADR-027/ADR-035）
+#
+# 用法：
+#   1) 给站点 Caddyfile 追加下面这段（把 __EAGLER_CERT_DOMAIN__ 换成你的通配域名）；
+#   2) 给 caddy 服务的 ports 增加一行： "<EAGLER_WS_PORT>:8443"
+#   3) 路由器把 EAGLER_WS_PORT/TCP 转发到宿主；防火墙放行（按站点自建 TLS 规则，见
+#      docs/security.md §4，**不要**写进 MC_PUBLIC_TCP）。
+#
+# 用通配证书的好处：换子域名（dev./play./…）不用改这里；换顶级域只改一行域名。
+# 反代必须整站透传（flush_interval -1 保证 WebSocket 长连接不被缓冲打断）。
+# ===========================================================================
+
+__EAGLER_CERT_DOMAIN__:8443 {
+	tls {
+		dns cloudflare {$CF_DNS_API_TOKEN}
+	}
+	encode zstd gzip
+	reverse_proxy __EAGLER_UPSTREAM__:25565 {
+		flush_interval -1
+		header_up X-Real-IP {remote_host}
+	}
+}

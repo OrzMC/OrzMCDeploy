@@ -127,6 +127,32 @@ jobs:
           fi
           echo "可选服务按 ENABLE_EASYBOT 正确禁用"
 
+      - name: EAGLER_MODE=proxy 开关（ADR-035，不下载运行时）
+        run: |
+          d="$RUNNER_TEMP/orzmc-eagler"
+          ./orzmc.sh -d "$d" init
+          # 必须原地改已有键（read_env_value 首次出现优先）
+          sed -i 's/^EAGLER_MODE=.*/EAGLER_MODE=proxy/' "$d/.env"
+          ./orzmc.sh -d "$d" validate
+          profiles="$(bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; enabled_profiles')"
+          echo "$profiles" | grep -qx eagler || { echo "!! proxy 未启用 eagler profile: $profiles"; exit 1; }
+          svcs="$(bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; compose_cmd config --services')"
+          echo "$svcs" | grep -qx eagler-proxy || { echo "!! compose 未渲染 eagler-proxy"; exit 1; }
+          # 端口冲突必须被拦下
+          printf 'EAGLER_BACKEND_PORT=25565\n' >> "$d/.env"
+          if ./orzmc.sh -d "$d" validate >/dev/null 2>&1; then
+            echo "!! proxy 模式端口相同应校验失败"; exit 1
+          fi
+          # 关掉开关后必须回到"仅核心服务"
+          sed -i 's/^EAGLER_MODE=.*/EAGLER_MODE=off/' "$d/.env"
+          sed -i '/^EAGLER_BACKEND_PORT=/d' "$d/.env"
+          ./orzmc.sh -d "$d" validate
+          svcs="$(bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; compose_cmd config --services')"
+          if echo "$svcs" | grep -qx eagler-proxy; then
+            echo "!! EAGLER_MODE=off 仍渲染 eagler-proxy"; exit 1
+          fi
+          echo "EAGLER_MODE 开关正确"
+
       - name: 局域网端口随 LAN_*_PORT 生效
         run: |
           printf 'LAN_MCS_WEB_PORT=19090\nLAN_EASYBOT_PORT=19091\n' >> "$RUNNER_TEMP/orzmc/.env"

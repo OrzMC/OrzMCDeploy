@@ -19,6 +19,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=lib/common.sh
 source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/eagler.sh
+source "${REPO_ROOT}/lib/eagler.sh"   # common.sh 已把 SCRIPT_DIR 改为 lib/，这里用 REPO_ROOT
 
 DATA_ROOT=""
 TEMPLATE="$DEFAULT_TEMPLATE"
@@ -65,13 +67,27 @@ cmd_init() {
     ensure_easybot_local_config
     ensure_site_override
     warn_legacy_data_plane
+    # Eaglercraft（可选，ADR-035）：只建目录，下载/生成放到 up（init 保持离线可用）
+    local emode
+    emode="$(eagler_mode)"
+    if [ "$emode" != "off" ]; then
+        mkdir -p "${DATA_ROOT}/eagler"
+        info "Eaglercraft 已启用（EAGLER_MODE=${emode}）：up 时下载运行时并生成配置"
+    fi
     info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
 }
 
 cmd_up() {
     cmd_init
+    eagler_prepare
     compose_cmd up -d
+    # EaglerXServer 首次启动才生成 listeners.toml：随后修正为面向反代的配置，
+    # 有改动才重启一次代理（首启一次，之后幂等）。
+    if eagler_post_up; then
+        info "重启 eagler 代理以应用配置"
+        compose_cmd restart eagler-proxy
+    fi
     echo "服务已启动"
     print_access_info
 }
@@ -91,6 +107,8 @@ cmd_status() {
 cmd_validate() {
     assert_data_root_matches
     validate_required_env
+    validate_eagler
+    eagler_runtime_check
     compose_cmd config -q
     info "校验通过: env 必需变量齐全，compose config 解析正常"
 }

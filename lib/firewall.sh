@@ -64,6 +64,13 @@ port_specs() {
     tcp="$(env_val MC_TCP_PORTS)";      [ -n "$tcp" ]  || tcp="25565,25566"
     udp="$(env_val MC_UDP_PORTS)";      [ -n "$udp" ]  || udp="19132"
     rcon="$(env_val RCON_PORTS)";       [ -n "$rcon" ] || rcon="25575,25576"
+    # EAGLER_MODE=proxy 时玩家 Java 入口是代理端口（可能不是 25565），并入 MC-TCP 口径。
+    # WSS/TLS 端口属站点自建反代规则（如 OrzMC-Web-TLS），不在本脚本管辖。
+    if [ "$(env_val EAGLER_MODE)" = "proxy" ]; then
+        local ej
+        ej="$(env_val EAGLER_JAVA_PORT)"; [ -n "$ej" ] || ej="25565"
+        case ",${tcp}," in *",${ej},"*) ;; *) tcp="${tcp},${ej}" ;; esac
+    fi
     printf '%s\n' \
         "OrzMC-Panel:TCP:${web}" \
         "OrzMC-EasyBot:TCP:${eb}" \

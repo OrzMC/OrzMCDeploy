@@ -1,0 +1,81 @@
+# ===========================================================================
+# OrzMC 生成的 Velocity 配置（EAGLER_MODE=proxy）
+#
+# 由 lib/eagler.sh 在首次 up 时生成，**生成后不再覆盖**——改端口/后端请直接改本文件。
+# 监听端口固定 25565（容器内），宿主端口由 .env 的 EAGLER_JAVA_PORT 决定。
+# __EAGLER_BACKEND__ 由 init/up 按 EAGLER_BACKEND_PORT 渲染（host.docker.internal）。
+# 兼容版本：Velocity 4.3.1（config-version 2.9）。
+# ===========================================================================
+
+config-version = "2.9"
+bind = "0.0.0.0:25565"
+
+motd = "<#09add3>OrzMC"
+show-max-players = 500
+
+# 桥接层（EaglerXServer）向后端发离线 Login Start，代理不能做正版验证（ADR-035）。
+online-mode = false
+force-key-authentication = false
+prevent-client-proxy-connections = false
+
+# 与后端 config/paper-global.yml 的 proxies.velocity.secret 配套。
+player-info-forwarding-mode = "MODERN"
+forwarding-secret-file = "forwarding.secret"
+
+announce-forge = false
+kick-existing-players = false
+sample-players-in-ping = false
+enable-player-address-logging = true
+
+[ping-passthrough]
+version = false
+players = false
+description = false
+favicon = false
+modinfo = false
+
+[packet-limiter]
+interval = 7
+packets-per-second = -1
+bytes-per-second = -1
+decompressed-bytes-per-second = 5242880
+
+[servers]
+# 后端由 MCSManager 管理的实例发布到宿主（EAGLER_BACKEND_PORT），容器内用
+# host.docker.internal 访问（compose 已加 host-gateway，Linux 同样可用）。
+# 多后端：在此继续加 <名字> = "host.docker.internal:<端口>"，再改 try 顺序。
+lobby = "__EAGLER_BACKEND__"
+
+try = [
+    "lobby"
+]
+
+[forced-hosts]
+
+[advanced]
+compression-threshold = 256
+compression-level = -1
+login-ratelimit = 3000
+connection-timeout = 5000
+read-timeout = 30000
+haproxy-protocol = false
+tcp-fast-open = false
+bungee-plugin-message-channel = true
+show-ping-requests = false
+failover-on-unexpected-server-disconnect = true
+announce-proxy-commands = true
+log-command-executions = false
+log-player-connections = true
+accepts-transfers = false
+enable-reuse-port = false
+command-rate-limit = 50
+forward-commands-if-rate-limited = true
+kick-after-rate-limited-commands = 0
+tab-complete-rate-limit = 10
+kick-after-rate-limited-tab-completes = 0
+
+[query]
+enabled = false
+port = 25565
+map = "Velocity"
+show-plugins = false

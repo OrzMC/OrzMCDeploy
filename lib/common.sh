@@ -71,9 +71,62 @@ win_path() {
 # ENABLE_EASYBOT 缺省为 true（保持历史默认启用）；ADR-025 起只剩 easybot 一个可选服务。
 # 注意：判断写成 if（避免 set -e 下 [ false ] 返回非零导致函数退出）。
 enabled_profiles() {
-    local eb
+    local eb em
     eb="$(read_env_value ENABLE_EASYBOT)";  [ -n "$eb" ] || eb="true"
     if [ "$eb" = "true" ]; then printf '%s\n' "easybot"; fi
+    # EAGLER_MODE=proxy 才追加 eagler profile（ADR-035）；off/direct 不启代理服务。
+    em="$(eagler_mode)"
+    if [ "$em" = "proxy" ]; then printf '%s\n' "eagler"; fi
+}
+
+# ---- Eaglercraft Web 接入（可选，ADR-035）--------------------------------
+# 单一开关：EAGLER_MODE=off（缺省，零影响）/ direct（实例直挂 EaglerXPaper）/
+# proxy（Velocity + EaglerXServer 接管玩家端口，支持 Folia）。
+# 其余端口都有缺省值，用户通常只改这一行；域名不写进任何生成物（public_host 只影响
+# 提示文案），换域名不需要改服务端配置。
+eagler_mode() {
+    local m
+    m="$(read_env_value EAGLER_MODE)"; [ -n "$m" ] || m="off"
+    printf '%s' "$m"
+}
+
+eagler_port() { # eagler_port <KEY> <default>
+    local v
+    v="$(read_env_value "$1")"; [ -n "$v" ] || v="$2"
+    printf '%s' "$v"
+}
+
+eagler_java_port()    { eagler_port EAGLER_JAVA_PORT 25565; }
+eagler_backend_port() { eagler_port EAGLER_BACKEND_PORT 25566; }
+eagler_ws_port()      { eagler_port EAGLER_WS_PORT 18444; }
+eagler_public_host()  { read_env_value EAGLER_PUBLIC_HOST; }
+
+# 值域/端口一致性校验（validate 调用；不碰网络，不要求运行时就绪）
+validate_eagler() {
+    local mode jp bp wp ph
+    mode="$(eagler_mode)"
+    case "$mode" in
+        off) return 0 ;;
+        direct|proxy) ;;
+        *) die "EAGLER_MODE=${mode} 无效：只允许 off / direct / proxy" ;;
+    esac
+    jp="$(eagler_java_port)"
+    bp="$(eagler_backend_port)"
+    wp="$(eagler_ws_port)"
+    case "$jp" in ''|*[!0-9]*) die "EAGLER_JAVA_PORT 必须是数字（当前 ${jp}）" ;; esac
+    case "$bp" in ''|*[!0-9]*) die "EAGLER_BACKEND_PORT 必须是数字（当前 ${bp}）" ;; esac
+    case "$wp" in ''|*[!0-9]*) die "EAGLER_WS_PORT 必须是数字（当前 ${wp}）" ;; esac
+    if [ "$mode" = "proxy" ] && [ "$jp" = "$bp" ]; then
+        die "proxy 模式下 EAGLER_JAVA_PORT 与 EAGLER_BACKEND_PORT 不能相同（当前都是 ${jp}）：实例要让出玩家端口"
+    fi
+    if [ "$wp" = "$jp" ]; then
+        die "EAGLER_WS_PORT 与 EAGLER_JAVA_PORT 不能相同（当前都是 ${jp}）：反代端口与游戏端口必须分开"
+    fi
+    ph="$(eagler_public_host)"
+    case "$ph" in
+        *'://'*|*/*) die "EAGLER_PUBLIC_HOST 只写域名（不要带协议/路径），当前 ${ph}" ;;
+    esac
+    return 0
 }
 
 # 读 compose.yaml 中 mcsmanager-daemon 的 image（含 digest）。awk：进入 daemon 服务
@@ -488,7 +541,7 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip bind cidr eb
+    local lan_ip bind cidr eb emode host wp jp bp
     lan_ip="$(read_env_value LAN_HOST_IP)"
     bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
     cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
@@ -507,6 +560,18 @@ print_access_info() {
         echo "          ./orzmc.sh firewall apply   # 默认只放行 LAN_CIDR=${cidr}"
     else
         echo "  暴露面: 仅绑定 ${bind}"
+    fi
+    emode="$(eagler_mode)"
+    if [ "$emode" != "off" ]; then
+        wp="$(eagler_ws_port)"; jp="$(eagler_java_port)"; bp="$(eagler_backend_port)"
+        host="$(eagler_public_host)"; [ -n "$host" ] || host="<你的域名>"
+        echo "  Eaglercraft Web: wss://${host}:${wp}/  （浏览器客户端；TLS 由站点反代提供）"
+        if [ "$emode" = "proxy" ]; then
+            echo "  Eagler 代理: Java 入口 ${jp} → 实例内部端口 ${bp}（支持 Folia）"
+        else
+            echo "  Eagler 直挂: 实例 ${jp} 同端口兼任 WSS（不支持 Folia）"
+        fi
+        echo "  实例侧待办: ${DATA_ROOT}/eagler/instance-setup.md"
     fi
     echo "  外部访问: 由站点自备（VPN / TLS 反代 / DDNS+端口映射），见 docs/security.md"
 }

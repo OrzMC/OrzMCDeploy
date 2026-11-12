@@ -334,6 +334,45 @@ check "CRLF 下 profile 为空（开关生效）" "" "$(enabled_profiles)"
 check "CRLF 值不带 \\r" "127.0.0.1" "$(read_env_value LAN_BIND_ADDR)"
 
 # ===========================================================================
+section "Eaglercraft 单开关（EAGLER_MODE，ADR-035）"
+EG_DIR="$TMP/eg"; mkdir -p "$EG_DIR"
+eg_env() { printf '%s\n' "$1" > "$EG_DIR/.env"; env_file() { printf '%s' "$EG_DIR/.env"; }; }
+eg_env 'TZ=Asia/Shanghai'
+check "缺省 off" "off" "$(eagler_mode)"
+check "off 时不启用 eagler profile" "" "$(enabled_profiles | grep -x eagler || true)"
+check "三个端口缺省值" "25565 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
+if ( validate_eagler ) >/dev/null 2>&1; then ok "off 时 validate_eagler 通过"; else fail "off 应免校验"; fi
+
+eg_env 'EAGLER_MODE=direct'
+check "direct 不启用代理服务" "" "$(enabled_profiles | grep -x eagler || true)"
+if ( validate_eagler ) >/dev/null 2>&1; then ok "direct 校验通过"; else fail "direct 应通过校验"; fi
+
+eg_env 'EAGLER_MODE=proxy'
+check "proxy 追加 eagler profile" "eagler" "$(enabled_profiles | grep -x eagler || true)"
+check "proxy 时 easybot 缺省仍启用" "easybot" "$(enabled_profiles | grep -x easybot || true)"
+if ( validate_eagler ) >/dev/null 2>&1; then ok "proxy 缺省端口校验通过"; else fail "proxy 缺省端口应通过"; fi
+
+eg_env 'EAGLER_MODE=bogus'
+if ( validate_eagler ) >/dev/null 2>&1; then fail "非法 EAGLER_MODE 应报错"; else ok "非法 EAGLER_MODE 报错"; fi
+
+eg_env 'EAGLER_MODE=proxy
+EAGLER_JAVA_PORT=25565
+EAGLER_BACKEND_PORT=25565'
+if ( validate_eagler ) >/dev/null 2>&1; then fail "proxy 同端口应报错"; else ok "proxy 端口相同被拦下"; fi
+
+eg_env 'EAGLER_MODE=proxy
+EAGLER_WS_PORT=25565'
+if ( validate_eagler ) >/dev/null 2>&1; then fail "WS 端口与游戏端口相同应报错"; else ok "WS 端口撞游戏端口被拦下"; fi
+
+eg_env 'EAGLER_MODE=proxy
+EAGLER_PUBLIC_HOST=https://dev.jokerhub.cn/'
+if ( validate_eagler ) >/dev/null 2>&1; then fail "EAGLER_PUBLIC_HOST 带协议应报错"; else ok "EAGLER_PUBLIC_HOST 只接受域名"; fi
+
+eg_env 'EAGLER_MODE=direct
+EAGLER_JAVA_PORT=25570'
+check "自定义端口生效" "25570 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
+
+# ===========================================================================
 section "firewall apply —— 只重建受管规则，不碰站点自建（OrzMC-Web-TLS）"
 FW_DIR="$TMP/fw"; mkdir -p "$FW_DIR"
 cp "$REPO_ROOT/templates/env" "$FW_DIR/.env"
@@ -348,6 +387,19 @@ check "站点自建 Web-TLS 规则不在删除列表" "0" \
     "$(printf '%s' "$fwout" | grep -c "Remove-NetFirewallRule.*OrzMC-Web-TLS")"
 check "LAN 规则仍限 LAN_CIDR" "1" \
     "$(printf '%s' "$fwout" | grep -c "OrzMC-Panel.*RemoteAddress 192.168.0.0/24")"
+
+# ===========================================================================
+section "firewall：proxy 模式的玩家端口并入 MC-TCP（不新增规则名）"
+FW2="$TMP/fw2"; mkdir -p "$FW2"
+cp "$REPO_ROOT/templates/env" "$FW2/.env"
+# 模板里已有 EAGLER_MODE=off（同名键首次出现优先），必须改原行而不是追加
+sed -i 's/^EAGLER_MODE=.*/EAGLER_MODE=proxy/' "$FW2/.env"
+printf 'EAGLER_JAVA_PORT=25570\n' >> "$FW2/.env"
+fw2out="$(PATH="$FAKEBIN:$PATH" DATA_ROOT="$FW2" bash "$REPO_ROOT/lib/firewall.sh" apply --dry-run 2>&1)"
+check "EAGLER_JAVA_PORT 并入 OrzMC-MC-TCP" "yes" \
+    "$(printf '%s' "$fw2out" | grep -q "OrzMC-MC-TCP.*25570" && echo yes || echo no)"
+check "不新增 Eagler 专用规则" "0" \
+    "$(printf '%s' "$fw2out" | grep -c "OrzMC-Eagler")"
 
 # ===========================================================================
 echo ""

@@ -20,3 +20,11 @@ services: {}
 #   mcsmanager-web:
 #     volumes:
 #       - "${DATA_ROOT}/site/extra:/opt/mcsmanager/web/extra:ro"
+#
+# ---- Eaglercraft 的 WSS 入口（EAGLER_MODE≠off 时，ADR-035）----
+# TLS 反代归站点：仓库只生成片段（$DATA_ROOT/eagler/caddy-eagler.snippet），
+# 这里只加一个端口映射，把「对外 WSS 端口」接到容器内 Caddy 的 8443。
+# 片段内容见该文件；路由器还要把同一端口转发到宿主，防火墙按站点自建 TLS 规则放行。
+#   caddy:
+#     ports:
+#       - "18444:8443"

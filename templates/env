@@ -32,6 +32,23 @@ ENABLE_EASYBOT=true
 EASYBOT_PORT=8080
 EASYBOT_ADMIN_PASSWORD=lan_strong_password_change_me
 
+# ---- Eaglercraft Web 接入（可选；缺省 off，零影响；ADR-035）----
+# off   : 不启用（不下载、不起服务、Java/基岩玩法完全不变）
+# direct: 实例直挂 EaglerXPaper（同一端口兼任 WSS；Java 连接方式不变；不支持 Folia）
+# proxy : 代理接管玩家端口（Velocity + EaglerXServer；支持 Folia / 多后端 / 改写 UUID）
+# 只有这一行是"开关"，下面三个端口都有缺省值，一般不用填。
+EAGLER_MODE=off
+# 玩家 Java 入口端口（proxy=代理端口；direct=实例端口，仅用于提示）
+# EAGLER_JAVA_PORT=25565
+# 仅 proxy：实例内部端口（面板里把实例 docker 端口改成 <此端口>:25565，不再发布 25565）。
+# 必须避开其他实例已占用的宿主端口（例：Folia 常用 25566 → Paper 改 25567）；多后端各占一个。
+# EAGLER_BACKEND_PORT=25566
+# 仅用于提示与生成反代片段：站点反代（Caddy）对外暴露的 WSS 端口（TLS 不在本仓库）
+# EAGLER_WS_PORT=18444
+# 可选：只影响提示文案（wss://<域名>:<端口>/）。留空则打印占位符；域名可以随时换，
+# 与证书无关（反代用通配证书，换子域名不用改配置）。
+# EAGLER_PUBLIC_HOST=
+
 # ---- 容器内端口（须与镜像默认一致；宿主端口见上方 LAN_*_PORT）----
 MCS_WEB_PORT=23333
 MCS_DAEMON_PORT=24444
