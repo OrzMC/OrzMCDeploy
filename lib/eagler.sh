@@ -234,6 +234,8 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <direct|proxy>
             echo "- **Geyser-Spigot 可以保留**：检测到 Velocity 转发时它会自我禁用（无害），切回"
             echo "  EAGLER_MODE=off/direct 且关闭 velocity 转发后会自己恢复——测试服来回切换不用删 jar"
             echo "- 代理已自动装 Geyser-Velocity（端口/后端/离线认证由 orzmc.sh 配好）"
+            echo "- **后端 RPC（建议）**：把 $(eagler_jars_dir)/EaglerXBackendRPC-*.jar 复制进实例 plugins，"
+            echo "  这样 \`eagler_players_view_distance\`（默认 4）只对 Web/基岩生效，Java 玩家不受影响"
             echo "- **只挪端口**：实例端口映射删掉 19132/udp、19132/tcp、19134/udp，"
             echo "  改由代理发布：udp/$(eagler_geyser_port)、tcp/$(eagler_geyser_port)、udp/$(eagler_geyser_webrtc_port)"
             echo "- 路由器不用改（宿主端口号不变）；防火墙 MC_PUBLIC_* 已覆盖则无需改"
@@ -331,6 +333,12 @@ eagler_prepare() {
                 "$(eagler_lock VELOCITY_SHA256)" "Velocity $(eagler_lock VELOCITY_VERSION)-$(eagler_lock VELOCITY_BUILD)"
             eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
                 "$(eagler_lock EAGLERXSERVER_SHA256)" "EaglerXServer $(eagler_lock EAGLERXSERVER_VERSION)"
+            # 后端 RPC：给 Web/基岩玩家单独降视野（EAGLER_RPC=false 可关）
+            if [ "$(eagler_port EAGLER_RPC true)" = "true" ]; then
+                eagler_fetch "$(eagler_lock EAGLER_RPC_URL)" \
+                    "$(eagler_jars_dir)/EaglerXBackendRPC-$(eagler_lock EAGLER_RPC_VERSION).jar" \
+                    "$(eagler_lock EAGLER_RPC_SHA256)" "EaglerXBackendRPC $(eagler_lock EAGLER_RPC_VERSION)"
+            fi
             if [ "$(eagler_geyser_enabled)" = "true" ]; then
                 eagler_fetch "$(eagler_lock GEYSER_URL)" "${pdir}/plugins/Geyser-Velocity.jar" \
                     "$(eagler_lock GEYSER_SHA256)" "Geyser-Velocity $(eagler_lock GEYSER_VERSION)-$(eagler_lock GEYSER_BUILD)"
