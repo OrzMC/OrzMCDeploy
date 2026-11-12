@@ -97,10 +97,11 @@ proxies:
     enabled-force-key-authentication: false
 ```
 
-5. **后端 RPC（Paper 26.3 上实测不可用，默认不要装）**：RPC 1.1.0 监听 `PlayerLoginEvent`
-   注册玩家，而 Paper 26.3 的 `HorriblePlayerLoginEventHack` 会**触发两次**该事件 →
-   `IllegalStateException: Player is already registered!` → `eagler_players_view_distance` 从未生效。
-   替代：直接降全局 `server.properties` 的 `view-distance`（本站 6 → 5）。
+5. **后端 RPC（Paper 26.3 上已实测出现故障，默认不要装）**：装好后日志出现
+   `IllegalStateException: Player is already registered!`（栈在 RPC 的 `PlayerLoginEvent` 处理里）。
+   **注意**：该异常在观察窗口内只出现 1 次（同期 5 次登录），因此**不能**推断为"每次登录都双触发"；
+   更像快速重连时旧的注册未清理。是否影响 `eagler_players_view_distance` **尚未验证**。
+   稳妥做法：先不装 RPC，用全局 `server.properties` 的 `view-distance` 控制负载（本站 6 → 5）。
 6. 重启实例，日志应出现 `Done (...)`（Via 会打印 `server version: 26.3 (777)`）。
 
 ## 5. 阶段 3：TLS / WSS（站点自备）
@@ -268,9 +269,12 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 1. **客户端**：确认在用硬件加速（`chrome://gpu` 看 Hardware accelerated）、关掉其他重标签页、**游戏标签保持前台**（后台会被节流）、别让机器休眠/锁屏、优先有线或 5 GHz。
 2. **服务端减负**：RPC 在 Paper 26.3 上不可用（见 §4 第 5 条），因此直接降全局
    `view-distance`（本节实测为 6 → 5）。原来的“只降 Eagler 视野”方案在 26.x 上不成立。
-   **实测对比**（同一客户端包、同一服务端）：
-   - 视野 6：**148 s / 18.7 MB（≈127 KB/s）**，客户端侧断开；
-   - 视野 4（RPC 生效）：**619 s（10 分 19 秒）/ 9.5 MB（≈15 KB/s）**，全程稳定、无踢出。
+   **实测数据（注意：视野差异的结论未成立）**：
+   - 148 s / 18.7 MB、187 s / 18.9 MB、23–37 s / 5–7.5 MB：均为**客户端侧断开**（服务端无 kick）；
+   - 707 s / 7.9 MB、706 s / 7.9 MB：**挂机 11–12 分钟不掉**（无头 Chromium 151 与真实 Chrome 157 各一次）。
+   - 上述会话**不能**用来证明"降视野有效"——RPC 是否真正下发视野未验证；
+     能确定的是：**同版本 Chrome、同一客户端文件、同一服务端可以稳定 11+ 分钟**，
+     掉线集中在特定客户端环境（例如从 ZIP 临时目录打开、多实例/多标签并存）。
    注意：RPC 插件会要求"modernized channel names"，代理侧必须同时设
    `use_modernized_channel_names = true`（1.13+ 后端），否则 RPC 不生效。
    不想装 RPC 的退路：全局 `view-distance` 6 → 5 或 4（影响所有人）。
