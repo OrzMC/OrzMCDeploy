@@ -7,7 +7,9 @@
 #   3) 路由器把 EAGLER_WS_PORT/TCP 转发到宿主；防火墙放行（按站点自建 TLS 规则，见
 #      docs/security.md §4，**不要**写进 MC_PUBLIC_TCP）。
 #
-# 用通配证书的好处：换子域名（dev./play./…）不用改这里；换顶级域只改一行域名。
+# resolvers 是必需的坑：家宽/ISP 常屏蔽权威 NS 的 53 直查，Caddy 的 DNS-01 传播检查会超时
+# （现象：日志 "timed out waiting for record to fully propagate"，但 DoH 能查到 TXT）。
+
 # 反代必须整站透传（flush_interval -1 保证 WebSocket 长连接不被缓冲打断）。
 # ===========================================================================
 

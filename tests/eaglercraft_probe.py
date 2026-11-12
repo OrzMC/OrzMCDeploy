@@ -32,14 +32,16 @@ import uuid
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-def ws_connect(host, port, path="/", use_tls=False, timeout=15, real_ip=None):
+def ws_connect(host, port, path="/", use_tls=False, timeout=15, real_ip=None, address=None):
     """建立裸 WebSocket 连接（Eaglercraft 客户端不发 Sec-WebSocket-Protocol）。
 
     real_ip：EaglerXServer 的 forward_ip=true 时，HTTP/WS 连接必须带 X-Real-IP，
     否则会被 "Connected without a X-Real-IP header, disconnecting" 拒绝——经反代
     （Caddy 的 header_up X-Real-IP）由反代注入；直连代理调试时要自己带。
     """
-    raw = socket.create_connection((host, port), timeout=timeout)
+    # address：连接目标（默认与 host 相同）。本地验证 TLS 时用它把域名指向 127.0.0.1，
+    # 同时保留 SNI/Host（反代按域名选站点，SNI 错了会拿不到证书）。
+    raw = socket.create_connection((address or host, port), timeout=timeout)
     if use_tls:
         context = ssl._create_unverified_context()
         raw = context.wrap_socket(raw, server_hostname=host)
@@ -177,7 +179,8 @@ def cmd_probe(args):
     mc_protocols = [int(item) for item in args.mc_protocols.split(",")]
     auth_name = args.login.encode() if args.login else b""
 
-    sock, rest = ws_connect(args.host, args.port, use_tls=args.tls, real_ip=args.real_ip)
+    sock, rest = ws_connect(args.host, args.port, use_tls=args.tls, real_ip=args.real_ip,
+                           address=args.address)
     reader = FrameReader(sock, rest)
     try:
         send_frame(sock, build_handshake(eagler_protocols, mc_protocols, auth_name))
@@ -304,6 +307,7 @@ def main():
     parser.add_argument("--eagler-protocols", default="5", help="声明支持的 eagler 握手协议，默认 5")
     parser.add_argument("--mc-protocols", default="777", help="声明支持的 MC 协议，默认 777（26.3）")
     parser.add_argument("--login", help="完成 LOGIN 请求并打印 ALLOW_LOGIN 的 UUID")
+    parser.add_argument("--address", help="连接地址（默认同 --host）；本地验 TLS 时用 127.0.0.1 并保留 SNI")
     parser.add_argument("--real-ip", help="带上 X-Real-IP 头（直连代理时必需：forward_ip=true）")
     parser.add_argument("--sniff", action="store_true", help="起假 WS 服务器抓真客户端首帧")
     parser.add_argument("--timeout", type=int, default=120, help="--sniff 的等待秒数")

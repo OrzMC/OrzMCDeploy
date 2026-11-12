@@ -109,7 +109,10 @@ proxies:
 | 基岩 | 无需额外反代：Geyser 走 UDP/TCP 直连（不经 Caddy）；公网放行仍靠 `MC_PUBLIC_*` |
 
 片段要点：`flush_interval -1`（WS 长连接）、`header_up X-Real-IP {remote_host}`
-（EaglerXServer 的 `forward_ip=true` 缺这个头会直接断开）。
+（EaglerXServer 的 `forward_ip=true` 缺这个头会直接断开）、
+**`resolvers 1.1.1.1 8.8.8.8` + `propagation_timeout 180s`**：家宽/ISP 常屏蔽权威 NS 的
+53 直查，Caddy 的 DNS-01 传播检查会超时（日志 `timed out waiting for record to fully propagate`，
+但 DoH 能查到 TXT）。**默认用显式域名**；通配证书在部分网络下会卡同一检查，需先单域名跑通。
 
 ## 6. 阶段 4：加固清单
 

@@ -165,13 +165,11 @@ eagler_write_caddy_snippet() { # eagler_write_caddy_snippet <upstream-host>
     dest="$(eagler_caddy_doc)"
     host="$(eagler_public_host)"
     if [ -n "$host" ]; then
-        # 取最后两段做通配（dev.jokerhub.cn → *.jokerhub.cn）；不是三段域名则原样
-        case "$host" in
-            *.*.*) cert="*.$(printf '%s' "$host" | cut -d '.' -f 2-)" ;;
-            *)     cert="$host" ;;
-        esac
+        # 默认用**显式域名**：实测通配证书在部分家宽/令牌下会卡 DNS-01 传播检查。
+        # 想覆盖多个子域名，手工把这里改成 *.your.domain（见模板注释）。
+        cert="$host"
     else
-        cert="*.<你的域名>"
+        cert="<你的域名>"
     fi
     sed -e "s#__EAGLER_CERT_DOMAIN__#${cert}#g" -e "s#__EAGLER_UPSTREAM__#${up}#g" \
         "${TEMPLATES_DIR}/eagler/Caddyfile.snippet" > "$dest"
