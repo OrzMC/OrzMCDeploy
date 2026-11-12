@@ -214,6 +214,26 @@ Direct Connection → `<域名>:<EAGLER_WS_PORT>` → Join。判定：出现 HUD
 
 Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 
+## 11. 模式互切（测试服常用：off ⇄ direct ⇄ proxy）
+
+三态的**唯一真相**是 `.env` 的 `EAGLER_MODE`；但实例侧有三处会跟着变，切之前先对照本表：
+
+| 目标 | `.env` | `paper-global.yml` 的 velocity | 实例端口映射 | 代理容器 | Geyser |
+|---|---|---|---|---|---|
+| `off` | `EAGLER_MODE=off` | `enabled: false` | `25565:25565` + `19132/udp`、`19132/tcp`、`19134/udp` | 不创建 | Geyser-Spigot 生效 |
+| `direct` | `EAGLER_MODE=direct` | `enabled: false` | 同 `off`；另把 `EaglerXPaper.jar` 放进 `plugins/` | 不创建 | Geyser-Spigot 生效 |
+| `proxy` | `EAGLER_MODE=proxy` | `enabled: true` + `secret` | **`25567:25565`**（去掉 19132/19134） | 创建 | Geyser-Spigot **自禁用**；基岩由代理的 Geyser-Velocity 提供 |
+
+要点：
+
+- **Geyser-Spigot 不用删**——`proxy` 下它检测到 velocity 转发会自禁用，切回 `off/direct`
+  且关掉 velocity 转发后自动恢复；只有"端口"必须跟着挪（同端口不能两处发布）。
+- 反向切回 `off/direct` 别忘了把 `proxies.velocity.enabled` 改回 `false`，否则 Paper 只接受
+  带转发数据的连接（直连会被踢）。
+- 站点反代（Caddyfile 的 Eagler 站点块）可以一直留着：代理没起时它只是返回 502，不影响
+  面板/EasyBot（同端口按 Host 分流）。
+- 切完各跑一次：`./orzmc.sh -d <数据目录> validate` → `status` → §7.2 探针。
+
 ## 10. 排障速查
 
 | 现象 | 定位 |
