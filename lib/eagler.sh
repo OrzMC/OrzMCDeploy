@@ -300,10 +300,9 @@ eagler_patch_geyser() {
     eagler_cfg_set "$f" bedrock webrtc-port "$gw"
     # 26.x 起 RakNet-only 已移除；both 兼容老基岩客户端
     eagler_cfg_set "$f" bedrock transport "both"
-    eagler_cfg_set "$f" remote address "127.0.0.1"
-    eagler_cfg_set "$f" remote port "25565"
-    # 代理是离线模式：Bedrock 玩家按离线身份进（与 Java/Eagler 共用名字空间）
-    eagler_cfg_set "$f" remote auth-type "offline"
+    # Geyser 2.12 的认证段叫 java（不是 remote）：online=要求微软/Java 正版，
+    # offline=Bedrock 玩家按离线身份进（与 Java/Eagler 共用名字空间）。
+    eagler_cfg_set "$f" java auth-type "offline"
     after="$(eagler_sha256_of "$f")"
     [ "$before" != "$after" ]
 }

@@ -84,7 +84,8 @@ printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
    velocity 转发后它会自动恢复；proxy 模式下只需把基岩端口从实例挪到代理。
    代理侧由 `up` 自动装 `Geyser-Velocity`（`EAGLER_GEYSER=true` 缺省），并自动改：
    `bedrock.port` / `bedrock.webrtc-port` / `bedrock.transport: both` /
-   `remote.address: 127.0.0.1` / `remote.port: 25565` / `remote.auth-type: offline`。
+   `bedrock.port` / `bedrock.webrtc-port` / `bedrock.transport: both` / **`java.auth-type: offline`**
+   （Geyser 2.12 的认证段叫 `java`，不是 `remote`；`online` 会要求 Bedrock 玩家绑定微软/Java 正版，表现为客户端提示「需要使用微软帐号登录」）。
 4. `proxy` 模式：`config/paper-global.yml` 写入（secret 来自 `instance-setup.md`）：
 
 ```yaml
