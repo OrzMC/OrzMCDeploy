@@ -244,8 +244,24 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 | 身份 | 名字 = Xbox 玩家代号（如 `joker84179`）；同名 = 同 UUID = 同一份存档/权限（与 Java/Web 一致） |
 | 认证 | 仍需 LoginSecurity 口令（首次 `/register`，之后 `/login`；`session-timeout` 已调 600 s） |
 | 入场 | 必须先加白名单（`whitelist add <代号>`），否则被 OrzMC 的自建白名单拦下 |
-| 反作弊 | 后端拿不到「这是基岩」的信号（Geyser 在代理侧）→ 移动类检查（`Simulation` 等）只能是告警级；可用 LuckPerms `bedrock` 组挂 `grim.*` bypass 兜底 |
+| 反作弊 | 后端拿不到「这是基岩」的信号（Geyser 在代理侧）→ **必须给 `bedrock` 组 `grim.exempt`**：实测加之前 `Simulation` 会持续 setback（能登录、完全走不动），加之后不再判定也不回弹；Java 端不受影响 |
 | 皮肤 | 只有 Geyser 默认皮肤；Floodgate 的皮肤修复不可用 |
+
+## 13. 基岩（Geyser）上线实测清单
+
+按踩坑顺序排列，全部来自 2026-11-12 的真实上线：
+
+| # | 现象 | 根因 | 处置 |
+|---|---|---|---|
+| 1 | `Geyser-Spigot` 启用后立刻自我禁用 | 检测到上层是 Velocity 转发 | 基岩改由**代理侧的 Geyser-Velocity** 提供；测试服可保留 Geyser-Spigot（切回 off/direct 自动恢复），只需把端口从实例挪到代理 |
+| 2 | 手机提示「需要使用微软帐号登录」 | Geyser 的认证段是 **`java.auth-type`**（不是 `remote`），默认 `online` | 改 `java.auth-type: offline`（`up` 会自动改；手动改后重启代理） |
+| 3 | 被踢后立刻重连报「无法连接至 lobby：You must wait N seconds」 | 代理的连接节流（被踢后的冷却） | 等 20 秒再连，属正常 |
+| 4 | 能登录但完全走不动（位置恒不变） | LoginSecurity 未认证会把人拽回原点 | 在手机聊天里执行 `/login <密码>`；`session-timeout` 已调 600 s，10 分钟内重连免输 |
+| 5 | 能走两步就被踢「检测到数据包滥用」 | GrimAC `BadPackets/PacketOrder` 对 Geyser 转包误判 | `punishments.yml` 该组只留 `[log]`/`[alert]`（去掉 kick），`/grim reload` |
+| 6 | 登录成功后仍走不动 + `Simulation` 刷屏 | GrimAC 移动预测对 Bedrock 误判并 **setback** | **给 `bedrock` 组 `grim.exempt`**（整体豁免）：`lp group bedrock permission set grim.exempt true`；Java 端不受影响 |
+| 7 | 无法用自动化库验证基岩 | Geyser 2.12 起移除 RakNet-only，改 NetherNet | 必须用真实 26.x 基岩客户端验收（信令 TCP 19132 + 媒体 UDP 19134） |
+
+新基岩玩家入场三步：`whitelist add <Xbox代号>` → 客户端首登 `/register <密码>` → `lp user <代号> parent add bedrock`。
 
 ## 12. 模式互切（测试服常用：off ⇄ direct ⇄ proxy）
 
