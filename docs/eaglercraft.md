@@ -244,6 +244,8 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
     关注册会直接挡住新玩家。正确做法：加白名单与首次登录同时进行；若名字被误抢注，
     管理员 `/lac rmpass <名字>` 清掉密码后让本人立刻注册。
     同理，**任何 op/权限名字都必须已注册**——`ops.json` 按 UUID 授权、UUID 由名字派生，未注册的 op 名字等于「谁先注册谁拿权」。
+  - **基岩（Geyser）同样不使用 Floodgate**（已定）：Bedrock 玩家以 Xbox 代号直接进入同一名字空间，
+    因此后端反作弊拿不到「这是基岩」信号、移动类检查对基岩只能是告警级；区分只能靠 LuckPerms 组（如 `bedrock`）。
   - **拿不到**的东西：无法给 Web 端单独权限组（LuckPerms 只认 UUID/名字，读不到 `eagler`
     属性）；Web 玩家之间仍可互相仿冒（靠口令拦）；改名即换 UUID，封禁需配合白名单/IP。
     若将来确实要"Web 单独权限"，干净做法是 Web 走独立后端并用 LuckPerms 的 server 上下文，

@@ -166,11 +166,11 @@ required server teleport*——服务端要求传送、Bedrock/Geyser 没确认�
 **紧接着还会撞上 `Simulation`（移动预测）**：Bedrock 的移动语义与 Java 不同，GrimAC 的
 `Simulation/GroundSpoof/Timer/NoFall` 组会在十几秒内累计到 100 → 踢（提示「检测到移动作弊」）。
 根因是**架构性的**：Geyser 装在代理上，Paper 侧的 GrimAC 拿不到 Geyser/Floodgate 的"这是基岩玩家"
-信号（GrimAC 内置了 Geyser/Floodgate 识别，但需要插件在**后端**可见）。三条路：
-① 测试服：把该组踢人也注释掉（只留 log/alert）——最快；
-② 正式服推荐：装 **Floodgate**（代理 + 后端），GrimAC 即可识别基岩玩家并按其 Bedrock 逻辑处理，
-   顺带获得基岩专属前缀/皮肤；
-③ 给基岩玩家加检查 bypass 权限（`grim.prediction.simulation` 等），仅作兜底。
+信号（GrimAC 内置了 Geyser/Floodgate 识别，但需要插件在**后端**可见）。处置（**项目已决定不使用 Floodgate**，见 §11）：
+① 把该组踢人注释掉（只留 `[log]`/`[alert]`）——测试服已做；
+② 正式服若要继续踢，只能接受「移动类检查对基岩失效」，或用**按人**的 bypass 权限
+   （`grim.prediction.simulation` 等，建议挂到 LuckPerms 的 `bedrock` 组）；
+③ 不要试图靠「看名字像基岩」来豁免——基岩玩家的名字就是 Xbox 代号，与 Java 名字混在同一空间。
 
 **LoginSecurity 是共用名字空间的唯一门槛，必须单独跑完（缺一不可）**：
 
@@ -231,7 +231,20 @@ Direct Connection → `<域名>:<EAGLER_WS_PORT>` → Join。判定：出现 HUD
 
 Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 
-## 11. 模式互切（测试服常用：off ⇄ direct ⇄ proxy）
+## 11. 身份与基岩：不使用 Floodgate（已定）
+
+项目决定**不引入 Floodgate**：基岩玩家用 Geyser 的 `java.auth-type: offline` 直接进入
+**与 Java/Web 共用**的名字空间。
+
+| 结果 | 说明 |
+|---|---|
+| 身份 | 名字 = Xbox 玩家代号（如 `joker84179`）；同名 = 同 UUID = 同一份存档/权限（与 Java/Web 一致） |
+| 认证 | 仍需 LoginSecurity 口令（首次 `/register`，之后 `/login`；`session-timeout` 已调 600 s） |
+| 入场 | 必须先加白名单（`whitelist add <代号>`），否则被 OrzMC 的自建白名单拦下 |
+| 反作弊 | 后端拿不到「这是基岩」的信号（Geyser 在代理侧）→ 移动类检查（`Simulation` 等）只能是告警级；可用 LuckPerms `bedrock` 组挂 `grim.*` bypass 兜底 |
+| 皮肤 | 只有 Geyser 默认皮肤；Floodgate 的皮肤修复不可用 |
+
+## 12. 模式互切（测试服常用：off ⇄ direct ⇄ proxy）
 
 三态的**唯一真相**是 `.env` 的 `EAGLER_MODE`；但实例侧有三处会跟着变，切之前先对照本表：
 

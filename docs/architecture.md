@@ -570,7 +570,9 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
 6. **身份策略：Web 与 Java 共用名字空间**（同名 = 同 UUID = 同账号）。因此不引入改名/
    前缀插件；门是**白名单 + LoginSecurity 口令**（该插件 `/lac` 无建号命令，故不关闭
    开放注册，改用「加名单即须立即首登注册」收敛抢注窗口，`/lac rmpass` 兜底）。
-   代价：无法给 Web 端单独 LuckPerms 权限组。详见 `docs/eaglercraft-deploy.md` §6/§7.1。
+   代价：无法给 Web 端单独 LuckPerms 权限组。**不引入 Floodgate**（已定）：基岩玩家同样以
+   Xbox 代号进入共用名字空间，后端因此拿不到「这是基岩」信号，移动类反作弊对基岩只能是告警级。
+   详见 `docs/eaglercraft-deploy.md` §6/§7.1/§11。
 
 **影响**：
 
