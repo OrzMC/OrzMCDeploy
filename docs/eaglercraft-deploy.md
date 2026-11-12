@@ -78,8 +78,10 @@ printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
    Folia 若也接代理再用 `25568` 并在 `velocity.toml` 的 `[servers]` 登记）。`up` 时会检查并告警。
 3. `plugins/`：ViaVersion + ViaBackwards（老 Eagler 客户端兜底）。
    `direct` 模式再放 **EaglerXPaper**（`<数据目录>/eagler/jars/` 里那份）。
-   **`proxy` 模式必须移除 Geyser-Spigot**：实测它检测到 Velocity 转发后会**自我禁用**
+   **`proxy` 模式下 Geyser-Spigot 可保留**：实测它检测到 Velocity 转发会**自我禁用**
    （日志：`Remove the Geyser plugin from this server and install Geyser only on your proxy`）。
+   对需要在 off/direct 与 proxy 之间来回切的测试服，**留着 jar** 更方便：切回非代理模式并关闭
+   velocity 转发后它会自动恢复；proxy 模式下只需把基岩端口从实例挪到代理。
    代理侧由 `up` 自动装 `Geyser-Velocity`（`EAGLER_GEYSER=true` 缺省），并自动改：
    `bedrock.port` / `bedrock.webrtc-port` / `bedrock.transport: both` /
    `remote.address: 127.0.0.1` / `remote.port: 25565` / `remote.auth-type: offline`。
@@ -102,11 +104,14 @@ proxies:
 
 | 动作 | 内容 |
 |---|---|
-| Caddy 端口 | 站点 `caddy` 服务加一行 `"<EAGLER_WS_PORT>:8443"`（缺省 `18444:8443`） |
-| 路由器 | 转发 `<EAGLER_WS_PORT>/TCP` 到宿主（与现有 18443 同一台机器） |
-| 防火墙 | 按站点自建 TLS 规则放行（如 `OrzMC-Web-TLS`），**不要**写进 `MC_PUBLIC_TCP` |
-| 域名 | 已解析到本机的名字即可；用通配证书时换子域名**不用改配置** |
+| 端口（两条路） | ① **复用已有反代入口**：站点块写 `play.example.com { ... }`（不写端口=443），宿主沿用 `18443`——**不需要新端口/路由器/防火墙改动**；② 独立端口：`"<EAGLER_WS_PORT>:8443"` + 路由器转发 + 防火墙放行 |
+| 路由器 | 只有选②才需要转发 `<EAGLER_WS_PORT>/TCP`（与 18443 同一台）；选①不动 |
+| 防火墙 | 选①沿用现有 `OrzMC-Web-TLS`（端口已含）；选②把新端口加进去，**不要**写进 `MC_PUBLIC_TCP` |
+| 域名 | 已解析到本机的名字即可。**建议给 Eagler 单独一个子域**（`dev.`/`play.`），与面板/EasyBot 按 Host 分流；显式证书下换子域=改一行 |
 | 基岩 | 无需额外反代：Geyser 走 UDP/TCP 直连（不经 Caddy）；公网放行仍靠 `MC_PUBLIC_*` |
+
+> 复用同一入口时，`mcs.` / `easybot.` / Eagler 共用 443（宿主 18443），Caddy 按 SNI/Host 分流，
+> 互不影响（已实测：面板 200、EasyBot 200、Eagler 握手 5/777）。
 
 片段要点：`flush_interval -1`（WS 长连接）、`header_up X-Real-IP {remote_host}`
 （EaglerXServer 的 `forward_ip=true` 缺这个头会直接断开）、

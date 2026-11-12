@@ -231,10 +231,11 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <direct|proxy>
         if [ "$mode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
             echo "## 2.5 基岩（Geyser）——proxy 模式必做"
             echo
-            echo "- **移除实例里的 Geyser-Spigot**（检测到 Velocity 转发会自我禁用，等于基岩全掉线）"
+            echo "- **Geyser-Spigot 可以保留**：检测到 Velocity 转发时它会自我禁用（无害），切回"
+            echo "  EAGLER_MODE=off/direct 且关闭 velocity 转发后会自己恢复——测试服来回切换不用删 jar"
             echo "- 代理已自动装 Geyser-Velocity（端口/后端/离线认证由 orzmc.sh 配好）"
-            echo "- 实例端口映射里删掉基岩相关端口（19132/udp、19132/tcp、19134/udp 等），"
-            echo "  这些端口改由代理发布：udp/$(eagler_geyser_port)、tcp/$(eagler_geyser_port)、udp/$(eagler_geyser_webrtc_port)"
+            echo "- **只挪端口**：实例端口映射删掉 19132/udp、19132/tcp、19134/udp，"
+            echo "  改由代理发布：udp/$(eagler_geyser_port)、tcp/$(eagler_geyser_port)、udp/$(eagler_geyser_webrtc_port)"
             echo "- 路由器不用改（宿主端口号不变）；防火墙 MC_PUBLIC_* 已覆盖则无需改"
             echo
         fi
