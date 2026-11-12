@@ -267,7 +267,11 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 1. **客户端**：确认在用硬件加速（`chrome://gpu` 看 Hardware accelerated）、关掉其他重标签页、**游戏标签保持前台**（后台会被节流）、别让机器休眠/锁屏、优先有线或 5 GHz。
 2. **服务端减负（推荐做法）**：装 **EaglerXBackendRPC** 到后端 + 代理 `settings.toml` 打开
    `enable_backend_rpc_api: true`、设 `eagler_players_view_distance: 4` —— **只对 Web/基岩生效**，
-   Java 玩家视野不变（实测「18.7 MB / 148 s ≈ 127 KB/s」这类客户端，降视野后负载明显下降）。
+   Java 玩家视野不变。**实测对比**（同一客户端包、同一服务端）：
+   - 视野 6：**148 s / 18.7 MB（≈127 KB/s）**，客户端侧断开；
+   - 视野 4（RPC 生效）：**619 s（10 分 19 秒）/ 9.5 MB（≈15 KB/s）**，全程稳定、无踢出。
+   注意：RPC 插件会要求"modernized channel names"，代理侧必须同时设
+   `use_modernized_channel_names = true`（1.13+ 后端），否则 RPC 不生效。
    不想装 RPC 的退路：全局 `view-distance` 6 → 5 或 4（影响所有人）。
 3. **容错参数**（已在本站生效，仍建议保留）：`velocity.toml` 的 `read-timeout` 120000、`spigot.yml` 的 `settings.timeout-time` 180。
 4. 已给 `dev.jokerhub.cn` 开 Caddy 访问日志（`/data/access-eagler.log`），下次可直接对比是反代断还是上游踢。
