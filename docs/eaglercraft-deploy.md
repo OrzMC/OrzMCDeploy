@@ -154,7 +154,10 @@ proxies:
 T5 逐项（记录"版本 / 结果 / 日志"）：LuckPerms（权限生效）、GriefPrevention（领地）、
 EzShops（GUI 商店）、Geyser（基岩可进）、ViaVersion（1.8 Eagler 客户端可进）、
 Simple Voice Chat（**Java 端**正常，Web 端预期不可用）、
-**GrimAC**（浏览器端延迟高，重点看移动/攻击是否误判踢人；误判就对该玩家放宽或加 bypass 权限）。
+**GrimAC**（浏览器/基岩端延迟高、且 Geyser 会转包）：实测**基岩经 Geyser 会被
+`BadPackets`/`PacketOrder` 误判**，`punishments.yml` 里 30 次就踢（提示「检测到数据包滥用」）。
+测试服做法：把该组的 kick 行注释掉、保留 `[log]`/`[alert]`，`/grim reload`；要严格时再放开。
+被踢后立刻重连还会撞上代理的连接节流（`You must wait N seconds before logging-in again`），等十几秒即可。
 
 **LoginSecurity 是共用名字空间的唯一门槛，必须单独跑完（缺一不可）**：
 
