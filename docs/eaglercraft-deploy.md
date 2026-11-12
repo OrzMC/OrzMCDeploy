@@ -168,8 +168,11 @@ required server teleport*——服务端要求传送、Bedrock/Geyser 没确认�
 根因是**架构性的**：Geyser 装在代理上，Paper 侧的 GrimAC 拿不到 Geyser/Floodgate 的"这是基岩玩家"
 信号（GrimAC 内置了 Geyser/Floodgate 识别，但需要插件在**后端**可见）。处置（**项目已决定不使用 Floodgate**，见 §11）：
 ① 把该组踢人注释掉（只留 `[log]`/`[alert]`）——测试服已做；
-② 正式服若要继续踢，只能接受「移动类检查对基岩失效」，或用**按人**的 bypass 权限
-   （`grim.prediction.simulation` 等，建议挂到 LuckPerms 的 `bedrock` 组）；
+② **推荐做法（实测有效）**：给 LuckPerms 的 `bedrock` 组加 **`grim.exempt`**——GrimAC 会把这些
+   玩家整体跳过（不再判定、不再 setback），Java 端反作弊完全不受影响；
+   比逐条加 `grim.prediction.simulation` 之类的 bypass 更干净（那些是检查级豁免，容易漏）。
+   命令：`lp creategroup bedrock` → `lp group bedrock permission set grim.exempt true`
+   → `lp user <基岩名字> parent add bedrock`。
 ③ 不要试图靠「看名字像基岩」来豁免——基岩玩家的名字就是 Xbox 代号，与 Java 名字混在同一空间。
 
 **LoginSecurity 是共用名字空间的唯一门槛，必须单独跑完（缺一不可）**：
