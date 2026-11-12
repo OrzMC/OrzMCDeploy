@@ -372,6 +372,17 @@ eg_env 'EAGLER_MODE=direct
 EAGLER_JAVA_PORT=25570'
 check "自定义端口生效" "25570 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
 
+eg_env 'EAGLER_MODE=proxy'
+check "Geyser 缺省启用" "true" "$(eagler_geyser_enabled)"
+check "Geyser 端口缺省值" "19132 19134" \
+    "$(eagler_geyser_port) $(eagler_geyser_webrtc_port)"
+eg_env 'EAGLER_MODE=proxy
+EAGLER_GEYSER=false'
+check "EAGLER_GEYSER=false 生效" "false" "$(eagler_geyser_enabled)"
+eg_env 'EAGLER_MODE=proxy
+EAGLER_GEYSER_PORT=abc'
+if ( validate_eagler ) >/dev/null 2>&1; then fail "非法 EAGLER_GEYSER_PORT 应报错"; else ok "非法 Geyser 端口被拦下"; fi
+
 # ===========================================================================
 section "firewall apply —— 只重建受管规则，不碰站点自建（OrzMC-Web-TLS）"
 FW_DIR="$TMP/fw"; mkdir -p "$FW_DIR"
@@ -400,6 +411,8 @@ check "EAGLER_JAVA_PORT 并入 OrzMC-MC-TCP" "yes" \
     "$(printf '%s' "$fw2out" | grep -q "OrzMC-MC-TCP.*25570" && echo yes || echo no)"
 check "不新增 Eagler 专用规则" "0" \
     "$(printf '%s' "$fw2out" | grep -c "OrzMC-Eagler")"
+check "Geyser 端口并入 OrzMC-MC-UDP（19134 媒体）" "yes" \
+    "$(printf '%s' "$fw2out" | grep -q "OrzMC-MC-UDP.*19134" && echo yes || echo no)"
 
 # ===========================================================================
 echo ""

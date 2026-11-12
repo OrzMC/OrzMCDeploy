@@ -290,7 +290,7 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
 | 12 | 口令分支（原会话已断开后同名再登） | 错：`登录失败: 密码错误`；对：`登录成功`；期间反复提示「请输入 /login <密码> 来登录」 |
 | 13 | 老版本 Java 客户端（node `minecraft-protocol` 1.20.4）经代理进 26.3 后端 | 成功：后端日志 `joined the game`、`logged in with entity id`、LuckPerms 默认组；证明 ViaVersion 在代理链路里生效 |
 | 14 | Folia 26.3 后端（经同一代理） | 进服成功；持续 W/D 移动 8 s，Folia 日志无区域/线程检查异常 |
-| 15 | **Geyser（基岩）与代理共存** | **Geyser-Spigot 检测到上层是 Velocity 后自我禁用**（日志要求把 Geyser 装到代理）；Geyser 2.12.1 已移除 RakNet-only 传输，强制 NetherNet → 自动化 RakNet 客户端无法再用于验证，**基岩端必须用真实 26.x 客户端** |
+| 15 | **Geyser（基岩）与代理共存**（仓库已自动化：`proxy` 模式下载 Geyser-Velocity 并改端口/后端） | **Geyser-Spigot 检测到上层是 Velocity 后自我禁用**（日志要求把 Geyser 装到代理）；Geyser 2.12.1 已移除 RakNet-only 传输，强制 NetherNet → 自动化 RakNet 客户端无法再用于验证，**基岩端必须用真实 26.x 客户端** |
 
 实测中观察到的**非致命异常**（备查）：
 

@@ -31,6 +31,14 @@
   - 身份策略：**Web 与 Java 共用名字空间**（同名 = 同 UUID = 同账号），不引入改名插件；
     门槛是 LoginSecurity 口令，上线前须关闭开放注册 + 开启白名单（ADR-035 第 6 条）。
 
+### 新功能
+
+- **`proxy` 模式自动带基岩（Geyser-Velocity）**：实测 Geyser-Spigot 检测到 Velocity 转发会自我禁用，
+  因此 `EAGLER_MODE=proxy` 时由 `up` 下载 `Geyser-Velocity`（版本锁 + sha256）并自动配置
+  `bedrock.port/webrtc-port/transport` 与 `remote.address/port/auth-type: offline`；
+  compose 由代理发布 `19132/udp+tcp`、`19134/udp`（端口号不变，路由器无需改），
+  `firewall` 把基岩端口并入 `MC-UDP` 口径。`EAGLER_GEYSER=false` 可关闭。测试 69 → 74 项。
+
 ### 文档
 
 - **Eaglercraft Web 接入调研（未实施）**：新增 `docs/eaglercraft.md`

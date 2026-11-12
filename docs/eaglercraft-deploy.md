@@ -28,6 +28,8 @@
 | `EAGLER_WS_PORT` | | `18444` | 站点反代对外端口（只用于提示/片段） |
 | `EAGLER_PUBLIC_HOST` | | 空 | 只影响提示文案（如 `dev.jokerhub.cn`） |
 | `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | | `1024M` / `768` | proxy 容器/堆上限 |
+| `EAGLER_GEYSER` | | `true` | proxy 模式下是否在代理装 Geyser-Velocity（`false` 则自理） |
+| `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | | `19132` / `19134` | 基岩端口（RakNet/NetherNet 信令 UDP+TCP、WebRTC 媒体 UDP） |
 
 ## 2. 阶段 0：隔离与备份
 
@@ -76,9 +78,11 @@ printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
    Folia 若也接代理再用 `25568` 并在 `velocity.toml` 的 `[servers]` 登记）。`up` 时会检查并告警。
 3. `plugins/`：ViaVersion + ViaBackwards（老 Eagler 客户端兜底）。
    `direct` 模式再放 **EaglerXPaper**（`<数据目录>/eagler/jars/` 里那份）。
-   **`proxy` 模式必须移除 Geyser-Spigot（或迁移到代理）**：实测 Geyser-Spigot 检测到
-   Velocity 转发后会**自我禁用**（日志：`Remove the Geyser plugin from this server and install
-   Geyser only on your proxy`）——不迁就等于基岩版全部掉线。
+   **`proxy` 模式必须移除 Geyser-Spigot**：实测它检测到 Velocity 转发后会**自我禁用**
+   （日志：`Remove the Geyser plugin from this server and install Geyser only on your proxy`）。
+   代理侧由 `up` 自动装 `Geyser-Velocity`（`EAGLER_GEYSER=true` 缺省），并自动改：
+   `bedrock.port` / `bedrock.webrtc-port` / `bedrock.transport: both` /
+   `remote.address: 127.0.0.1` / `remote.port: 25565` / `remote.auth-type: offline`。
 4. `proxy` 模式：`config/paper-global.yml` 写入（secret 来自 `instance-setup.md`）：
 
 ```yaml
@@ -102,6 +106,7 @@ proxies:
 | 路由器 | 转发 `<EAGLER_WS_PORT>/TCP` 到宿主（与现有 18443 同一台机器） |
 | 防火墙 | 按站点自建 TLS 规则放行（如 `OrzMC-Web-TLS`），**不要**写进 `MC_PUBLIC_TCP` |
 | 域名 | 已解析到本机的名字即可；用通配证书时换子域名**不用改配置** |
+| 基岩 | 无需额外反代：Geyser 走 UDP/TCP 直连（不经 Caddy）；公网放行仍靠 `MC_PUBLIC_*` |
 
 片段要点：`flush_interval -1`（WS 长连接）、`header_up X-Real-IP {remote_host}`
 （EaglerXServer 的 `forward_ip=true` 缺这个头会直接断开）。
@@ -110,6 +115,7 @@ proxies:
 
 | 项 | 动作 |
 |---|---|
+| 基岩端口 | 迁移后 `19132/udp+tcp`、`19134/udp` 由**代理**发布（端口号不变，路由器不用动）；对应 `MC_PUBLIC_UDP` / `MC_PUBLIC_TCP` 已覆盖时无需改 |
 | 端口 | 后端实例端口**不发布公网**（也不写进 `MC_PUBLIC_*`）；proxy 模式只发布 `<EAGLER_JAVA_PORT>`。代理经 `host.docker.internal:<EAGLER_BACKEND_PORT>` 访问后端——已实测宿主防火墙不会拦容器到已发布端口，无需为此加规则 |
 | 防火墙 | 代理端口按游戏端口口径（`MC_TCP_PORTS`/`MC_PUBLIC_TCP`）；WSS 端口按站点 TLS 规则 |
 | 密钥 | `eagler/proxy/forwarding.secret` + `instance-setup.md` 均 600，随 `$DATA_ROOT` 备份 |

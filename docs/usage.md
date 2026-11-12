@@ -161,6 +161,7 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `EAGLER_JAVA_PORT` / `EAGLER_BACKEND_PORT` / `EAGLER_WS_PORT` | 可选 | 缺省 `25565` / `25566` / `18444`；只有 `proxy` 用到后端端口 |
 | `EAGLER_PUBLIC_HOST` | 可选 | 只影响提示文案（如 `dev.jokerhub.cn`）；留空打印占位符，域名可随时换 |
 | `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | 可选 | 代理容器/堆上限（缺省 1024M / 768） |
+| `EAGLER_GEYSER` / `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | 可选 | proxy 模式下代理是否自带 Geyser（缺省 true）与基岩端口（缺省 19132 / 19134） |
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
 | `COMPOSE_FILE_EXTRA` | 可选 | 追加任意路径 compose 文件（空格/逗号分隔） |
@@ -635,6 +636,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | `19134` / `19135` | 基岩 NetherNet 媒体（WebRTC） | UDP；同上 |
 | `24454` | Simple Voice Chat（可选） | UDP；先在实例端口映射里加 `24454:24454/udp` |
 | `25575` / `25576` | RCON（可选） | 仅局域网，**永不公网** |
+| `19132` / `19134` | 基岩（`EAGLER_MODE=proxy` 时由代理 Geyser 发布） | UDP+TCP 信令 / UDP WebRTC 媒体；与实例侧原来的端口号一致 |
 | `18444` | Eaglercraft WSS（可选，`EAGLER_MODE≠off`） | 站点自备 TLS 反代端口（Caddy `8443`）；公网需路由器转发 + 站点 TLS 防火墙规则，**不要**写进 `MC_PUBLIC_TCP` |
 
 > 除上面两个 `LAN_*_PORT` 源站端口外，其余端口都不发布到宿主（仅容器网络内可达）。

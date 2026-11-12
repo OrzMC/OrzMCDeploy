@@ -230,6 +230,16 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <direct|proxy>
             echo "secret 与代理的 \`\$DATA_ROOT/eagler/proxy/forwarding.secret\` 必须一致（600 权限，随备份）。"
             echo
         fi
+        if [ "$mode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
+            echo "## 2.5 基岩（Geyser）——proxy 模式必做"
+            echo
+            echo "- **移除实例里的 Geyser-Spigot**（检测到 Velocity 转发会自我禁用，等于基岩全掉线）"
+            echo "- 代理已自动装 Geyser-Velocity（端口/后端/离线认证由 orzmc.sh 配好）"
+            echo "- 实例端口映射里删掉基岩相关端口（19132/udp、19132/tcp、19134/udp 等），"
+            echo "  这些端口改由代理发布：udp/$(eagler_geyser_port)、tcp/$(eagler_geyser_port)、udp/$(eagler_geyser_webrtc_port)"
+            echo "- 路由器不用改（宿主端口号不变）；防火墙 MC_PUBLIC_* 已覆盖则无需改"
+            echo
+        fi
         echo "## 3. 反代（站点自备，TLS 终结）"
         echo
         echo "- 片段：\`\$DATA_ROOT/eagler/caddy-eagler.snippet\` → 追加到站点 Caddyfile"
@@ -270,6 +280,35 @@ eagler_check_port_conflicts() {
     return 0
 }
 
+# 按 section 定向改 YAML 键（Geyser 的 bedrock/remote 都有 port，不能用全局 sed）
+eagler_cfg_set() { # <file> <section> <key> <value>
+    local f="$1" sec="$2" key="$3" val="$4"
+    awk -v sec="${sec}" -v key="${key}" -v val="${val}" '
+        /^[A-Za-z][A-Za-z0-9_.-]*:/ { cur=$1; sub(/:.*$/, "", cur) }
+        cur == sec && $0 ~ ("^[ \t]+" key "[ \t]*:") { print "  " key ": " val; next }
+        { print }
+    ' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
+}
+
+# Geyser-Velocity 首次启动后修正：端口/后端/认证方式。返回 0=有改动。
+eagler_patch_geyser() {
+    local f="$1" before after gp gw
+    [ -f "$f" ] || return 1
+    gp="$(eagler_geyser_port)"
+    gw="$(eagler_geyser_webrtc_port)"
+    before="$(eagler_sha256_of "$f")"
+    eagler_cfg_set "$f" bedrock port "$gp"
+    eagler_cfg_set "$f" bedrock webrtc-port "$gw"
+    # 26.x 起 RakNet-only 已移除；both 兼容老基岩客户端
+    eagler_cfg_set "$f" bedrock transport "both"
+    eagler_cfg_set "$f" remote address "127.0.0.1"
+    eagler_cfg_set "$f" remote port "25565"
+    # 代理是离线模式：Bedrock 玩家按离线身份进（与 Java/Eagler 共用名字空间）
+    eagler_cfg_set "$f" remote auth-type "offline"
+    after="$(eagler_sha256_of "$f")"
+    [ "$before" != "$after" ]
+}
+
 # ---- 主流程 -------------------------------------------------------------
 
 eagler_prepare() {
@@ -294,6 +333,10 @@ eagler_prepare() {
                 "$(eagler_lock VELOCITY_SHA256)" "Velocity $(eagler_lock VELOCITY_VERSION)-$(eagler_lock VELOCITY_BUILD)"
             eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
                 "$(eagler_lock EAGLERXSERVER_SHA256)" "EaglerXServer $(eagler_lock EAGLERXSERVER_VERSION)"
+            if [ "$(eagler_geyser_enabled)" = "true" ]; then
+                eagler_fetch "$(eagler_lock GEYSER_URL)" "${pdir}/plugins/Geyser-Velocity.jar" \
+                    "$(eagler_lock GEYSER_SHA256)" "Geyser-Velocity $(eagler_lock GEYSER_VERSION)-$(eagler_lock GEYSER_BUILD)"
+            fi
             eagler_ensure_secret "${pdir}/forwarding.secret"
             backend="host.docker.internal:$(eagler_backend_port)"
             eagler_render_velocity_toml "${pdir}/velocity.toml" "$backend"
@@ -317,6 +360,11 @@ eagler_post_up() {
     fi
     if eagler_patch_settings "${cfg}/settings.toml"; then
         info "已修正 settings.toml（http_websocket_max_frame_length=65535）"
+        changed=0
+    fi
+    if [ "$(eagler_geyser_enabled)" = "true" ] \
+        && eagler_patch_geyser "$(eagler_proxy_dir)/plugins/Geyser-Velocity/config.yml"; then
+        info "已修正 Geyser-Velocity/config.yml（端口/后端/离线认证）"
         changed=0
     fi
     return "$changed"

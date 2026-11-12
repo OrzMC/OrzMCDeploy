@@ -88,6 +88,11 @@ services:
     ports:
       # 玩家 Java 入口（与 EAGLER_BACKEND_PORT 必须不同，validate 会拦）
       - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_JAVA_PORT:-25565}:25565"
+      # 基岩（Geyser-Velocity）：proxy 模式下 Geyser 必须装在代理上（Geyser-Spigot 会自我禁用）。
+      # 端口与 lib/eagler.sh 写入的 Geyser 配置一致；路由器端口号不变，无需改。
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_GEYSER_PORT:-19132}:${EAGLER_GEYSER_PORT:-19132}/udp"
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_GEYSER_PORT:-19132}:${EAGLER_GEYSER_PORT:-19132}/tcp"
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_GEYSER_WEBRTC_PORT:-19134}:${EAGLER_GEYSER_WEBRTC_PORT:-19134}/udp"
     extra_hosts:
       # 后端实例发布在宿主，容器内经 host.docker.internal 访问（Linux 需要这条）
       - "host.docker.internal:host-gateway"

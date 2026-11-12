@@ -101,6 +101,16 @@ eagler_backend_port() { eagler_port EAGLER_BACKEND_PORT 25566; }
 eagler_ws_port()      { eagler_port EAGLER_WS_PORT 18444; }
 eagler_public_host()  { read_env_value EAGLER_PUBLIC_HOST; }
 
+# 基岩（Geyser）：proxy 模式下必须装在代理上（Geyser-Spigot 检测到 Velocity 会自我禁用）。
+# 缺省 true；EAGLER_GEYSER=false 时只在 direct 模式下留给实例侧自己装。
+eagler_geyser_enabled() {
+    local v
+    v="$(read_env_value EAGLER_GEYSER)"; [ -n "$v" ] || v="true"
+    printf '%s' "$v"
+}
+eagler_geyser_port()        { eagler_port EAGLER_GEYSER_PORT 19132; }
+eagler_geyser_webrtc_port() { eagler_port EAGLER_GEYSER_WEBRTC_PORT 19134; }
+
 # 值域/端口一致性校验（validate 调用；不碰网络，不要求运行时就绪）
 validate_eagler() {
     local mode jp bp wp ph
@@ -121,6 +131,10 @@ validate_eagler() {
     fi
     if [ "$wp" = "$jp" ]; then
         die "EAGLER_WS_PORT 与 EAGLER_JAVA_PORT 不能相同（当前都是 ${jp}）：反代端口与游戏端口必须分开"
+    fi
+    if [ "$mode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
+        case "$(eagler_geyser_port)" in ''|*[!0-9]*) die "EAGLER_GEYSER_PORT 必须是数字" ;; esac
+        case "$(eagler_geyser_webrtc_port)" in ''|*[!0-9]*) die "EAGLER_GEYSER_WEBRTC_PORT 必须是数字" ;; esac
     fi
     ph="$(eagler_public_host)"
     case "$ph" in
@@ -570,6 +584,9 @@ print_access_info() {
             echo "  Eagler 代理: Java 入口 ${jp} → 实例内部端口 ${bp}（支持 Folia）"
         else
             echo "  Eagler 直挂: 实例 ${jp} 同端口兼任 WSS（不支持 Folia）"
+        fi
+        if [ "$emode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
+            echo "  Geyser（基岩）: udp/$(eagler_geyser_port) + tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_webrtc_port)（NetherNet 媒体）"
         fi
         echo "  实例侧待办: ${DATA_ROOT}/eagler/instance-setup.md"
     fi
