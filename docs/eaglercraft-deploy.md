@@ -97,7 +97,10 @@ proxies:
     enabled-force-key-authentication: false
 ```
 
-5. 重启实例，日志应出现 `Done (...)`（Via 会打印 `server version: 26.3 (777)`）。
+5. **（建议）后端 RPC**：把 `$DATA_ROOT/eagler/jars/EaglerXBackendRPC-*.jar` 也放进实例
+   `plugins/`，代理侧 `enable_backend_rpc_api: true` + `eagler_players_view_distance: 4`，
+   这样只有 Web/基岩玩家的视野降到 4，Java 不受影响。
+6. 重启实例，日志应出现 `Done (...)`（Via 会打印 `server version: 26.3 (777)`）。
 
 ## 5. 阶段 3：TLS / WSS（站点自备）
 
@@ -262,7 +265,10 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 
 **处置优先级**：
 1. **客户端**：确认在用硬件加速（`chrome://gpu` 看 Hardware accelerated）、关掉其他重标签页、**游戏标签保持前台**（后台会被节流）、别让机器休眠/锁屏、优先有线或 5 GHz。
-2. **服务端减负**（弱设备最有效）：`server.properties` 的 `view-distance` 6 → 5 或 4；`simulation-distance` 保持 ≤4；插件侧少发客户端消息（如语音/皮肤周期性推送）。
+2. **服务端减负（推荐做法）**：装 **EaglerXBackendRPC** 到后端 + 代理 `settings.toml` 打开
+   `enable_backend_rpc_api: true`、设 `eagler_players_view_distance: 4` —— **只对 Web/基岩生效**，
+   Java 玩家视野不变（实测「18.7 MB / 148 s ≈ 127 KB/s」这类客户端，降视野后负载明显下降）。
+   不想装 RPC 的退路：全局 `view-distance` 6 → 5 或 4（影响所有人）。
 3. **容错参数**（已在本站生效，仍建议保留）：`velocity.toml` 的 `read-timeout` 120000、`spigot.yml` 的 `settings.timeout-time` 180。
 4. 已给 `dev.jokerhub.cn` 开 Caddy 访问日志（`/data/access-eagler.log`），下次可直接对比是反代断还是上游踢。
 
