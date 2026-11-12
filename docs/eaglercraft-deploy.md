@@ -247,6 +247,25 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 | 反作弊 | 后端拿不到「这是基岩」的信号（Geyser 在代理侧）→ **必须给 `bedrock` 组 `grim.exempt`**：实测加之前 `Simulation` 会持续 setback（能登录、完全走不动），加之后不再判定也不回弹；Java 端不受影响 |
 | 皮肤 | 只有 Geyser 默认皮肤；Floodgate 的皮肤修复不可用 |
 
+## 13. Web 端掉线（1006）排查——先看客户端渲染
+
+**现象**：浏览器玩几分钟后弹出 `Eagler WebSocket disconnected: connection dropped without a WebSocket close frame (code 1006)`。
+
+**实测因果链（2026-11-12，同一服务端同一客户端包，只改渲染后端）**：
+
+| 渲染方式 | 结果 |
+|---|---|
+| 纯 CPU 软渲染（SwiftShader） | 连上后 **3–6 分钟**必掉；服务端日志：`kicked from lobby: disconnect.timeout` / `keepalive timeout` / `lost connection: Timed out` |
+| 硬件渲染（D3D11） | **连续 10 分 20 秒不掉**（12 次心跳全过） |
+
+即：**1006 是结果**——浏览器端渲染/GC 卡顿 ≥30 s → 漏回服务端 keepalive → Paper 判超时踢人 → 反代关闭 WS → 客户端显示 1006。
+
+**处置优先级**：
+1. **客户端**：确认在用硬件加速（`chrome://gpu` 看 Hardware accelerated）、关掉其他重标签页、**游戏标签保持前台**（后台会被节流）、别让机器休眠/锁屏、优先有线或 5 GHz。
+2. **服务端减负**（弱设备最有效）：`server.properties` 的 `view-distance` 6 → 5 或 4；`simulation-distance` 保持 ≤4；插件侧少发客户端消息（如语音/皮肤周期性推送）。
+3. **容错参数**（已在本站生效，仍建议保留）：`velocity.toml` 的 `read-timeout` 120000、`spigot.yml` 的 `settings.timeout-time` 180。
+4. 已给 `dev.jokerhub.cn` 开 Caddy 访问日志（`/data/access-eagler.log`），下次可直接对比是反代断还是上游踢。
+
 ## 13. 基岩（Geyser）上线实测清单
 
 按踩坑顺序排列，全部来自 2026-11-12 的真实上线：
