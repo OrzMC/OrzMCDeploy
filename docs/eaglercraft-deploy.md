@@ -76,6 +76,9 @@ printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
    Folia 若也接代理再用 `25568` 并在 `velocity.toml` 的 `[servers]` 登记）。`up` 时会检查并告警。
 3. `plugins/`：ViaVersion + ViaBackwards（老 Eagler 客户端兜底）。
    `direct` 模式再放 **EaglerXPaper**（`<数据目录>/eagler/jars/` 里那份）。
+   **`proxy` 模式必须移除 Geyser-Spigot（或迁移到代理）**：实测 Geyser-Spigot 检测到
+   Velocity 转发后会**自我禁用**（日志：`Remove the Geyser plugin from this server and install
+   Geyser only on your proxy`）——不迁就等于基岩版全部掉线。
 4. `proxy` 模式：`config/paper-global.yml` 写入（secret 来自 `instance-setup.md`）：
 
 ```yaml
@@ -125,7 +128,7 @@ proxies:
 | T3 | 登录放行 | `ALLOW_LOGIN` 且两次 UUID 一致 | 探针 `--login` |
 | T4 | 浏览器进服 | 游戏内出现 HUD；后端日志 `joined the game` | 浏览器 + 后端日志 |
 | T5 | 插件矩阵 | 下表逐项 PASS | 手工 |
-| T6 | 三端共存 | Java + 基岩 + Web 同时在线、互相可见、聊天互通 | 三种客户端各一个 |
+| T6 | 三端共存 | Java + 基岩 + Web 同时在线、互相可见、聊天互通 | 三种客户端各一个（Web/Java 已实测，基岩**必须真机 26.x**：Geyser 2.12 起走 NetherNet，RakNet 库不可用） |
 | T7 | 方块/交互 | 放置/破坏、开箱子、`/tp` 生效 | 手工 |
 | T8 | 身份不可伪造 | 同名必须过 LoginSecurity 口令；白名单外的名字根本进不来 | 双开浏览器（Java + Web 同名） |
 | T9 | 断线重连 | 断网 30 s 后重连成功、背包/位置合理 | 手工 |

@@ -287,6 +287,10 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
 | 9 | **真实插件栈**（复制某站的 20+ 插件：LuckPerms/LoginSecurity/GrimAC/GriefPrevention/EzShops/Geyser/Via*/SVC/自研插件，全新平原地形） | 浏览器进服成功；`/register` 在聊天框可用，注册后自动登录；LuckPerms 命中默认组；GrimAC 持续移动 3 s 无踢人/误判 |
 | 10 | 同名双开（两个浏览器会话同名） | 第二个连接在**代理层**被拒：`You are already connected to this proxy!`；**原会话不受影响**（未被顶号），也没走到口令提示 |
 | 11 | 断线重连（关闭会话后重连两次） | 两次都要求 `/login`（浏览器启动约 40 s，实际间隔已超 `session-timeout`）；重登后同一 UUID / 同一存档接续 |
+| 12 | 口令分支（原会话已断开后同名再登） | 错：`登录失败: 密码错误`；对：`登录成功`；期间反复提示「请输入 /login <密码> 来登录」 |
+| 13 | 老版本 Java 客户端（node `minecraft-protocol` 1.20.4）经代理进 26.3 后端 | 成功：后端日志 `joined the game`、`logged in with entity id`、LuckPerms 默认组；证明 ViaVersion 在代理链路里生效 |
+| 14 | Folia 26.3 后端（经同一代理） | 进服成功；持续 W/D 移动 8 s，Folia 日志无区域/线程检查异常 |
+| 15 | **Geyser（基岩）与代理共存** | **Geyser-Spigot 检测到上层是 Velocity 后自我禁用**（日志要求把 Geyser 装到代理）；Geyser 2.12.1 已移除 RakNet-only 传输，强制 NetherNet → 自动化 RakNet 客户端无法再用于验证，**基岩端必须用真实 26.x 客户端** |
 
 实测中观察到的**非致命异常**（备查）：
 
@@ -299,7 +303,7 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
 
 | 项 | 现状 | 建议验证 |
 |---|---|---|
-| 基岩 + Web + Java **三端同服** | 只分别验证了 Java 协议路径与 Web 路径 | 同后端同时开 Geyser-Velocity，三端各进一次 |
+| 基岩 + Web + Java **三端同服** | Web 与 Java（老版本经 Via）均已验证进服；基岩端受限于 NetherNet，需真实客户端 | `proxy` 模式必须先把 Geyser 迁到 Velocity（否则 Geyser-Spigot 自禁用），再用手机/主机各进一次 |
 | 插件逐项（LoginSecurity / EzShops / GriefPrevention / LuckPerms / Geyser / SVC） | 仅核对"是否声明 26.3" | 按 [eaglercraft-deploy](eaglercraft-deploy.md) §7 的 T5 表逐项过 |
 | Folia 线程安全 | 已验证能进服，未做高负载 | 两玩家跨区域跑动 + 观察 Folia 异常日志 |
 | 断线重连 / 长时间挂机 / 弱网 | 未测 | 挂机 30 min + 切网重连 |
