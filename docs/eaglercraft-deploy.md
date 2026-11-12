@@ -97,9 +97,10 @@ proxies:
     enabled-force-key-authentication: false
 ```
 
-5. **（建议）后端 RPC**：把 `$DATA_ROOT/eagler/jars/EaglerXBackendRPC-*.jar` 也放进实例
-   `plugins/`，代理侧 `enable_backend_rpc_api: true` + `eagler_players_view_distance: 4`，
-   这样只有 Web/基岩玩家的视野降到 4，Java 不受影响。
+5. **后端 RPC（Paper 26.3 上实测不可用，默认不要装）**：RPC 1.1.0 监听 `PlayerLoginEvent`
+   注册玩家，而 Paper 26.3 的 `HorriblePlayerLoginEventHack` 会**触发两次**该事件 →
+   `IllegalStateException: Player is already registered!` → `eagler_players_view_distance` 从未生效。
+   替代：直接降全局 `server.properties` 的 `view-distance`（本站 6 → 5）。
 6. 重启实例，日志应出现 `Done (...)`（Via 会打印 `server version: 26.3 (777)`）。
 
 ## 5. 阶段 3：TLS / WSS（站点自备）
@@ -265,9 +266,9 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 
 **处置优先级**：
 1. **客户端**：确认在用硬件加速（`chrome://gpu` 看 Hardware accelerated）、关掉其他重标签页、**游戏标签保持前台**（后台会被节流）、别让机器休眠/锁屏、优先有线或 5 GHz。
-2. **服务端减负（推荐做法）**：装 **EaglerXBackendRPC** 到后端 + 代理 `settings.toml` 打开
-   `enable_backend_rpc_api: true`、设 `eagler_players_view_distance: 4` —— **只对 Web/基岩生效**，
-   Java 玩家视野不变。**实测对比**（同一客户端包、同一服务端）：
+2. **服务端减负**：RPC 在 Paper 26.3 上不可用（见 §4 第 5 条），因此直接降全局
+   `view-distance`（本节实测为 6 → 5）。原来的“只降 Eagler 视野”方案在 26.x 上不成立。
+   **实测对比**（同一客户端包、同一服务端）：
    - 视野 6：**148 s / 18.7 MB（≈127 KB/s）**，客户端侧断开；
    - 视野 4（RPC 生效）：**619 s（10 分 19 秒）/ 9.5 MB（≈15 KB/s）**，全程稳定、无踢出。
    注意：RPC 插件会要求"modernized channel names"，代理侧必须同时设
@@ -288,6 +289,7 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 | 4 | 能登录但完全走不动（位置恒不变） | LoginSecurity 未认证会把人拽回原点 | 在手机聊天里执行 `/login <密码>`；`session-timeout` 已调 600 s，10 分钟内重连免输 |
 | 5 | 能走两步就被踢「检测到数据包滥用」 | GrimAC `BadPackets/PacketOrder` 对 Geyser 转包误判 | `punishments.yml` 该组只留 `[log]`/`[alert]`（去掉 kick），`/grim reload` |
 | 6 | 登录成功后仍走不动 + `Simulation` 刷屏 | GrimAC 移动预测对 Bedrock 误判并 **setback** | **给 `bedrock` 组 `grim.exempt`**（整体豁免）：`lp group bedrock permission set grim.exempt true`；Java 端不受影响 |
+| 8 | 闲置/离开一会儿后掉线，客户端 1006，**服务端没有任何 kick 记录** | macOS App Nap / 显示器休眠 / Chrome 后台节流把页面冻住，TCP 被系统掐断 | 客户端侧：`caffeinate -dimsu`（或关显示器休眠）、游戏窗口保持前台、对本站点关掉 Chrome「内存节省」；服务端无法挽救系统级休眠 |
 | 7 | 无法用自动化库验证基岩 | Geyser 2.12 起移除 RakNet-only，改 NetherNet | 必须用真实 26.x 基岩客户端验收（信令 TCP 19132 + 媒体 UDP 19134） |
 
 新基岩玩家入场三步：`whitelist add <Xbox代号>` → 客户端首登 `/register <密码>` → `lp user <代号> parent add bedrock`。
