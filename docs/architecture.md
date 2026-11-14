@@ -628,7 +628,10 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 7. 基岩端口按需扩缩：`EAGLER_GEYSER_TRANSPORT=nethernet` + `EAGLER_GEYSER_WEBRTC_PORT=0`
    时媒体复用主端口，端口集合缩为「一个端口号（TCP 信令 + UDP 媒体）」，独立媒体端口用
    第二个片段按需追加（compose 无法条件化 ports）。
-8. 多后端只用一个 `.env` 变量表达：`VELOCITY_SERVERS=lobby=25567,survival=25566`（名字=实例发布
+8. **不做 RakNet 回退**（2026-11-15 定）：移动网络 CGNAT 下 NetherNet 的 UDP 映射易失效，
+   但加回 `transport=both` 会把基岩端口从 1 个（19132 TCP+UDP）变回 3 个，维护成本大于收益。
+   结论：基岩玩家统一走局域网 Wi-Fi 直连，外出场景不承诺支持。
+9. 多后端只用一个 `.env` 变量表达：`VELOCITY_SERVERS=lobby=25567,survival=25566`（名字=实例发布
    到宿主的端口）；也接受 `名字=主机:端口`，实例与代理同在 `orzmc_default` 网络时写容器名即可
    （MCSManager 的实例容器就接在该网络，实测可 `getent hosts MCSM-xxxx` 解析），省掉宿主端口挪动。
    `VELOCITY_TRY` 决定首次落地；留空退化为单后端 `lobby=EAGLER_BACKEND_PORT`。

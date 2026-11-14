@@ -374,6 +374,7 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 | 8 | 闲置/离开一会儿后掉线，客户端 1006，**服务端没有任何 kick 记录** | macOS App Nap / 显示器休眠 / Chrome 后台节流把页面冻住，TCP 被系统掐断 | 客户端侧：`caffeinate -dimsu`（或关显示器休眠）、游戏窗口保持前台、对本站点关掉 Chrome「内存节省」；服务端无法挽救系统级休眠 |
 | 7 | 无法用自动化库验证基岩 | Geyser 2.12 起移除 RakNet-only，改 NetherNet | 必须用真实 26.x 基岩客户端验收（信令 TCP 19132 + 媒体端口见 §13.2） |
 | 9 | 手机流量连不上、同一服务器 Wi-Fi 能连 | ① 媒体端口 19134 在路由器上没有静态转发（NAT 给了临时端口）；② Geyser 用 STUN 探到的是**宿主代理/VPN 出口**（实测 `64.176.82.52`），把错地址广播给外网客户端 | 切 `nethernet` + `webrtc-port: 0` 收敛到单端口；显式 `advertise-addresses` 并关 STUN；路由器只转发 `19132`(TCP+UDP)。**实测手机流量进服成功** |
+| 10 | 手机**流量**下基岩反复 `no network path`（Wi-Fi 正常） | 移动网络普遍 CGNAT：UDP 映射保活短、易静默失效。实测同一配置 20:37 流量进服成功，22:31:52 会话中 `juice: Lost connectivity` 后，客户端一直用失效 ICE 候选重试。排查结论：路由器转发（`ALL 19132`）与 Windows/Hyper-V 两层防火墙（`OrzMC-MC-Public-UDP` Any）均正确，问题在运营商侧 | **项目决定：不引入 RakNet 回退**（会让端口结构从 1 个变 3 个、维护成本上升）。基岩玩家统一走 **Wi-Fi 局域网直连**（`192.168.0.33:19132`，最稳）；外出场景不承诺支持 |
 
 新基岩玩家入场三步：`whitelist add <Xbox代号>` → 客户端首登 `/register <密码>` → `lp user <代号> parent add bedrock`。
 
