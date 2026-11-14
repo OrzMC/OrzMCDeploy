@@ -377,6 +377,22 @@ EAGLER_GEYSER_WEBRTC_PORT=0            # 媒体复用 EAGLER_GEYSER_PORT
 路由器只需一条 TCP + 一条 UDP（同号），且不会出现「STUN 学到的外部端口与内部端口不一致」
 那类问题（静态转发同号即可）。
 
+**广播地址必须显式给出**：`up` 会按 `.env` 的 `LAN_HOST_IP` + `EAGLER_PUBLIC_HOST` 写
+`signaling.advertise-addresses: ["<LAN_IP>", "<域名>"]` 并关闭 `stun-discovery`——
+因为宿主若跑着系统代理/VPN（Mihomo TUN 等），Geyser 通过 STUN 探到的是**代理出口 IP**，
+外网基岩客户端会拿到错误地址。同时容器必须能解析该域名：宿主的 fake-ip 会被容器继承，
+所以在 `$DATA_ROOT/compose.site.yaml` 里给代理容器指定内网 DNS：
+
+```yaml
+services:
+  velocity:
+    dns:
+      - <路由器 LAN IP>
+```
+
+验证：`docker exec orzmc-velocity getent hosts <域名>` 应返回真实 WAN IP，日志出现
+`Advertised address <域名> resolves to <WAN IP>`。
+
 ## 10. 排障速查
 
 | 现象 | 定位 |

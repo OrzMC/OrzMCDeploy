@@ -386,7 +386,10 @@ eagler_cfg_set() { # <file> <section> <key> <value>
     local f="$1" sec="$2" key="$3" val="$4"
     awk -v sec="${sec}" -v key="${key}" -v val="${val}" '
         /^[A-Za-z][A-Za-z0-9_.-]*:/ { cur=$1; sub(/:.*$/, "", cur) }
-        cur == sec && $0 ~ ("^[ \t]+" key "[ \t]*:") { print "  " key ": " val; next }
+        cur == sec && $0 ~ ("^[ \t]+" key "[ \t]*:") {
+            match($0, /^[ \t]+/); ind = substr($0, 1, RLENGTH)
+            print ind key ": " val; next
+        }
         { print }
     ' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
 }
@@ -404,6 +407,24 @@ eagler_patch_geyser() {
     #   nethernet（webrtc-port=0 → 媒体复用主端口，端口集合最小）
     #   both      （保留 RakNet 兜底，需独立媒体端口）
     eagler_cfg_set "$f" bedrock transport "$(eagler_geyser_transport)"
+    # 广播地址：advertise-addresses 为空时 Geyser 用 STUN 探测本机出口 IP；宿主跑着
+    # 系统代理/VPN（Mihomo TUN 等）时会探到 VPN 出口 → 外网基岩客户端拿到错地址连不上。
+    # 这里按 .env 的 LAN_HOST_IP + EAGLER_PUBLIC_HOST 显式写出，并关掉 STUN。
+    local lan adv
+    lan="$(read_env_value LAN_HOST_IP)"
+    adv=""
+    if [ -n "$lan" ]; then adv="\"${lan}\""; fi
+    if [ -n "$(eagler_public_host)" ]; then
+        if [ -n "$adv" ]; then
+            adv="${adv}, \"$(eagler_public_host)\""
+        else
+            adv="\"$(eagler_public_host)\""
+        fi
+    fi
+    if [ -n "$adv" ]; then
+        eagler_cfg_set "$f" bedrock advertise-addresses "[${adv}]"
+        eagler_cfg_set "$f" bedrock stun-discovery "false"
+    fi
     # Geyser 2.12 的认证段叫 java（不是 remote）：online=要求微软/Java 正版，
     # offline=Bedrock 玩家按离线身份进（与 Java/Eagler 共用名字空间）。
     eagler_cfg_set "$f" java auth-type "offline"

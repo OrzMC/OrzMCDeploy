@@ -453,6 +453,21 @@ check "渲染出第二个后端" "yes" \
     "$(printf '%s' "$rendered" | grep -q 'survival = "host.docker.internal:25566"' && echo yes || echo no)"
 check "渲染 try 指向 lobby" "yes" \
     "$(printf '%s' "$rendered" | grep -q '^    "lobby",$' && echo yes || echo no)"
+# 配置写入保留原缩进（Geyser 的 signaling 是 bedrock 下的二级键）
+cfgf="$EG_DIR/geyser-test.yml"
+cat > "$cfgf" <<'YAML'
+bedrock:
+  port: 19132
+  signaling:
+    advertise-addresses: []
+    stun-discovery: true
+YAML
+eagler_cfg_set "$cfgf" bedrock advertise-addresses '["192.168.0.33", "dev.jokerhub.cn"]'
+eagler_cfg_set "$cfgf" bedrock stun-discovery "false"
+check "signaling 键保持 4 空格缩进" "2" \
+    "$(grep -cE '^    (advertise-addresses|stun-discovery):' "$cfgf")"
+check "没有键被写到 bedrock 一级" "0" \
+    "$(grep -cE '^  (advertise-addresses|stun-discovery):' "$cfgf")"
 eg_env 'ENABLE_VELOCITY=true
 VELOCITY_SERVERS=lobby=MCSM-716c2f:25565,survival=25566'
 mkdir -p "$EG_DIR/eagler"

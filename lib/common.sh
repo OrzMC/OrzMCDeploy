@@ -809,7 +809,11 @@ print_access_info() {
             jp="$(eagler_java_port)"
             echo "  Velocity: Java 入口 ${jp} → 后端 $(velocity_servers | tr '\n' ' ' | sed 's/ $//')（EAGLERCRAFT=$(if eagler_enabled; then echo on; else echo off; fi)）"
             if [ "$(geyser_target)" = "velocity" ]; then
-                echo "  Geyser（基岩）: udp/$(eagler_geyser_port) + tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_webrtc_port)（NetherNet 媒体）"
+                if [ "$(eagler_geyser_webrtc_port)" = "0" ]; then
+                    echo "  Geyser（基岩）: tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_port)（媒体，transport=$(eagler_geyser_transport)）"
+                else
+                    echo "  Geyser（基岩）: tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_port) + udp/$(eagler_geyser_webrtc_port)（媒体）"
+                fi
             fi
             echo "  实例侧待办: ${DATA_ROOT}/eagler/instance-setup.md"
             ;;
