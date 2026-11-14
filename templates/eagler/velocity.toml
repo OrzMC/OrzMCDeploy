@@ -1,9 +1,12 @@
 # ===========================================================================
-# OrzMC 生成的 Velocity 配置（EAGLER_MODE=proxy）
+# OrzMC 生成的 Velocity 配置（ENABLE_VELOCITY=true，ADR-036）
 #
 # 由 lib/eagler.sh 在首次 up 时生成，**生成后不再覆盖**——改端口/后端请直接改本文件。
 # 监听端口固定 25565（容器内），宿主端口由 .env 的 EAGLER_JAVA_PORT 决定。
-# __EAGLER_BACKEND__ 由 init/up 按 EAGLER_BACKEND_PORT 渲染（host.docker.internal）。
+# [servers] 与 try 由 up 时按 .env 渲染：
+#   VELOCITY_SERVERS=lobby=25567,survival=25566   （名字=实例发布到宿主的端口）
+#   VELOCITY_TRY=lobby                            （缺省第一个；玩家首次落地）
+# 都没写时退化为单个 lobby = EAGLER_BACKEND_PORT（旧行为）。
 # 兼容版本：Velocity 4.3.1（config-version 2.9）。
 # ===========================================================================
 
@@ -41,13 +44,12 @@ bytes-per-second = -1
 decompressed-bytes-per-second = 5242880
 
 [servers]
-# 后端由 MCSManager 管理的实例发布到宿主（EAGLER_BACKEND_PORT），容器内用
-# host.docker.internal 访问（compose 已加 host-gateway，Linux 同样可用）。
-# 多后端：在此继续加 <名字> = "host.docker.internal:<端口>"，再改 try 顺序。
-lobby = "__EAGLER_BACKEND__"
+# 后端是 MCSManager 管理的实例，发布到宿主端口；容器内用 host.docker.internal
+# 访问（compose 已加 host-gateway，Linux 同样可用）。下面两行由 up 渲染。
+__VELOCITY_SERVERS__
 
 try = [
-    "lobby"
+__VELOCITY_TRY__
 ]
 
 [forced-hosts]

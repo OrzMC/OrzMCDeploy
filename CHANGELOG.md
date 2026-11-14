@@ -13,6 +13,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **多后端大厅**（Velocity）：`.env` 一行 `VELOCITY_SERVERS=<名字>=<宿主端口>,...` +
+  `VELOCITY_TRY=<落地顺序>`，`up` 渲染 `velocity.toml` 的 `[servers]`/`try`。
+  留空退化为单后端 `lobby=EAGLER_BACKEND_PORT`（老 `.env` 不用改）。
+  校验覆盖名字字符集、端口数字、端口撞代理入口、名字重复、`try` 未定义。
+
 ### Changed
 
 - **前端拓扑拆成两个正交开关**（ADR-036）：`ENABLE_VELOCITY` / `ENABLE_EAGLER`（缺省都 `false`）。

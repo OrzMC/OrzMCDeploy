@@ -129,7 +129,8 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 **当前基线**：核心 2 个服务常驻（web/daemon）+ `easybot` 可选（`ENABLE_EASYBOT=false` 时只剩 2 个）。
 前端拓扑由两个正交开关派生（ADR-036）：`java-only`（缺省）/ `velocity`（只上代理大厅）/
 `eagler-direct`（实例挂 EaglerXPaper）/ `eagler-proxy`（Velocity + EaglerXServer）；
-`ENABLE_VELOCITY=true` 时多一个 `velocity` 服务（旧名 `eagler-proxy`，已重命名）；
+`ENABLE_VELOCITY=true` 时多一个 `velocity` 服务（旧名 `eagler-proxy`，已重命名），多后端由一行
+`VELOCITY_SERVERS=<名字>=<宿主端口>,...` 表达（缺省单后端 `lobby=EAGLER_BACKEND_PORT`）；
 入口只有 2 个局域网 HTTP 端口；daemon 不发布端口（节点地址固定 `ws://mcsmanager-daemon:24444`，
 浏览器数据面经面板中转）；全部配置/数据落 `$DATA_ROOT`；镜像 digest 锁定。
 
@@ -138,7 +139,7 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 ```bash
 for f in *.sh lib/*.sh tests/*.sh; do bash -n "$f"; done
 shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
-bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义 + 前端拓扑 4 象限（85 项）
+bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义 + 前端拓扑 4 象限 + 多后端（95 项）
 bash tests/docs_check.sh      # 文档链接/锚点
 python3 -m py_compile tests/eaglercraft_probe.py   # Eaglercraft 握手探针语法（手工工具）
 ./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate

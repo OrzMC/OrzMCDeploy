@@ -125,14 +125,38 @@ eagler_ensure_secret() { # eagler_ensure_secret <file>
     info "已生成转发密钥: ${f}"
 }
 
-eagler_render_velocity_toml() { # eagler_render_velocity_toml <dest> <backend-host:port>
-    local dest="$1" backend="$2"
+eagler_render_velocity_toml() { # eagler_render_velocity_toml <dest>
+    local dest="$1" line srv name port t
     if [ -f "$dest" ]; then
         info "velocity.toml 已存在（不覆盖）: ${dest}"
         return 0
     fi
-    sed "s#__EAGLER_BACKEND__#${backend}#g" "${TEMPLATES_DIR}/eagler/velocity.toml" > "$dest"
-    info "已生成 velocity.toml: ${dest}"
+    : > "${dest}.tmp"
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            '__VELOCITY_SERVERS__')
+                # 多后端：每个实例发布到宿主的端口各占一行
+                while IFS= read -r srv; do
+                    [ -n "$srv" ] || continue
+                    name="${srv%%=*}"
+                    port="${srv##*=}"
+                    printf '%s = "host.docker.internal:%s"\n' "$name" "$port" >> "${dest}.tmp"
+                done < <(velocity_servers)
+                ;;
+            '__VELOCITY_TRY__')
+                # 玩家首次落地顺序：try 列表第一个即默认服
+                while IFS= read -r t; do
+                    [ -n "$t" ] || continue
+                    printf '    "%s",\n' "$t" >> "${dest}.tmp"
+                done < <(velocity_try)
+                ;;
+            *)
+                printf '%s\n' "$line" >> "${dest}.tmp"
+                ;;
+        esac
+    done < "${TEMPLATES_DIR}/eagler/velocity.toml"
+    mv "${dest}.tmp" "$dest"
+    info "已生成 velocity.toml（后端 $(velocity_servers | tr '\n' ' ' | sed 's/ $//')）: ${dest}"
 }
 
 # EaglerXServer 首次启动才会生成 listeners.toml；已有则把两个关键项改成面向反代的值。
@@ -221,6 +245,19 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
             echo "- \`docker.ports\`：保持现状（\`${jp}:25565/tcp\`），Java 连接方式不变"
         fi
         echo "- \`plugins/\`：ViaVersion + ViaBackwards（版本见 docs/eaglercraft.md §7）"
+        if [ "$have_vel" = "1" ]; then
+            echo
+            echo "### 1.1 每个后端实例的端口（代理按名字接入）"
+            echo
+            echo "| 代理里的名字 | 实例要发布的宿主端口 |"
+            echo "|---|---|"
+            while IFS= read -r srv; do
+                [ -n "$srv" ] || continue
+                echo "| \`${srv%%=*}\` | \`${srv##*=}:25565\` |"
+            done < <(velocity_servers)
+            echo
+            echo "玩家默认落地：\`$(velocity_try | head -n1)\`（改 \`.env\` 的 \`VELOCITY_TRY\` 可换；\`/server <名字>\` 切换）"
+        fi
         if [ "$have_eg" = "1" ] && [ "$have_vel" = "0" ]; then
             echo "- \`plugins/\`：再加 **EaglerXPaper**："
             echo "  \`cp $(eagler_jars_dir)/EaglerXPaper.jar \$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<实例uuid>/plugins/\`"
@@ -308,18 +345,18 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
     info "已生成实例待办: ${dest}"
 }
 
-# 端口占用体检：proxy 模式要求「EAGLER_JAVA_PORT 归代理、EAGLER_BACKEND_PORT 归实例」。
+# 端口占用体检：要求「EAGLER_JAVA_PORT 归代理、各后端端口归实例」。
 # 只在实例正在运行时能看见（面板停实例会移除容器），所以这里是**告警**而不是硬失败——
 # 真正兜底的是 compose 起不来时的端口冲突报错。
 eagler_check_port_conflicts() {
     command -v docker >/dev/null 2>&1 || return 0
-    local p busy
-    for p in "$(eagler_java_port)" "$(eagler_backend_port)"; do
+    local p busy srv
+    for p in "$(eagler_java_port)" $(velocity_servers | cut -d= -f2); do
         busy="$(docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null \
             | awk -F'|' -v port=":${p}->" '$2 ~ port && $1 != "orzmc-velocity" {print $1}' \
             | head -n 2 | tr '\n' ' ')"
         if [ -n "$busy" ]; then
-            warn "端口 ${p} 已被容器占用：${busy}——proxy 模式需要 EAGLER_JAVA_PORT 归代理、EAGLER_BACKEND_PORT 归实例，请先在面板改实例端口映射"
+            warn "端口 ${p} 已被容器占用：${busy}——velocity 拓扑需要 EAGLER_JAVA_PORT 归代理、每个后端端口归对应实例，请先在面板改实例端口映射"
         fi
     done
     return 0
@@ -368,7 +405,7 @@ eagler_stash_plugin() { # eagler_stash_plugin <jar-path>
 }
 
 eagler_prepare() {
-    local topo pdir backend
+    local topo pdir
     topo="$(topology)"
     case "$topo" in
         java-only)
@@ -408,8 +445,7 @@ eagler_prepare() {
                 eagler_stash_plugin "${pdir}/plugins/Geyser-Velocity.jar"
             fi
             eagler_ensure_secret "${pdir}/forwarding.secret"
-            backend="host.docker.internal:$(eagler_backend_port)"
-            eagler_render_velocity_toml "${pdir}/velocity.toml" "$backend"
+            eagler_render_velocity_toml "${pdir}/velocity.toml"
             eagler_write_setup_doc "$topo"
             if [ "$topo" = "eagler-proxy" ]; then
                 eagler_write_caddy_snippet "orzmc-velocity"

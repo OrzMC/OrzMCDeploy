@@ -625,6 +625,10 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
    `proxy→true/true`），`validate` 打印迁移提示但不阻断；旧值本身非法时仍报错。
 6. 防火墙口径跟着派生：`EAGLER_JAVA_PORT` 并入 `MC-TCP`（`velocity_enabled`），
    Geyser 端口并入 `MC-UDP`（`geyser_target()=velocity`）；**不得**再判 `EAGLER_MODE`。
+7. 多后端只用一个 `.env` 变量表达：`VELOCITY_SERVERS=lobby=25567,survival=25566`（名字=实例发布
+   到宿主的端口），`VELOCITY_TRY` 决定首次落地；留空退化为单后端 `lobby=EAGLER_BACKEND_PORT`。
+   `velocity.toml` 的 `[servers]`/`try` 由 `up` 渲染（`ensure_*` 语义：已存在的文件不覆盖）。
+   校验覆盖：名字字符集、端口为数字、端口不得等于代理入口、名字不重复、`try` 必须是已定义名字。
 
 **影响**：
 

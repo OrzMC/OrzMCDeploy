@@ -160,6 +160,30 @@ eagler_geyser_enabled() {
     v="$(read_env_value EAGLER_GEYSER)"; [ -n "$v" ] || v="true"
     printf '%s' "$v"
 }
+# 多后端（Velocity）：.env 的 VELOCITY_SERVERS=lobby=25567,survival=25566
+# 名字 = 代理里的服务器名，端口 = 该实例发布到宿主的端口（面板里配的 docker 端口）。
+# 留空则退化为单个 lobby = EAGLER_BACKEND_PORT（旧行为，老 .env 不用改）。
+velocity_servers() { # 输出 "name=port"，每行一个
+    local v
+    v="$(read_env_value VELOCITY_SERVERS)"
+    if [ -z "$v" ]; then
+        printf 'lobby=%s\n' "$(eagler_backend_port)"
+        return 0
+    fi
+    printf '%s\n' "$v" | tr ',' '\n'
+}
+
+velocity_try() { # 输出 try 列表里的服务器名（每行一个；缺省取第一个后端）
+    local v first
+    v="$(read_env_value VELOCITY_TRY)"
+    if [ -n "$v" ]; then
+        printf '%s\n' "$v" | tr ',' '\n'
+        return 0
+    fi
+    first="$(velocity_servers | head -n1)"
+    printf '%s\n' "${first%%=*}"
+}
+
 eagler_geyser_port()        { eagler_port EAGLER_GEYSER_PORT 19132; }
 eagler_geyser_webrtc_port() { eagler_port EAGLER_GEYSER_WEBRTC_PORT 19134; }
 
@@ -172,6 +196,50 @@ _check_bool() { # _check_bool <KEY>：允许留空（用缺省）
         ''|true|false) return 0 ;;
         *) die "${1}=${v} 无效：只允许 true / false" ;;
     esac
+}
+
+# 多后端校验：名字合法/端口是数字/不与代理入口撞/名字不重复/try 必须是已定义的名字
+validate_velocity_servers() { # <java-port>
+    local jp="$1" srv name port t names
+    names=""
+    while IFS= read -r srv; do
+        # 只裁首尾空白：名字中间有空格要报错，不能悄悄改成别的名字
+        srv="${srv#"${srv%%[![:space:]]*}"}"
+        srv="${srv%"${srv##*[![:space:]]}"}"
+        [ -n "$srv" ] || continue
+        case "$srv" in
+            *=*) ;;
+            *) die "VELOCITY_SERVERS 格式应为 <名字>=<宿主端口>，当前项 '${srv}'" ;;
+        esac
+        name="${srv%%=*}"
+        port="${srv##*=}"
+        case "$name" in
+            ''|*[!A-Za-z0-9_-]*)
+                die "VELOCITY_SERVERS 里的服务器名 '${name}' 非法：只允许字母/数字/下划线/连字符" ;;
+        esac
+        if ! is_uint "$port"; then
+            die "VELOCITY_SERVERS 里 ${name} 的端口 '${port}' 不是数字"
+        fi
+        if [ "$port" = "$jp" ]; then
+            die "后端 ${name} 的端口 ${port} 与代理入口端口 EAGLER_JAVA_PORT 相同：实例要让出玩家端口"
+        fi
+        case " ${names} " in
+            *" ${name} "*) die "VELOCITY_SERVERS 里服务器名 '${name}' 重复" ;;
+        esac
+        names="${names} ${name}"
+    done < <(velocity_servers)
+    if [ -z "$names" ]; then
+        die "VELOCITY_SERVERS 为空：velocity 拓扑至少需要一个后端"
+    fi
+    while IFS= read -r t; do
+        t="${t#"${t%%[![:space:]]*}"}"
+        t="${t%"${t##*[![:space:]]}"}"
+        [ -n "$t" ] || continue
+        case " ${names} " in
+            *" ${t} "*) ;;
+            *) die "VELOCITY_TRY 里的 '${t}' 不在 VELOCITY_SERVERS 中（可选：${names# }）" ;;
+        esac
+    done < <(velocity_try)
 }
 
 # 值域/端口一致性校验（validate 调用；不碰网络，不要求运行时就绪）
@@ -213,9 +281,7 @@ validate_topology() {
         if ! is_uint "$(eagler_geyser_webrtc_port)"; then die "EAGLER_GEYSER_WEBRTC_PORT 必须是数字"; fi
     fi
     if velocity_enabled; then
-        if [ "$jp" = "$bp" ]; then
-            die "velocity 拓扑下 EAGLER_JAVA_PORT 与 EAGLER_BACKEND_PORT 不能相同（当前都是 ${jp}）：实例要让出玩家端口"
-        fi
+        validate_velocity_servers "$jp"
     fi
     if [ "$dialect" != "none" ] && [ "$wp" = "$jp" ]; then
         die "EAGLER_WS_PORT 与 EAGLER_JAVA_PORT 不能相同（当前都是 ${jp}）：反代端口与游戏端口必须分开"

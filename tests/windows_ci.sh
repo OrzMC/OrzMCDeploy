@@ -412,6 +412,39 @@ EAGLER_JAVA_PORT=25570'
 check "自定义端口生效" "25570 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
 
 # ===========================================================================
+section "多后端大厅（VELOCITY_SERVERS / VELOCITY_TRY）"
+eg_env 'ENABLE_VELOCITY=true'
+check "缺省后端列表 = lobby=EAGLER_BACKEND_PORT" "lobby=25566" "$(velocity_servers)"
+check "缺省 try = 第一个后端" "lobby" "$(velocity_try)"
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=25567,survival=25566
+VELOCITY_TRY=lobby'
+check "多后端解析" "lobby=25567 survival=25566" "$(velocity_servers | tr '\n' ' ' | sed 's/ $//')"
+check "try 显式指定生效" "lobby" "$(velocity_try | head -n1)"
+# shellcheck disable=SC1091  # 仓库内相对路径，函数定义无副作用
+source "$REPO_ROOT/lib/eagler.sh"
+rm -f "$EG_DIR/velocity.toml"
+eagler_render_velocity_toml "$EG_DIR/velocity.toml" >/dev/null 2>&1
+rendered="$(sed -n '/^\[servers\]/,/^\[forced-hosts\]/p' "$EG_DIR/velocity.toml")"
+check "渲染出第二个后端" "yes" \
+    "$(printf '%s' "$rendered" | grep -q 'survival = "host.docker.internal:25566"' && echo yes || echo no)"
+check "渲染 try 指向 lobby" "yes" \
+    "$(printf '%s' "$rendered" | grep -q '^    "lobby",$' && echo yes || echo no)"
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=25567,bad name=25566'
+if ( validate_topology ) >/dev/null 2>&1; then fail "名字含空格应报错"; else ok "服务器名含空格被拦下"; fi
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=25567
+VELOCITY_TRY=nether'
+if ( validate_topology ) >/dev/null 2>&1; then fail "try 不在列表应报错"; else ok "try 不在列表被拦下"; fi
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=25567,lobby=25566'
+if ( validate_topology ) >/dev/null 2>&1; then fail "重复名字应报错"; else ok "重复服务器名被拦下"; fi
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=25565'
+if ( validate_topology ) >/dev/null 2>&1; then fail "后端端口撞代理入口应报错"; else ok "后端端口撞代理入口被拦下"; fi
+
+# ===========================================================================
 section "firewall apply —— 只重建受管规则，不碰站点自建（OrzMC-Web-TLS）"
 FW_DIR="$TMP/fw"; mkdir -p "$FW_DIR"
 cp "$REPO_ROOT/templates/env" "$FW_DIR/.env"

@@ -110,6 +110,36 @@ proxies:
    稳妥做法：先不装 RPC，用全局 `server.properties` 的 `view-distance` 控制负载（本站 6 → 5）。
 6. 重启实例，日志应出现 `Done (...)`（Via 会打印 `server version: 26.3 (777)`）。
 
+## 4.5 多后端大厅（可选：一个代理带多个实例）
+
+面板里每个实例 = 代理的一个后端。代理只认"名字 + 宿主端口"，所以配置仍然只有一行：
+
+```ini
+# <数据目录>/.env —— 示例：大厅 + 生存，端口是各实例发布到宿主的端口
+VELOCITY_SERVERS=lobby=25567,survival=25566
+VELOCITY_TRY=lobby
+```
+
+| 要点 | 说明 |
+|---|---|
+| 端口来源 | 面板 → 实例 → docker 端口映射里的**宿主端口**（不是容器内 `25565`） |
+| 不能撞 | 每个后端一个独立端口，且都不等于 `EAGLER_JAVA_PORT`（代理入口）；`validate` 会拦 |
+| 名字 | 只允许字母/数字/下划线/连字符，大小写敏感；`/server <名字>` 用它切换 |
+| 落地顺序 | `VELOCITY_TRY` 逗号分隔，须全部在 `VELOCITY_SERVERS` 里；留空 = 第一个 |
+| 每个后端都要做 | §4 的 1–4 步（`online-mode=false` + `proxies.velocity` + 同一条 `secret`） |
+| 生成物 | `up` 渲染 `$DATA_ROOT/eagler/proxy/velocity.toml` 的 `[servers]`/`try`；**已存在不覆盖** |
+| 视图/限制 | 后端之间不做视图隔离，一个后端的插件只对其玩家生效（大厅与生存请分开装插件） |
+
+改了`.env`里的服务器列表后要重建 `velocity.toml` 才生效——按 `ensure_*` 语义它不会被覆盖：
+
+```bash
+mv <数据目录>/eagler/proxy/velocity.toml <数据目录>/eagler/proxy/velocity.toml.old
+./orzmc.sh -d <数据目录> up        # 重新渲染并重启代理
+```
+
+> Folia 后端同样可以挂在代理后面（Velocity 转发与 region 线程无关）；Eaglercraft 只有在
+`ENABLE_VELOCITY=true` 下才支持 Folia（`eagler-direct` 用 EaglerXPaper，不支持 Folia）。
+
 ## 5. 阶段 3：TLS / WSS（站点自备）
 
 把 `<数据目录>/eagler/caddy-eagler.snippet` 追加到站点 Caddyfile，然后：

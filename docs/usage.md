@@ -160,7 +160,9 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `ENABLE_VELOCITY` | 可选 | 是否用 Velocity 当前端（多服大厅；玩家 Java 端口由代理发布）。缺省 `false`，ADR-036 |
 | `ENABLE_EAGLER` | 可选 | 是否接 Eaglercraft Web 客户端。缺省 `false`；实现方式由 `ENABLE_VELOCITY` 派生（`true` → 代理装 EaglerXServer；`false` → 实例挂 EaglerXPaper，不支持 Folia）。见 [eaglercraft-deploy.md](eaglercraft-deploy.md) |
 | `EAGLER_MODE` | 已废弃 | 旧三态 `off`/`direct`/`proxy`：两个新开关都没写时才生效（`proxy` → `ENABLE_VELOCITY+ENABLE_EAGLER`），`validate` 提示迁移 |
-| `EAGLER_JAVA_PORT` / `EAGLER_BACKEND_PORT` / `EAGLER_WS_PORT` | 可选 | 缺省 `25565` / `25566` / `18444`；后端端口只在 `ENABLE_VELOCITY=true` 时用到 |
+| `EAGLER_JAVA_PORT` / `EAGLER_BACKEND_PORT` / `EAGLER_WS_PORT` | 可选 | 缺省 `25565` / `25566` / `18444`；`EAGLER_BACKEND_PORT` 只是**单后端**缺省值的来源 |
+| `VELOCITY_SERVERS` | 可选 | 多后端列表：`<名字>=<实例发布到宿主的端口>`，逗号分隔（如 `lobby=25567,survival=25566`，示例）。留空 = 单个 `lobby=EAGLER_BACKEND_PORT` |
+| `VELOCITY_TRY` | 可选 | 玩家首次落地顺序（名字须在 `VELOCITY_SERVERS` 里）；留空 = 第一个 |
 | `EAGLER_PUBLIC_HOST` | 可选 | 只影响提示文案（如 `dev.jokerhub.cn`）；留空打印占位符，域名可随时换 |
 | `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | 可选 | 代理容器/堆上限（缺省 1024M / 768） |
 | `EAGLER_GEYSER` / `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | 可选 | 基岩装在谁身上由拓扑派生：有代理 → 代理的 Geyser-Velocity（端口由代理发布）；无代理 → 实例侧 Geyser-Spigot（端口不动）。`EAGLER_GEYSER=false` = 不提供基岩。缺省 `true` / `19132` / `19134` |
