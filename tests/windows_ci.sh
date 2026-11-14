@@ -431,6 +431,17 @@ check "渲染出第二个后端" "yes" \
 check "渲染 try 指向 lobby" "yes" \
     "$(printf '%s' "$rendered" | grep -q '^    "lobby",$' && echo yes || echo no)"
 eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=MCSM-716c2f:25565,survival=25566'
+mkdir -p "$EG_DIR/eagler"
+saved_root="$DATA_ROOT"; DATA_ROOT="$EG_DIR"
+eagler_write_setup_doc eagler-proxy >/dev/null 2>&1
+doc="$(cat "$EG_DIR/eagler/instance-setup.md")"
+DATA_ROOT="$saved_root"
+check "容器名后端：待办里不要求发布宿主端口" "yes" \
+    "$(printf '%s' "$doc" | grep -q '不用发布端口（容器名直达）' && echo yes || echo no)"
+check "容器名后端：待办里不再出现 x:25565:25565" "0" \
+    "$(printf '%s' "$doc" | grep -cE '25565:25565\|')"
+eg_env 'ENABLE_VELOCITY=true
 VELOCITY_SERVERS=lobby=25567,bad name=25566'
 if ( validate_topology ) >/dev/null 2>&1; then fail "名字含空格应报错"; else ok "服务器名含空格被拦下"; fi
 eg_env 'ENABLE_VELOCITY=true

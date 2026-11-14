@@ -126,7 +126,7 @@ eagler_ensure_secret() { # eagler_ensure_secret <file>
 }
 
 eagler_render_velocity_toml() { # eagler_render_velocity_toml <dest>
-    local dest="$1" line srv name addr t
+    local dest="$1" line srv name addr sname saddr t
     if [ -f "$dest" ]; then
         info "velocity.toml 已存在（不覆盖）: ${dest}"
         return 0
@@ -206,7 +206,7 @@ eagler_write_caddy_snippet() { # eagler_write_caddy_snippet <upstream-host>
 }
 
 eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagler-proxy>
-    local topo="$1" dest jp bp wp host secret_line have_vel have_eg
+    local topo="$1" dest jp bp wp host secret_line have_vel have_eg uses_host_ports
     dest="$(eagler_setup_doc)"
     jp="$(eagler_java_port)"
     bp="$(eagler_backend_port)"
@@ -221,6 +221,14 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
         eagler-direct|eagler-proxy) have_eg=1 ;;
         *)                          have_eg=0 ;;
     esac
+    uses_host_ports=0
+    if [ "$have_vel" = "1" ]; then
+        while IFS= read -r srv; do
+            case "$srv" in
+                *=host.docker.internal:*) uses_host_ports=1 ;;
+            esac
+        done < <(velocity_servers)
+    fi
     if [ "$have_vel" = "1" ] && [ -f "$(eagler_proxy_dir)/forwarding.secret" ]; then
         secret_line="$(cat "$(eagler_proxy_dir)/forwarding.secret")"
     else
@@ -238,9 +246,13 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
         echo
         echo "- 实例目录：\`\$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<实例uuid>/\`"
         echo "- \`server.properties\`：\`online-mode=false\`（玩家认证在代理/桥接层，ADR-035/036）"
-        if [ "$have_vel" = "1" ]; then
+        if [ "$have_vel" = "1" ] && [ "$uses_host_ports" = "1" ]; then
             echo "- \`docker.ports\`（面板 → 实例 → 端口映射）：**删掉** \`25565:25565/tcp\`，"
             echo "  改成 \`${bp}:25565/tcp\`（玩家端口让给代理 \`${jp}\`）"
+        elif [ "$have_vel" = "1" ]; then
+            echo "- \`docker.ports\`（面板 → 实例 → 端口映射）：**删掉** \`25565:25565/tcp\`、"
+            echo "  \`19132/udp\`、\`19132/tcp\`、\`19134/udp\`（代理用容器名直连，不需要宿主端口；"
+            echo "  只留 RCON/语音等运维端口）"
         else
             echo "- \`docker.ports\`：保持现状（\`${jp}:25565/tcp\`），Java 连接方式不变"
         fi
@@ -249,11 +261,18 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
             echo
             echo "### 1.1 每个后端实例的端口（代理按名字接入）"
             echo
-            echo "| 代理里的名字 | 实例要发布的宿主端口 |"
-            echo "|---|---|"
+            echo "| 代理里的名字 | 代理连接地址 | 实例侧要做的 |"
+            echo "|---|---|---|"
             while IFS= read -r srv; do
                 [ -n "$srv" ] || continue
-                echo "| \`${srv%%=*}\` | \`${srv##*=}:25565\` |"
+                sname="${srv%%=*}"
+                saddr="${srv##*=}"
+                case "$saddr" in
+                    host.docker.internal:*)
+                        echo "| \`${sname}\` | \`${saddr}\` | 发布 \`${saddr##*:}:25565/tcp\` |" ;;
+                    *)
+                        echo "| \`${sname}\` | \`${saddr}\` | 不用发布端口（容器名直达） |" ;;
+                esac
             done < <(velocity_servers)
             echo
             echo "玩家默认落地：\`$(velocity_try | head -n1)\`（改 \`.env\` 的 \`VELOCITY_TRY\` 可换；\`/server <名字>\` 切换）"
