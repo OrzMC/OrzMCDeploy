@@ -67,27 +67,77 @@ win_path() {
 }
 
 # ---- 可选服务 -------------------------------------------------------------
-# 按 ENABLE_* 输出应启用的可选服务 profile 列表（换行分隔；读 .env）
+# 按 ENABLE_* / 前端拓扑输出应启用的可选服务 profile 列表（换行分隔；读 .env）
 # ENABLE_EASYBOT 缺省为 true（保持历史默认启用）；ADR-025 起只剩 easybot 一个可选服务。
 # 注意：判断写成 if（避免 set -e 下 [ false ] 返回非零导致函数退出）。
 enabled_profiles() {
-    local eb em
+    local eb
     eb="$(read_env_value ENABLE_EASYBOT)";  [ -n "$eb" ] || eb="true"
     if [ "$eb" = "true" ]; then printf '%s\n' "easybot"; fi
-    # EAGLER_MODE=proxy 才追加 eagler profile（ADR-035）；off/direct 不启代理服务。
-    em="$(eagler_mode)"
-    if [ "$em" = "proxy" ]; then printf '%s\n' "eagler"; fi
+    # Velocity 前端（ADR-036）：玩家端口交给代理，Eaglercraft 只是它上面的可选插件。
+    if velocity_enabled; then printf '%s\n' "velocity"; fi
 }
 
-# ---- Eaglercraft Web 接入（可选，ADR-035）--------------------------------
-# 单一开关：EAGLER_MODE=off（缺省，零影响）/ direct（实例直挂 EaglerXPaper）/
-# proxy（Velocity + EaglerXServer 接管玩家端口，支持 Folia）。
-# 其余端口都有缺省值，用户通常只改这一行；域名不写进任何生成物（public_host 只影响
-# 提示文案），换域名不需要改服务端配置。
-eagler_mode() {
-    local m
-    m="$(read_env_value EAGLER_MODE)"; [ -n "$m" ] || m="off"
-    printf '%s' "$m"
+# ---- 前端拓扑：两个正交开关（ADR-036）------------------------------------
+#   ENABLE_VELOCITY=true|false   是否用 Velocity 当前端（多服大厅 / 玩家端口由代理发布）
+#   ENABLE_EAGLER =true|false    是否接 Eaglercraft Web 客户端
+#
+# 四种组合，实现方式由 ENABLE_VELOCITY **派生**（不设第三个开关）：
+#   V=false E=false  java-only      纯直连基线（缺省）
+#   V=false E=true   eagler-direct  实例直挂 EaglerXPaper（不支持 Folia、不能改写 UUID）
+#   V=true  E=false  velocity       仅 Velocity（多服大厅；Java/基岩玩家）
+#   V=true  E=true   eagler-proxy   代理装 EaglerXServer + Geyser-Velocity（支持 Folia）
+#
+# 向后兼容：两个开关都未写时按旧 EAGLER_MODE 推导（off/direct/proxy），validate 提示迁移。
+legacy_eagler_mode() { read_env_value EAGLER_MODE; }
+
+velocity_enabled() {
+    local v
+    v="$(read_env_value ENABLE_VELOCITY)"
+    if [ -n "$v" ]; then
+        if [ "$v" = "true" ]; then return 0; else return 1; fi
+    fi
+    if [ "$(legacy_eagler_mode)" = "proxy" ]; then return 0; fi
+    return 1
+}
+
+eagler_enabled() {
+    local v
+    v="$(read_env_value ENABLE_EAGLER)"
+    if [ -n "$v" ]; then
+        if [ "$v" = "true" ]; then return 0; else return 1; fi
+    fi
+    case "$(legacy_eagler_mode)" in
+        direct|proxy) return 0 ;;
+        *)            return 1 ;;
+    esac
+}
+
+topology() { # java-only | velocity | eagler-direct | eagler-proxy
+    local v e
+    if velocity_enabled; then v=1; else v=0; fi
+    if eagler_enabled;  then e=1; else e=0; fi
+    if [ "$v" = "1" ] && [ "$e" = "1" ]; then printf 'eagler-proxy';  return 0; fi
+    if [ "$v" = "1" ]; then                    printf 'velocity';      return 0; fi
+    if [ "$e" = "1" ]; then                    printf 'eagler-direct'; return 0; fi
+    printf 'java-only'
+}
+
+eagler_dialect() { # none | eaglerxpaper | eaglerxserver
+    case "$(topology)" in
+        eagler-direct) printf 'eaglerxpaper' ;;
+        eagler-proxy)  printf 'eaglerxserver' ;;
+        *)             printf 'none' ;;
+    esac
+}
+
+# 基岩（Geyser）装在谁身上：有代理 → Geyser-Velocity（Geyser-Spigot 会自我禁用）；
+# 无代理 → 留给实例侧自己装 Geyser-Spigot；EAGLER_GEYSER=false 一律不装。
+geyser_target() { # none | spigot | velocity
+    local v
+    v="$(read_env_value EAGLER_GEYSER)"; [ -n "$v" ] || v="true"
+    if [ "$v" != "true" ]; then printf 'none'; return 0; fi
+    if velocity_enabled; then printf 'velocity'; else printf 'spigot'; fi
 }
 
 eagler_port() { # eagler_port <KEY> <default>
@@ -96,13 +146,15 @@ eagler_port() { # eagler_port <KEY> <default>
     printf '%s' "$v"
 }
 
+# 端口语义（键名保留 EAGLER_*，避免老 .env 失效）：
+#   EAGLER_JAVA_PORT     玩家 Java 入口端口（velocity 拓扑下由代理发布）
+#   EAGLER_BACKEND_PORT  仅 velocity：实例发布到宿主的内部端口
+#   EAGLER_WS_PORT       反代对外暴露的 WSS 端口（TLS 由站点提供，ADR-027）
 eagler_java_port()    { eagler_port EAGLER_JAVA_PORT 25565; }
 eagler_backend_port() { eagler_port EAGLER_BACKEND_PORT 25566; }
 eagler_ws_port()      { eagler_port EAGLER_WS_PORT 18444; }
 eagler_public_host()  { read_env_value EAGLER_PUBLIC_HOST; }
 
-# 基岩（Geyser）：proxy 模式下必须装在代理上（Geyser-Spigot 检测到 Velocity 会自我禁用）。
-# 缺省 true；EAGLER_GEYSER=false 时只在 direct 模式下留给实例侧自己装。
 eagler_geyser_enabled() {
     local v
     v="$(read_env_value EAGLER_GEYSER)"; [ -n "$v" ] || v="true"
@@ -111,35 +163,72 @@ eagler_geyser_enabled() {
 eagler_geyser_port()        { eagler_port EAGLER_GEYSER_PORT 19132; }
 eagler_geyser_webrtc_port() { eagler_port EAGLER_GEYSER_WEBRTC_PORT 19134; }
 
-# 值域/端口一致性校验（validate 调用；不碰网络，不要求运行时就绪）
-validate_eagler() {
-    local mode jp bp wp ph
-    mode="$(eagler_mode)"
-    case "$mode" in
-        off) return 0 ;;
-        direct|proxy) ;;
-        *) die "EAGLER_MODE=${mode} 无效：只允许 off / direct / proxy" ;;
+is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac }
+
+_check_bool() { # _check_bool <KEY>：允许留空（用缺省）
+    local v
+    v="$(read_env_value "$1")"
+    case "$v" in
+        ''|true|false) return 0 ;;
+        *) die "${1}=${v} 无效：只允许 true / false" ;;
     esac
-    jp="$(eagler_java_port)"
-    bp="$(eagler_backend_port)"
-    wp="$(eagler_ws_port)"
-    case "$jp" in ''|*[!0-9]*) die "EAGLER_JAVA_PORT 必须是数字（当前 ${jp}）" ;; esac
-    case "$bp" in ''|*[!0-9]*) die "EAGLER_BACKEND_PORT 必须是数字（当前 ${bp}）" ;; esac
-    case "$wp" in ''|*[!0-9]*) die "EAGLER_WS_PORT 必须是数字（当前 ${wp}）" ;; esac
-    if [ "$mode" = "proxy" ] && [ "$jp" = "$bp" ]; then
-        die "proxy 模式下 EAGLER_JAVA_PORT 与 EAGLER_BACKEND_PORT 不能相同（当前都是 ${jp}）：实例要让出玩家端口"
+}
+
+# 值域/端口一致性校验（validate 调用；不碰网络，不要求运行时就绪）
+validate_topology() {
+    local topo dialect leg leg_topo jp bp wp ph
+    topo="$(topology)"
+    dialect="$(eagler_dialect)"
+    leg="$(legacy_eagler_mode)"
+    case "$leg" in
+        ''|off|direct|proxy) ;;
+        *) die "EAGLER_MODE=${leg} 无效：只允许 off / direct / proxy（已废弃，改用 ENABLE_VELOCITY / ENABLE_EAGLER）" ;;
+    esac
+    _check_bool ENABLE_VELOCITY
+    _check_bool ENABLE_EAGLER
+    _check_bool EAGLER_GEYSER
+    if [ -n "$leg" ] && [ -z "$(read_env_value ENABLE_VELOCITY)" ] \
+        && [ -z "$(read_env_value ENABLE_EAGLER)" ] && [ "$leg" != "off" ]; then
+        warn "EAGLER_MODE=${leg} 已废弃：建议改成 ENABLE_VELOCITY / ENABLE_EAGLER（当前按 ${topo} 运行）"
     fi
-    if [ "$wp" = "$jp" ]; then
+    # 新键在、旧键也在：新键说了算，但必须说出来，避免"改了 EAGLER_MODE 却没反应"
+    if [ -n "$leg" ] && [ -n "$(read_env_value ENABLE_VELOCITY)$(read_env_value ENABLE_EAGLER)" ]; then
+        case "$leg" in
+            off)    leg_topo="java-only" ;;
+            direct) leg_topo="eagler-direct" ;;
+            proxy)  leg_topo="eagler-proxy" ;;
+            *)      leg_topo="" ;;
+        esac
+        if [ -n "$leg_topo" ] && [ "$topo" != "$leg_topo" ]; then
+            warn "EAGLER_MODE=${leg} 已被忽略（新开关优先，当前 ${topo}）：建议删掉 EAGLER_MODE 这一行"
+        fi
+    fi
+    if [ "$topo" = "java-only" ]; then return 0; fi
+    jp="$(eagler_java_port)"; bp="$(eagler_backend_port)"; wp="$(eagler_ws_port)"
+    if ! is_uint "$jp"; then die "EAGLER_JAVA_PORT 必须是数字（当前 ${jp}）"; fi
+    if ! is_uint "$bp"; then die "EAGLER_BACKEND_PORT 必须是数字（当前 ${bp}）"; fi
+    if ! is_uint "$wp"; then die "EAGLER_WS_PORT 必须是数字（当前 ${wp}）"; fi
+    if [ "$(geyser_target)" != "none" ]; then
+        if ! is_uint "$(eagler_geyser_port)"; then die "EAGLER_GEYSER_PORT 必须是数字"; fi
+        if ! is_uint "$(eagler_geyser_webrtc_port)"; then die "EAGLER_GEYSER_WEBRTC_PORT 必须是数字"; fi
+    fi
+    if velocity_enabled; then
+        if [ "$jp" = "$bp" ]; then
+            die "velocity 拓扑下 EAGLER_JAVA_PORT 与 EAGLER_BACKEND_PORT 不能相同（当前都是 ${jp}）：实例要让出玩家端口"
+        fi
+    fi
+    if [ "$dialect" != "none" ] && [ "$wp" = "$jp" ]; then
         die "EAGLER_WS_PORT 与 EAGLER_JAVA_PORT 不能相同（当前都是 ${jp}）：反代端口与游戏端口必须分开"
     fi
-    if [ "$mode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
-        case "$(eagler_geyser_port)" in ''|*[!0-9]*) die "EAGLER_GEYSER_PORT 必须是数字" ;; esac
-        case "$(eagler_geyser_webrtc_port)" in ''|*[!0-9]*) die "EAGLER_GEYSER_WEBRTC_PORT 必须是数字" ;; esac
+    if [ "$dialect" != "none" ]; then
+        ph="$(eagler_public_host)"
+        case "$ph" in
+            *'://'*|*/*) die "EAGLER_PUBLIC_HOST 只写域名（不要带协议/路径），当前 ${ph}" ;;
+        esac
     fi
-    ph="$(eagler_public_host)"
-    case "$ph" in
-        *'://'*|*/*) die "EAGLER_PUBLIC_HOST 只写域名（不要带协议/路径），当前 ${ph}" ;;
-    esac
+    if [ "$dialect" = "eaglerxpaper" ]; then
+        warn "eaglerxpaper（ENABLE_VELOCITY=false + ENABLE_EAGLER=true）：不支持 Folia，也不能改写玩家 UUID（无法与 Java 同名共用账号）"
+    fi
     return 0
 }
 
@@ -429,6 +518,12 @@ compose_cmd() {
     while IFS= read -r p; do
         [ -n "$p" ] && profiles_flags+=("--profile" "$p")
     done < <(enabled_profiles)
+    # 基岩端口（Geyser-Velocity）只在代理托管基岩时发布：用包内片段按拓扑追加 -f。
+    # （compose 的 ports 无法按 .env 条件生成，ADR-036；否则 velocity-only 拓扑会和
+    #  实例侧的 Geyser-Spigot 抢 19132。）
+    if [ "$(geyser_target)" = "velocity" ]; then
+        extra+=(-f "${TEMPLATES_DIR}/compose.velocity-geyser.yaml")
+    fi
     # 站点增量 override（issue #11）：$DATA_ROOT/compose.site.yaml + .env 的
     # COMPOSE_FILE_EXTRA，存在即追加；与包内文件解耦，升级/换包不丢。
     # （判空再用：bash 3.2 + set -u 下空数组 "${arr[@]}" 会被当成未定义变量。）
@@ -555,7 +650,7 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip bind cidr eb emode host wp jp bp
+    local lan_ip bind cidr eb host wp jp bp
     lan_ip="$(read_env_value LAN_HOST_IP)"
     bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
     cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
@@ -575,20 +670,29 @@ print_access_info() {
     else
         echo "  暴露面: 仅绑定 ${bind}"
     fi
-    emode="$(eagler_mode)"
-    if [ "$emode" != "off" ]; then
-        wp="$(eagler_ws_port)"; jp="$(eagler_java_port)"; bp="$(eagler_backend_port)"
+    # 前端拓扑（ADR-036）：两个开关的派生结果，一行说清楚玩家入口归谁
+    case "$(topology)" in
+        java-only)
+            echo "  前端代理: 未启用（ENABLE_VELOCITY=false，玩家直连实例）"
+            ;;
+        velocity|eagler-proxy)
+            jp="$(eagler_java_port)"; bp="$(eagler_backend_port)"
+            echo "  Velocity: Java 入口 ${jp} → 实例内部端口 ${bp}（多服大厅；EAGLERCRAFT=$(if eagler_enabled; then echo on; else echo off; fi)）"
+            if [ "$(geyser_target)" = "velocity" ]; then
+                echo "  Geyser（基岩）: udp/$(eagler_geyser_port) + tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_webrtc_port)（NetherNet 媒体）"
+            fi
+            echo "  实例侧待办: ${DATA_ROOT}/eagler/instance-setup.md"
+            ;;
+        eagler-direct)
+            jp="$(eagler_java_port)"
+            echo "  Eagler 直挂: 实例 ${jp} 同端口兼任 WSS（无代理；不支持 Folia / 不能改 UUID）"
+            echo "  实例侧待办: ${DATA_ROOT}/eagler/instance-setup.md"
+            ;;
+    esac
+    if [ "$(eagler_dialect)" != "none" ]; then
+        wp="$(eagler_ws_port)"
         host="$(eagler_public_host)"; [ -n "$host" ] || host="<你的域名>"
         echo "  Eaglercraft Web: wss://${host}:${wp}/  （浏览器客户端；TLS 由站点反代提供）"
-        if [ "$emode" = "proxy" ]; then
-            echo "  Eagler 代理: Java 入口 ${jp} → 实例内部端口 ${bp}（支持 Folia）"
-        else
-            echo "  Eagler 直挂: 实例 ${jp} 同端口兼任 WSS（不支持 Folia）"
-        fi
-        if [ "$emode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
-            echo "  Geyser（基岩）: udp/$(eagler_geyser_port) + tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_webrtc_port)（NetherNet 媒体）"
-        fi
-        echo "  实例侧待办: ${DATA_ROOT}/eagler/instance-setup.md"
     fi
     echo "  外部访问: 由站点自备（VPN / TLS 反代 / DDNS+端口映射），见 docs/security.md"
 }

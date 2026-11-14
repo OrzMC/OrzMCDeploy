@@ -161,7 +161,7 @@ respond @devdocs "404 page not found" 404
 验证：`openssl s_client -connect <域名>:443 -servername <域名>` 看 issuer；证书由 Caddy 按
 ARI 自动续期。
 
-### 4.5 Eaglercraft 的 WSS 入口（可选，ADR-035）
+### 4.5 Eaglercraft 的 WSS 入口（可选，`ENABLE_EAGLER=true`；ADR-035/036）
 
 浏览器客户端**只认 `wss://`**，所以它必须经反代终结 TLS，属于本节「站点自备 TLS 端口」的
 第一类例外（不是游戏端口）：
@@ -173,6 +173,7 @@ ARI 自动续期。
 | 头 | 反代必须写 `X-Real-IP`（EaglerXServer 的 `forward_ip=true` 会**拒绝**没有该头的 WS 连接，这是有意的：只允许反代一条入口） |
 | 路径 | 整站透传（`flush_interval -1`），不要做路径级拦截；客户端路径恒为 `/`，所以**不能同域名同端口**靠路径区分面板与游戏 |
 | 直连 | 代理端口仍接受 Java 原生 TCP（双栈）；Web 玩家绕过反代直连 `ws://` 会被拒，属预期 |
+| 关闭 | `ENABLE_EAGLER=false` 时插件被移到 `$DATA_ROOT/eagler/disabled/`，Web 端点（8081）不再监听；`velocity` 拓扑与 `java-only` 拓扑都不会开放 WSS |
 
 ## 5. 自检
 

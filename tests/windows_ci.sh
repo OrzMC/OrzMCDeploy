@@ -334,54 +334,82 @@ check "CRLF 下 profile 为空（开关生效）" "" "$(enabled_profiles)"
 check "CRLF 值不带 \\r" "127.0.0.1" "$(read_env_value LAN_BIND_ADDR)"
 
 # ===========================================================================
-section "Eaglercraft 单开关（EAGLER_MODE，ADR-035）"
+section "前端拓扑：ENABLE_VELOCITY × ENABLE_EAGLER（ADR-036）"
 EG_DIR="$TMP/eg"; mkdir -p "$EG_DIR"
 eg_env() { printf '%s\n' "$1" > "$EG_DIR/.env"; env_file() { printf '%s' "$EG_DIR/.env"; }; }
 eg_env 'TZ=Asia/Shanghai'
-check "缺省 off" "off" "$(eagler_mode)"
-check "off 时不启用 eagler profile" "" "$(enabled_profiles | grep -x eagler || true)"
+check "缺省 java-only（零影响）" "java-only" "$(topology)"
+check "缺省不追加 velocity profile" "" "$(enabled_profiles | grep -x velocity || true)"
+check "缺省无 Eaglercraft 实现" "none" "$(eagler_dialect)"
+if ( validate_topology ) >/dev/null 2>&1; then ok "缺省 validate_topology 通过"; else fail "缺省应通过校验"; fi
 check "三个端口缺省值" "25565 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
-if ( validate_eagler ) >/dev/null 2>&1; then ok "off 时 validate_eagler 通过"; else fail "off 应免校验"; fi
 
+# 象限 3（本次新增能力）：只上 Velocity 多服大厅，不接 Web 客户端
+eg_env 'ENABLE_VELOCITY=true
+ENABLE_EAGLER=false'
+check "V=on/E=off → velocity" "velocity" "$(topology)"
+check "velocity 追加 velocity profile" "velocity" "$(enabled_profiles | grep -x velocity || true)"
+check "velocity 不启用 Eaglercraft（dialect=none）" "none" "$(eagler_dialect)"
+check "velocity 拓扑基岩托管在代理" "velocity" "$(geyser_target)"
+if ( validate_topology ) >/dev/null 2>&1; then ok "velocity 缺省端口校验通过"; else fail "velocity 应通过校验"; fi
+
+# 象限 4：Velocity + Eaglercraft
+eg_env 'ENABLE_VELOCITY=true
+ENABLE_EAGLER=true'
+check "V=on/E=on → eagler-proxy" "eagler-proxy" "$(topology)"
+check "eagler-proxy 用 EaglerXServer（可改 UUID / 支持 Folia）" "eaglerxserver" "$(eagler_dialect)"
+
+# 象限 2：无代理，实例直挂 EaglerXPaper
+eg_env 'ENABLE_VELOCITY=false
+ENABLE_EAGLER=true'
+check "V=off/E=on → eagler-direct" "eagler-direct" "$(topology)"
+check "eagler-direct 用 EaglerXPaper" "eaglerxpaper" "$(eagler_dialect)"
+check "eagler-direct 不启用 velocity 服务" "" "$(enabled_profiles | grep -x velocity || true)"
+check "eagler-direct 基岩留给实例 Geyser-Spigot" "spigot" "$(geyser_target)"
+
+# 基岩派生：显式关掉
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER=false'
+check "EAGLER_GEYSER=false → 代理不托管基岩" "none" "$(geyser_target)"
+
+# 向后兼容：旧 EAGLER_MODE
 eg_env 'EAGLER_MODE=direct'
-check "direct 不启用代理服务" "" "$(enabled_profiles | grep -x eagler || true)"
-if ( validate_eagler ) >/dev/null 2>&1; then ok "direct 校验通过"; else fail "direct 应通过校验"; fi
-
+check "旧值 direct 推导为 eagler-direct" "eagler-direct" "$(topology)"
 eg_env 'EAGLER_MODE=proxy'
-check "proxy 追加 eagler profile" "eagler" "$(enabled_profiles | grep -x eagler || true)"
-check "proxy 时 easybot 缺省仍启用" "easybot" "$(enabled_profiles | grep -x easybot || true)"
-if ( validate_eagler ) >/dev/null 2>&1; then ok "proxy 缺省端口校验通过"; else fail "proxy 缺省端口应通过"; fi
-
+check "旧值 proxy 推导为 eagler-proxy" "eagler-proxy" "$(topology)"
+check "旧值 proxy 仍追加 velocity profile（服务名已改）" "velocity" \
+    "$(enabled_profiles | grep -x velocity || true)"
 eg_env 'EAGLER_MODE=bogus'
-if ( validate_eagler ) >/dev/null 2>&1; then fail "非法 EAGLER_MODE 应报错"; else ok "非法 EAGLER_MODE 报错"; fi
+if ( validate_topology ) >/dev/null 2>&1; then fail "非法 EAGLER_MODE 应报错"; else ok "非法 EAGLER_MODE 报错"; fi
+# 新旧并存：新开关优先（旧值不得偷偷生效）
+eg_env 'ENABLE_VELOCITY=false
+ENABLE_EAGLER=false
+EAGLER_MODE=proxy'
+check "新键在时旧 EAGLER_MODE 被忽略" "java-only" "$(topology)"
+if ( validate_topology ) 2>&1 >/dev/null | grep -q "已被忽略"; then
+    ok "新旧并存时提示 EAGLER_MODE 被忽略"
+else
+    fail "新旧并存应提示旧键被忽略"
+fi
 
-eg_env 'EAGLER_MODE=proxy
-EAGLER_JAVA_PORT=25565
+# 值域与端口一致性
+eg_env 'ENABLE_VELOCITY=yes'
+if ( validate_topology ) >/dev/null 2>&1; then fail "非布尔 ENABLE_VELOCITY 应报错"; else ok "非布尔 ENABLE_VELOCITY 报错"; fi
+eg_env 'ENABLE_VELOCITY=true
 EAGLER_BACKEND_PORT=25565'
-if ( validate_eagler ) >/dev/null 2>&1; then fail "proxy 同端口应报错"; else ok "proxy 端口相同被拦下"; fi
-
-eg_env 'EAGLER_MODE=proxy
+if ( validate_topology ) >/dev/null 2>&1; then fail "velocity 同端口应报错"; else ok "velocity 端口相同被拦下"; fi
+eg_env 'ENABLE_EAGLER=true
 EAGLER_WS_PORT=25565'
-if ( validate_eagler ) >/dev/null 2>&1; then fail "WS 端口与游戏端口相同应报错"; else ok "WS 端口撞游戏端口被拦下"; fi
-
-eg_env 'EAGLER_MODE=proxy
+if ( validate_topology ) >/dev/null 2>&1; then fail "WS 撞游戏端口应报错"; else ok "WS 端口撞游戏端口被拦下"; fi
+eg_env 'ENABLE_EAGLER=true
 EAGLER_PUBLIC_HOST=https://dev.jokerhub.cn/'
-if ( validate_eagler ) >/dev/null 2>&1; then fail "EAGLER_PUBLIC_HOST 带协议应报错"; else ok "EAGLER_PUBLIC_HOST 只接受域名"; fi
-
-eg_env 'EAGLER_MODE=direct
+if ( validate_topology ) >/dev/null 2>&1; then fail "EAGLER_PUBLIC_HOST 带协议应报错"; else ok "EAGLER_PUBLIC_HOST 只接受域名"; fi
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER_PORT=abc'
+if ( validate_topology ) >/dev/null 2>&1; then fail "非法 Geyser 端口应报错"; else ok "非法 Geyser 端口被拦下"; fi
+eg_env 'ENABLE_EAGLER=true
 EAGLER_JAVA_PORT=25570'
 check "自定义端口生效" "25570 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
-
-eg_env 'EAGLER_MODE=proxy'
-check "Geyser 缺省启用" "true" "$(eagler_geyser_enabled)"
-check "Geyser 端口缺省值" "19132 19134" \
-    "$(eagler_geyser_port) $(eagler_geyser_webrtc_port)"
-eg_env 'EAGLER_MODE=proxy
-EAGLER_GEYSER=false'
-check "EAGLER_GEYSER=false 生效" "false" "$(eagler_geyser_enabled)"
-eg_env 'EAGLER_MODE=proxy
-EAGLER_GEYSER_PORT=abc'
-if ( validate_eagler ) >/dev/null 2>&1; then fail "非法 EAGLER_GEYSER_PORT 应报错"; else ok "非法 Geyser 端口被拦下"; fi
 
 # ===========================================================================
 section "firewall apply —— 只重建受管规则，不碰站点自建（OrzMC-Web-TLS）"
@@ -400,11 +428,11 @@ check "LAN 规则仍限 LAN_CIDR" "1" \
     "$(printf '%s' "$fwout" | grep -c "OrzMC-Panel.*RemoteAddress 192.168.0.0/24")"
 
 # ===========================================================================
-section "firewall：proxy 模式的玩家端口并入 MC-TCP（不新增规则名）"
+section "firewall：velocity 拓扑的玩家端口并入 MC-TCP（不新增规则名）"
 FW2="$TMP/fw2"; mkdir -p "$FW2"
 cp "$REPO_ROOT/templates/env" "$FW2/.env"
-# 模板里已有 EAGLER_MODE=off（同名键首次出现优先），必须改原行而不是追加
-sed -i 's/^EAGLER_MODE=.*/EAGLER_MODE=proxy/' "$FW2/.env"
+# 模板里已有 ENABLE_VELOCITY=false（同名键首次出现优先），必须改原行而不是追加
+sed -i 's/^ENABLE_VELOCITY=.*/ENABLE_VELOCITY=true/' "$FW2/.env"
 printf 'EAGLER_JAVA_PORT=25570\n' >> "$FW2/.env"
 fw2out="$(PATH="$FAKEBIN:$PATH" DATA_ROOT="$FW2" bash "$REPO_ROOT/lib/firewall.sh" apply --dry-run 2>&1)"
 check "EAGLER_JAVA_PORT 并入 OrzMC-MC-TCP" "yes" \

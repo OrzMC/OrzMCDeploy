@@ -1,6 +1,7 @@
 # Eaglercraft 接入实施与验收
 
-> **定位**：把 `EAGLER_MODE` 开关（ADR-035）落成可执行的启用 / 验收 / 回滚步骤。
+> **定位**：把前端拓扑开关（`ENABLE_VELOCITY` / `ENABLE_EAGLER`，ADR-036）落成可执行的
+> 启用 / 验收 / 回滚步骤。
 > 仓库只负责**运行时**（代理容器、jar 校验、配置生成、防火墙口径）；TLS 反代与实例
 > 归站点与面板。
 > **读者**：在测试服验证通过后负责灰度的运维。
@@ -18,13 +19,15 @@
 | `direct` | 实例直挂 EaglerXPaper | **不变**（实例端口同端口兼任 WSS） | ❌ | ❌ |
 | `proxy` | Velocity + EaglerXServer 接管玩家端口 | 变成"连代理"（端口可沿用） | ✅ | ✅ |
 
-配置项只有一行是真的要改的，其余都有缺省：
+真正要决定的只有两个开关，其余都有缺省（ADR-036）：
 
 | 变量 | 必填 | 缺省 | 说明 |
 |---|---|---|---|
-| `EAGLER_MODE` | ✅ | `off` | `off` / `direct` / `proxy` |
-| `EAGLER_JAVA_PORT` | | `25565` | 玩家 Java 入口（proxy=代理端口） |
-| `EAGLER_BACKEND_PORT` | | `25566` | 仅 proxy：实例内部端口（必须 ≠ 上面那个） |
+| `ENABLE_VELOCITY` | ✅ | `false` | 是否用 Velocity 当前端（多服大厅；玩家 Java 端口由代理发布） |
+| `ENABLE_EAGLER` | ✅ | `false` | 是否接 Web 客户端。实现由上一行派生：`true` → 代理装 EaglerXServer；`false` → 实例挂 EaglerXPaper（不支持 Folia） |
+| `EAGLER_MODE` | 已废弃 | — | 旧三态；两个新开关都没写时才生效，`validate` 提示迁移 |
+| `EAGLER_JAVA_PORT` | | `25565` | 玩家 Java 入口（`ENABLE_VELOCITY=true` 时是代理端口） |
+| `EAGLER_BACKEND_PORT` | | `25566` | 仅 `ENABLE_VELOCITY=true`：实例内部端口（必须 ≠ 上面那个） |
 | `EAGLER_WS_PORT` | | `18444` | 站点反代对外端口（只用于提示/片段） |
 | `EAGLER_PUBLIC_HOST` | | 空 | 只影响提示文案（如 `dev.jokerhub.cn`） |
 | `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | | `1024M` / `768` | proxy 容器/堆上限 |
@@ -44,8 +47,11 @@
 ## 3. 阶段 1：打开开关并生成运行时
 
 ```bash
-# 改已有那一行（read_env_value 是"首次出现优先"，追加同名行会被忽略）
-sed -i 's/^EAGLER_MODE=.*/EAGLER_MODE=proxy/' <数据目录>/.env
+# 改已有那两行（read_env_value 是"首次出现优先"，追加同名行会被忽略）
+# 例：多服大厅 + Web 客户端（旧 EAGLER_MODE=proxy 等价写法）
+sed -i 's/^ENABLE_VELOCITY=.*/ENABLE_VELOCITY=true/' <数据目录>/.env
+sed -i 's/^ENABLE_EAGLER=.*/ENABLE_EAGLER=true/' <数据目录>/.env
+# 只要 Velocity 大厅（不接 Web 客户端）：ENABLE_EAGLER 保持 false 即可
 # 可选：只影响提示文案
 printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
 
@@ -143,7 +149,7 @@ proxies:
 
 | 编号 | 验收项 | 通过标准 | 手段 |
 |---|---|---|---|
-| T1 | 代理启动 | 日志 `Listener "listener0" injected ... (Velocity method)` + `Done` | `docker logs orzmc-eagler-proxy` |
+| T1 | 代理启动 | 日志 `Listener "listener0" injected ... (Velocity method)` + `Done` | `docker logs orzmc-velocity` |
 | T2 | 握手协商 | `eagler_protocol=5`、`minecraft_protocol=777` | 探针（§7.2） |
 | T3 | 登录放行 | `ALLOW_LOGIN` 且两次 UUID 一致 | 探针 `--login` |
 | T4 | 浏览器进服 | 游戏内出现 HUD；后端日志 `joined the game` | 浏览器 + 后端日志 |
@@ -221,7 +227,7 @@ Direct Connection → `<域名>:<EAGLER_WS_PORT>` → Join。判定：出现 HUD
 
 ## 8. 灰度顺序
 
-1. 测试实例 + `EAGLER_MODE=proxy` → T1–T5 全绿；
+1. 测试实例 + `ENABLE_VELOCITY=true`/`ENABLE_EAGLER=true` → T1–T5 全绿；
 2. 接 Geyser 与三端共存 → T6；
 3. Folia 实例 → T7/T10；
 4. 生产实例：只改实例侧（§4），低峰期开放白名单 3 人；观察 24 h 再放开。
@@ -230,7 +236,7 @@ Direct Connection → `<域名>:<EAGLER_WS_PORT>` → Join。判定：出现 HUD
 
 | 步骤 | 命令/动作 |
 |---|---|
-| 1 | `sed -i 's/^EAGLER_MODE=.*/EAGLER_MODE=off/' <数据目录>/.env` |
+| 1 | `sed -i 's/^ENABLE_VELOCITY=.*/ENABLE_VELOCITY=false/;s/^ENABLE_EAGLER=.*/ENABLE_EAGLER=false/' <数据目录>/.env`（旧写法：`EAGLER_MODE=off`） |
 | 2 | `./orzmc.sh -d <数据目录> up`（代理容器不再创建；数据保留） |
 | 3 | 实例侧还原：端口映射改回 `25565:25565/tcp`；`proxies.velocity.enabled=false` |
 | 4 | 移除实例 `plugins/` 里的 EaglerXPaper（仅 direct 模式需要） |
@@ -298,15 +304,19 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 
 新基岩玩家入场三步：`whitelist add <Xbox代号>` → 客户端首登 `/register <密码>` → `lp user <代号> parent add bedrock`。
 
-## 12. 模式互切（测试服常用：off ⇄ direct ⇄ proxy）
+## 12. 拓扑互切（测试服常用：四种组合来回切）
 
-三态的**唯一真相**是 `.env` 的 `EAGLER_MODE`；但实例侧有三处会跟着变，切之前先对照本表：
+四态的**唯一真相**是 `.env` 的两个开关；但实例侧有三处会跟着变，切之前先对照本表：
 
 | 目标 | `.env` | `paper-global.yml` 的 velocity | 实例端口映射 | 代理容器 | Geyser |
 |---|---|---|---|---|---|
-| `off` | `EAGLER_MODE=off` | `enabled: false` | `25565:25565` + `19132/udp`、`19132/tcp`、`19134/udp` | 不创建 | Geyser-Spigot 生效 |
-| `direct` | `EAGLER_MODE=direct` | `enabled: false` | 同 `off`；另把 `EaglerXPaper.jar` 放进 `plugins/` | 不创建 | Geyser-Spigot 生效 |
-| `proxy` | `EAGLER_MODE=proxy` | `enabled: true` + `secret` | **`25567:25565`**（去掉 19132/19134） | 创建 | Geyser-Spigot **自禁用**；基岩由代理的 Geyser-Velocity 提供 |
+| `java-only` | `ENABLE_VELOCITY=false`<br>`ENABLE_EAGLER=false` | `enabled: false` | `25565:25565` + `19132/udp`、`19132/tcp`、`19134/udp` | 不创建 | 实例侧 Geyser-Spigot |
+| `velocity` | `ENABLE_VELOCITY=true`<br>`ENABLE_EAGLER=false` | `enabled: true` + `secret` | **`25567:25565`**（去掉 19132/19134） | 创建（无 EaglerXServer） | 代理 Geyser-Velocity |
+| `eagler-direct` | `ENABLE_VELOCITY=false`<br>`ENABLE_EAGLER=true` | `enabled: false` | 同 `java-only`；另把 `EaglerXPaper.jar` 放进 `plugins/` | 不创建 | 实例侧 Geyser-Spigot |
+| `eagler-proxy` | `ENABLE_VELOCITY=true`<br>`ENABLE_EAGLER=true` | `enabled: true` + `secret` | **`25567:25565`**（去掉 19132/19134） | 创建（含 EaglerXServer） | 代理 Geyser-Velocity |
+
+> 切换时 `up` 会把当前拓扑不需要的插件移到 `$DATA_ROOT/eagler/disabled/`：
+> 例如 `eagler-proxy` → `velocity` 后代理不再监听 Web 端点（8081）。移回同理。
 
 要点：
 

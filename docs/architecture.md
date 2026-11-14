@@ -544,7 +544,7 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
 - 文档：`docs/security.md` §4、`docs/usage.md` §4.1/§8/附录 B、`AGENTS.md` 安全约束。
 - **回退**：清空两个变量并 `firewall apply`，或 `git revert` 本 ADR 对应提交。
 
-### ADR-035：Eaglercraft Web 接入做成可选（单开关 `EAGLER_MODE`）（2026-11-12）
+### ADR-035：Eaglercraft Web 接入做成可选（单开关 `EAGLER_MODE`）（2026-11-12，开关已被 ADR-036 拆分）
 
 **背景**：站点要引入第三种客户端（浏览器 / Eaglercraft 26.3），但绝大多数站点不需要它。
 调研（`docs/eaglercraft.md`）实测结论：26.3 客户端 = 真 MC 26.3（协议 777）+ Eaglercraft
@@ -588,6 +588,55 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
   `docs/usage.md` §4/附录 B/C、`AGENTS.md`、`README.md`。
 - **回退**：`EAGLER_MODE=off` → `up`（代理不再创建）→ 实例端口与 `paper-global.yml`
   按 `docs/eaglercraft-deploy.md` §9 还原；或 `git revert` 本 ADR 对应提交。
+
+### ADR-036：前端拓扑拆成两个正交开关（`ENABLE_VELOCITY` × `ENABLE_EAGLER`）（2026-11-12）
+
+**背景**：ADR-035 用**单个** `EAGLER_MODE=off|direct|proxy` 表达三种形态，但把"是否用
+Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 与 `enabled_profiles`
+都是 `if EAGLER_MODE = proxy` 才处理代理端口）。后果是**无法表达"只上 Velocity 多服大厅、
+不接 Web 客户端"**这个形态——而它恰好是站点下一阶段最需要的（大厅代理 + 多后端）。
+
+**决策**：拆成两个正交开关，四种组合，实现方式由 `ENABLE_VELOCITY` **派生**，不设第三个开关。
+
+| `ENABLE_VELOCITY` | `ENABLE_EAGLER` | 拓扑 | 桥接实现 | 玩家 Java 入口 | 基岩 |
+|---|---|---|---|---|---|
+| `false` | `false` | `java-only` | 无（缺省，零影响） | 实例 | 实例侧 Geyser-Spigot |
+| `false` | `true` | `eagler-direct` | 实例挂 EaglerXPaper | 实例（同端口兼任 WSS） | 实例侧 Geyser-Spigot |
+| `true` | `false` | `velocity` | 仅 Velocity | 代理 | 代理 Geyser-Velocity |
+| `true` | `true` | `eagler-proxy` | 代理装 EaglerXServer | 代理 | 代理 Geyser-Velocity |
+
+**为什么不是"两个开关 × 一个实现选择"**：`eagler-direct` 与 `eagler-proxy` 的差异不是
+偏好而是**能力**（EaglerXPaper 不支持 Folia、不能改写 UUID），让用户选只会配出跑不起来的
+组合；派生规则唯一，`validate` 只有一处真相。
+
+**实现要点**：
+
+1. 单一真源在 `lib/common.sh`：`velocity_enabled()` / `eagler_enabled()` / `topology()` /
+   `eagler_dialect()` / `geyser_target()`；**禁止**在别处再判 `EAGLER_MODE`。
+2. 服务重命名：`eagler-proxy` → `velocity`（profile `velocity`，容器 `orzmc-velocity`），
+   因为它在 `velocity` 拓扑下与 Eaglercraft 无关；运行时目录仍是 `$DATA_ROOT/eagler/proxy`
+   （含 `forwarding.secret`、插件），**不迁移**以免动到密钥。
+3. 基岩端口条件化：compose 的 `ports` 无法按 `.env` 生成，故 19132/19134 移入
+   `templates/compose.velocity-geyser.yaml`，仅在 `geyser_target()=velocity` 时由
+   `compose_cmd` 追加 `-f`。否则 `velocity` 拓扑会与实例侧 Geyser-Spigot 抢端口。
+4. 切换拓扑时**真正移走**当前实现不需要的插件（`$DATA_ROOT/eagler/disabled/`）：
+   否则 `ENABLE_EAGLER=false` 之后 Web 端点（8081）仍然可连，开关形同虚设。
+5. 向后兼容：两开关都未写时按旧 `EAGLER_MODE` 推导（`off→false/false`、`direct→false/true`、
+   `proxy→true/true`），`validate` 打印迁移提示但不阻断；旧值本身非法时仍报错。
+6. 防火墙口径跟着派生：`EAGLER_JAVA_PORT` 并入 `MC-TCP`（`velocity_enabled`），
+   Geyser 端口并入 `MC-UDP`（`geyser_target()=velocity`）；**不得**再判 `EAGLER_MODE`。
+
+**影响**：
+
+- 新增能力：`velocity` 拓扑（多服大厅）此前无法表达。
+- 拓扑矩阵 4 行成为文档/CI 的共同口径；`AGENTS.md` 基线从"3 个服务"改为变体描述。
+- CI：`tests/windows_ci.sh` 覆盖 4 象限 + 派生 + 兼容 + 端口冲突（83 项）；工作流加
+  `ENABLE_VELOCITY` / `ENABLE_EAGLER` / 基岩片段的渲染断言。
+- **回退**：删两开关改回 `EAGLER_MODE=...` 即可（兼容解析仍在）；或 `git revert`。
+
+**已知取舍**：`velocity` 拓扑下基岩只能托管在代理（Geyser-Spigot 检测到 Velocity 转发会
+自我禁用），所以 `EAGLER_GEYSER=false` 的语义是"不提供基岩"，而不是"改由实例托管"；
+`eagler-direct` 拓扑则相反（基岩留给实例）。
 
 ### 已归档 ADR 索引（正文见 git 历史）
 

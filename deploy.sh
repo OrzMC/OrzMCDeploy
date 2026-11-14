@@ -67,12 +67,12 @@ cmd_init() {
     ensure_easybot_local_config
     ensure_site_override
     warn_legacy_data_plane
-    # Eaglercraft（可选，ADR-035）：只建目录，下载/生成放到 up（init 保持离线可用）
-    local emode
-    emode="$(eagler_mode)"
-    if [ "$emode" != "off" ]; then
+    # 前端拓扑（可选，ADR-036）：只建目录，下载/生成放到 up（init 保持离线可用）
+    local topo
+    topo="$(topology)"
+    if [ "$topo" != "java-only" ]; then
         mkdir -p "${DATA_ROOT}/eagler"
-        info "Eaglercraft 已启用（EAGLER_MODE=${emode}）：up 时下载运行时并生成配置"
+        info "前端拓扑=${topo}（Velocity=$(if velocity_enabled; then echo on; else echo off; fi)，Eaglercraft=$(if eagler_enabled; then echo on; else echo off; fi)）：up 时下载运行时并生成配置"
     fi
     info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
@@ -85,8 +85,8 @@ cmd_up() {
     # EaglerXServer 首次启动才生成 listeners.toml：随后修正为面向反代的配置，
     # 有改动才重启一次代理（首启一次，之后幂等）。
     if eagler_post_up; then
-        info "重启 eagler 代理以应用配置"
-        compose_cmd restart eagler-proxy
+        info "重启 velocity 代理以应用配置"
+        compose_cmd restart velocity
     fi
     echo "服务已启动"
     print_access_info
@@ -107,7 +107,7 @@ cmd_status() {
 cmd_validate() {
     assert_data_root_matches
     validate_required_env
-    validate_eagler
+    validate_topology
     eagler_runtime_check
     compose_cmd config -q
     info "校验通过: env 必需变量齐全，compose config 解析正常"

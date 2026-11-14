@@ -82,7 +82,7 @@ install.sh             免克隆一键安装（ADR-018：下载 Release tarball 
 deploy.sh               orzmc.sh 的内部实现（init/up/stop/status/validate 命令体）
 backup.sh / restore.sh  数据备份 / 还原迁移
 lib/firewall.sh         防火墙收敛（./orzmc.sh firewall show|apply，ADR-028）
-lib/eagler.sh           Eaglercraft 可选运行时（EAGLER_MODE 下载校验/生成代理配置，ADR-035）
+lib/eagler.sh           前端拓扑可选运行时（ENABLE_VELOCITY/ENABLE_EAGLER 下载校验/生成配置，ADR-036）
 update-image-digests.sh 刷新 compose.yaml 镜像 digest（easybot 用发布 tag：EASYBOT_TAG）
 .github/workflows/ci.yml CI 质量门禁（push/PR：bash -n + shellcheck + 模板 YAML + init/validate + windows-branch 单测）
 tests/windows_ci.sh   Windows 分支单元测试（mock uname 强制 MINGW，校验 win_path/win_daemon_*/compose_cmd 命令构造）
@@ -126,8 +126,10 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 
 ## 基线与门禁
 
-**当前基线**：3 个服务（web/daemon 常驻 + easybot 可选，`ENABLE_EASYBOT=false` 时 2 个；
-`EAGLER_MODE=proxy` 时再加一个 `eagler-proxy`，ADR-035）；
+**当前基线**：核心 2 个服务常驻（web/daemon）+ `easybot` 可选（`ENABLE_EASYBOT=false` 时只剩 2 个）。
+前端拓扑由两个正交开关派生（ADR-036）：`java-only`（缺省）/ `velocity`（只上代理大厅）/
+`eagler-direct`（实例挂 EaglerXPaper）/ `eagler-proxy`（Velocity + EaglerXServer）；
+`ENABLE_VELOCITY=true` 时多一个 `velocity` 服务（旧名 `eagler-proxy`，已重命名）；
 入口只有 2 个局域网 HTTP 端口；daemon 不发布端口（节点地址固定 `ws://mcsmanager-daemon:24444`，
 浏览器数据面经面板中转）；全部配置/数据落 `$DATA_ROOT`；镜像 digest 锁定。
 
@@ -136,7 +138,7 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 ```bash
 for f in *.sh lib/*.sh tests/*.sh; do bash -n "$f"; done
 shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
-bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义 + EAGLER_MODE（74 项）
+bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义 + 前端拓扑 4 象限（85 项）
 bash tests/docs_check.sh      # 文档链接/锚点
 python3 -m py_compile tests/eaglercraft_probe.py   # Eaglercraft 握手探针语法（手工工具）
 ./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate
@@ -149,7 +151,8 @@ CI 另跑：compose/模板/CI YAML 解析 · **可执行位守卫** · `ENABLE_E
 **待办**：对外访问前加 TLS 反代或改走 VPN；「不得为 `Any`」的两类例外 = 公网 TLS 端口 +
 `.env` 显式声明的 `MC_PUBLIC_TCP`/`MC_PUBLIC_UDP`（见安全约束）；旧 `.env` 里的 `EDGE`/`CLOUDFLARE_*`/`DOMAIN_*`/`LAN_MCS_DAEMON_PORT`
 已无消费者、可清理；升级镜像后按「digest → commit → `stop && up`」回归。
-Eaglercraft Web 接入：已落 ADR-035，实现为可选开关 `EAGLER_MODE=off|direct|proxy`（缺省 off）；
+前端拓扑：ADR-036 把开关拆成 `ENABLE_VELOCITY` / `ENABLE_EAGLER`（缺省都 false），实现方式由
+`ENABLE_VELOCITY` 派生（旧 `EAGLER_MODE` 仍可解析，`validate` 提示迁移）；
 生产启用前先按 `docs/eaglercraft-deploy.md` 在测试服跑完 T1–T12（含 LoginSecurity / Geyser 实测）。
 
 ## 代码约定

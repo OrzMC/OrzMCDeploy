@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# Eaglercraft Web 接入的可选运行时（EAGLER_MODE≠off 时由 deploy.sh source）
+# 前端拓扑的可选运行时（ENABLE_VELOCITY / ENABLE_EAGLER 任一为 true 时由 deploy.sh source）
 #
-# 单一开关（ADR-035）：
-#   EAGLER_MODE=off     不启用（缺省；不下载、不起服务、零影响）
-#   EAGLER_MODE=direct  实例直挂 EaglerXPaper（同端口兼任 WSS；Java 连接方式不变；
-#                       **不支持 Folia**，不能改写玩家 UUID）
-#   EAGLER_MODE=proxy   Velocity + EaglerXServer 接管玩家端口（支持 Folia；多后端；
-#                       可在代理层改写用户名/UUID）
+# 两个正交开关（ADR-036），四种组合，实现方式由 ENABLE_VELOCITY 派生的：
+#   V=false E=false  java-only      纯直连基线（缺省；本文件不下载、不生成任何东西）
+#   V=false E=true   eagler-direct  实例直挂 EaglerXPaper（同端口兼任 WSS；不支持 Folia，
+#                                   不能改写玩家 UUID）
+#   V=true  E=false  velocity       仅 Velocity（多服大厅；玩家端口由代理发布）
+#   V=true  E=true   eagler-proxy   代理装 EaglerXServer（+ 默认 Geyser-Velocity）
+#
+# 基岩端口跟着前端走：geyser_target()=velocity 时由代理托管，否则留给实例侧
+# Geyser-Spigot；代理端口用 templates/compose.velocity-geyser.yaml 条件追加。
 #
 # 本文件只做三件事：下载校验（templates/eagler/versions.env 锁版本）→ 生成代理配置
 # → 生成实例侧待办（$DATA_ROOT/eagler/instance-setup.md）。TLS 反代归站点自备
@@ -16,6 +19,8 @@
 # 约定：
 #   - 生成物一律落 $DATA_ROOT/eagler/（随数据备份），密钥 600；
 #   - 配置/密钥**绝不覆盖已有文件**（ensure_* 语义），只有生成说明文档会刷新；
+#   - 切换拓扑时，当前拓扑不需要的插件会被移到 $DATA_ROOT/eagler/disabled/，
+#     避免 ENABLE_EAGLER=false 之后 Web 端点仍然可连；
 #   - bash 3.2：不用 mapfile/关联数组；消息里变量一律 ${VAR}。
 # ===========================================================================
 
@@ -176,44 +181,53 @@ eagler_write_caddy_snippet() { # eagler_write_caddy_snippet <upstream-host>
     info "已生成反代片段: ${dest}（追加到站点 Caddyfile，站点自己重启 caddy）"
 }
 
-eagler_write_setup_doc() { # eagler_write_setup_doc <direct|proxy>
-    local mode="$1" dest jp bp wp host secret_line
+eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagler-proxy>
+    local topo="$1" dest jp bp wp host secret_line have_vel have_eg
     dest="$(eagler_setup_doc)"
     jp="$(eagler_java_port)"
     bp="$(eagler_backend_port)"
     wp="$(eagler_ws_port)"
     host="$(eagler_public_host)"
     [ -n "$host" ] || host="<你的域名>"
-    if [ "$mode" = "proxy" ] && [ -f "$(eagler_proxy_dir)/forwarding.secret" ]; then
+    case "$topo" in
+        velocity|eagler-proxy) have_vel=1 ;;
+        *)                     have_vel=0 ;;
+    esac
+    case "$topo" in
+        eagler-direct|eagler-proxy) have_eg=1 ;;
+        *)                          have_eg=0 ;;
+    esac
+    if [ "$have_vel" = "1" ] && [ -f "$(eagler_proxy_dir)/forwarding.secret" ]; then
         secret_line="$(cat "$(eagler_proxy_dir)/forwarding.secret")"
     else
-        secret_line="（direct 模式不需要）"
+        secret_line="（eaglerxpaper 不需要）"
     fi
     {
-        echo "# Eaglercraft 接入：实例侧待办（EAGLER_MODE=${mode}）"
+        echo "# 前端拓扑：实例侧待办（ENABLE_VELOCITY=$(if [ "$have_vel" = "1" ]; then echo true; else echo false; fi)"
+        echo "#               ENABLE_EAGLER=$(if [ "$have_eg" = "1" ]; then echo true; else echo false; fi)）"
         echo
         echo "> 本文件由 ./orzmc.sh 自动生成，每次 up 会刷新；实例由 MCSManager 面板管理，"
-        echo "> 仓库不能替你改实例——照下面抄即可。原理与验收见 docs/eaglercraft.md /"
-        echo "> docs/eaglercraft-deploy.md。"
+        echo "> 仓库不能替你改实例——照下面抄即可。原理见 docs/eaglercraft.md、"
+        echo "> 落地步骤见 docs/eaglercraft-deploy.md、拓扑矩阵见 docs/architecture.md ADR-036。"
         echo
         echo "## 1. 后端实例（Paper/Folia）"
         echo
         echo "- 实例目录：\`\$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<实例uuid>/\`"
-        echo "- \`server.properties\`：\`online-mode=false\`（桥接层不支持在线模式，ADR-035）"
-        if [ "$mode" = "proxy" ]; then
+        echo "- \`server.properties\`：\`online-mode=false\`（玩家认证在代理/桥接层，ADR-035/036）"
+        if [ "$have_vel" = "1" ]; then
             echo "- \`docker.ports\`（面板 → 实例 → 端口映射）：**删掉** \`25565:25565/tcp\`，"
             echo "  改成 \`${bp}:25565/tcp\`（玩家端口让给代理 \`${jp}\`）"
         else
             echo "- \`docker.ports\`：保持现状（\`${jp}:25565/tcp\`），Java 连接方式不变"
         fi
         echo "- \`plugins/\`：ViaVersion + ViaBackwards（版本见 docs/eaglercraft.md §7）"
-        if [ "$mode" = "direct" ]; then
+        if [ "$have_eg" = "1" ] && [ "$have_vel" = "0" ]; then
             echo "- \`plugins/\`：再加 **EaglerXPaper**："
             echo "  \`cp $(eagler_jars_dir)/EaglerXPaper.jar \$DATA_ROOT/mcsmanager/daemon/data/InstanceData/<实例uuid>/plugins/\`"
-            echo "- 注意：direct 模式**不支持 Folia**，也不能改写玩家 UUID"
+            echo "- 注意：eagler-direct **不支持 Folia**，也不能改写玩家 UUID"
         fi
         echo
-        if [ "$mode" = "proxy" ]; then
+        if [ "$have_vel" = "1" ]; then
             echo "## 2. Velocity 转发（写进实例 \`config/paper-global.yml\`）"
             echo
             echo '```yaml'
@@ -228,37 +242,67 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <direct|proxy>
             echo "secret 与代理的 \`\$DATA_ROOT/eagler/proxy/forwarding.secret\` 必须一致（600 权限，随备份）。"
             echo
         fi
-        if [ "$mode" = "proxy" ] && [ "$(eagler_geyser_enabled)" = "true" ]; then
-            echo "## 2.5 基岩（Geyser）——proxy 模式必做"
+        case "$(geyser_target)" in
+            velocity)
+                echo "## 2.5 基岩（Geyser）——由代理托管"
+                echo
+                echo "- **Geyser-Spigot 可以保留**：检测到 Velocity 转发时它会自我禁用（无害）"
+                echo "- 代理已自动装 Geyser-Velocity（端口/后端/离线认证由 orzmc.sh 配好）"
+                echo "- **只挪端口**：实例端口映射删掉 19132/udp、19132/tcp、19134/udp，"
+                echo "  改由代理发布：udp/$(eagler_geyser_port)、tcp/$(eagler_geyser_port)、udp/$(eagler_geyser_webrtc_port)"
+                echo "- 路由器不用改（宿主端口号不变）；防火墙 MC_PUBLIC_* 已覆盖则无需改"
+                if [ "$have_eg" = "1" ]; then
+                    echo "- 后端 RPC 已撤除（Paper 26.3 抛 Player is already registered，见 ADR-035 修正记录）"
+                fi
+                echo
+                ;;
+            spigot)
+                echo "## 2.5 基岩（Geyser）——实例侧自行托管"
+                echo
+                echo "- 没有代理，基岩由实例自己装 Geyser-Spigot，端口保持原样"
+                echo
+                ;;
+        esac
+        if [ "$have_eg" = "1" ]; then
+            echo "## 3. 反代（站点自备，TLS 终结）"
             echo
-            echo "- **Geyser-Spigot 可以保留**：检测到 Velocity 转发时它会自我禁用（无害），切回"
-            echo "  EAGLER_MODE=off/direct 且关闭 velocity 转发后会自己恢复——测试服来回切换不用删 jar"
-            echo "- 代理已自动装 Geyser-Velocity（端口/后端/离线认证由 orzmc.sh 配好）"
-            echo "- **后端 RPC（建议）**：把 $(eagler_jars_dir)/EaglerXBackendRPC-*.jar 复制进实例 plugins，"
-            echo "  这样 \`eagler_players_view_distance\`（默认 4）只对 Web/基岩生效，Java 玩家不受影响"
-            echo "- **只挪端口**：实例端口映射删掉 19132/udp、19132/tcp、19134/udp，"
-            echo "  改由代理发布：udp/$(eagler_geyser_port)、tcp/$(eagler_geyser_port)、udp/$(eagler_geyser_webrtc_port)"
-            echo "- 路由器不用改（宿主端口号不变）；防火墙 MC_PUBLIC_* 已覆盖则无需改"
+            echo "- 片段：\`\$DATA_ROOT/eagler/caddy-eagler.snippet\` → 追加到站点 Caddyfile"
+            echo "- 给站点 caddy 服务加端口映射：\`\"${wp}:8443\"\`，路由器转发 ${wp}/TCP 到宿主"
+            echo "- 防火墙：按站点自建 TLS 规则放行（docs/security.md §4），**不要**写进 MC_PUBLIC_TCP"
             echo
         fi
-        echo "## 3. 反代（站点自备，TLS 终结）"
-        echo
-        echo "- 片段：\`\$DATA_ROOT/eagler/caddy-eagler.snippet\` → 追加到站点 Caddyfile"
-        echo "- 给站点 caddy 服务加端口映射：\`\"${wp}:8443\"\`，路由器转发 ${wp}/TCP 到宿主"
-        echo "- 防火墙：按站点自建 TLS 规则放行（docs/security.md §4），**不要**写进 MC_PUBLIC_TCP"
-        echo
         echo "## 4. 玩家入口"
         echo
-        echo "- Java：\`${host}:${jp}\`（proxy 模式经代理；direct 模式直连实例）"
-        echo "- Web ：\`wss://${host}:${wp}/\`（浏览器客户端）"
+        if [ "$have_vel" = "1" ]; then
+            echo "- Java：\`${host}:${jp}\`（经代理）"
+        else
+            echo "- Java：\`${host}:${jp}\`（直连实例）"
+        fi
+        if [ "$have_eg" = "1" ]; then
+            echo "- Web ：\`wss://${host}:${wp}/\`（浏览器客户端）"
+        fi
+        if [ "$(geyser_target)" = "velocity" ]; then
+            echo "- 基岩：\`${host}:$(eagler_geyser_port)\`（NetherNet，见 §2.5）"
+        elif [ "$(geyser_target)" = "spigot" ]; then
+            echo "- 基岩：\`${host}:$(eagler_geyser_port)\`（Geyser-Spigot，实例侧）"
+        fi
         echo
-        echo "## 5. 验收"
-        echo
-        echo '```bash'
-        echo "python3 tests/eaglercraft_probe.py --host ${host} --port ${wp} --tls"
-        echo '```'
-        echo
-        echo "期望：\`eagler_protocol=5 minecraft_protocol=777\`。"
+        if [ "$have_eg" = "1" ]; then
+            echo "## 5. 验收"
+            echo
+            echo '```bash'
+            echo "python3 tests/eaglercraft_probe.py --host ${host} --port ${wp} --tls"
+            echo '```'
+            echo
+            echo "期望：\`eagler_protocol=5 minecraft_protocol=777\`。"
+        else
+            echo "## 5. 验收"
+            echo
+            echo '```bash'
+            echo "docker exec orzmc-velocity sh -c 'ls /srv/plugins'   # velocity-only：不应有 EaglerXServer.jar"
+            echo 'docker logs --tail 30 orzmc-velocity                  # 期望 "Listening on /0.0.0.0:25565"'
+            echo '```'
+        fi
     } > "$dest"
     chmod 600 "$dest"
     info "已生成实例待办: ${dest}"
@@ -272,7 +316,7 @@ eagler_check_port_conflicts() {
     local p busy
     for p in "$(eagler_java_port)" "$(eagler_backend_port)"; do
         busy="$(docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null \
-            | awk -F'|' -v port=":${p}->" '$2 ~ port && $1 != "orzmc-eagler-proxy" {print $1}' \
+            | awk -F'|' -v port=":${p}->" '$2 ~ port && $1 != "orzmc-velocity" {print $1}' \
             | head -n 2 | tr '\n' ' ')"
         if [ -n "$busy" ]; then
             warn "端口 ${p} 已被容器占用：${busy}——proxy 模式需要 EAGLER_JAVA_PORT 归代理、EAGLER_BACKEND_PORT 归实例，请先在面板改实例端口映射"
@@ -311,64 +355,86 @@ eagler_patch_geyser() {
 
 # ---- 主流程 -------------------------------------------------------------
 
+# 拓扑不需要的插件要真正移走：否则 ENABLE_EAGLER=false 之后 Web 入口（8081）仍然在，
+# 玩家还能连进来，开关形同虚设。移到 $DATA_ROOT/eagler/disabled/（可随时移回）。
+eagler_stash_plugin() { # eagler_stash_plugin <jar-path>
+    local f="$1" d
+    if [ -f "$f" ]; then
+        d="$(eagler_dir)/disabled"
+        mkdir -p "$d"
+        mv "$f" "${d}/$(basename -- "$f")"
+        info "已移走当前拓扑不需要的插件: $(basename -- "$f") → ${d}"
+    fi
+}
+
 eagler_prepare() {
-    local mode
-    mode="$(eagler_mode)"
-    case "$mode" in
-        off) return 0 ;;
-        direct)
+    local topo pdir backend
+    topo="$(topology)"
+    case "$topo" in
+        java-only)
+            return 0
+            ;;
+        eagler-direct)
             mkdir -p "$(eagler_jars_dir)"
             eagler_fetch "$(eagler_lock EAGLERXPAPER_URL)" \
                 "$(eagler_jars_dir)/EaglerXPaper-$(eagler_lock EAGLERXPAPER_VERSION).jar" \
                 "$(eagler_lock EAGLERXPAPER_SHA256)" "EaglerXPaper $(eagler_lock EAGLERXPAPER_VERSION)"
-            eagler_write_setup_doc direct
+            eagler_write_setup_doc "$topo"
             eagler_write_caddy_snippet "host.docker.internal"
             ;;
-        proxy)
-            local pdir backend
+        velocity|eagler-proxy)
             eagler_check_port_conflicts
             pdir="$(eagler_proxy_dir)"
             mkdir -p "${pdir}/plugins"
             eagler_fetch "$(eagler_lock VELOCITY_URL)" "${pdir}/velocity.jar" \
                 "$(eagler_lock VELOCITY_SHA256)" "Velocity $(eagler_lock VELOCITY_VERSION)-$(eagler_lock VELOCITY_BUILD)"
-            eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
-                "$(eagler_lock EAGLERXSERVER_SHA256)" "EaglerXServer $(eagler_lock EAGLERXSERVER_VERSION)"
-            # 后端 RPC：给 Web/基岩玩家单独降视野（EAGLER_RPC=false 可关）
-            if [ "$(eagler_port EAGLER_RPC true)" = "true" ]; then
+            if [ "$topo" = "eagler-proxy" ]; then
+                eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
+                    "$(eagler_lock EAGLERXSERVER_SHA256)" "EaglerXServer $(eagler_lock EAGLERXSERVER_VERSION)"
+            else
+                # velocity-only：Web 端点必须关掉，否则"没开 Eaglercraft"也能连进来
+                eagler_stash_plugin "${pdir}/plugins/EaglerXServer.jar"
+            fi
+            # 后端 RPC：给 Web/基岩玩家单独降视野（EAGLER_RPC=false 可关；仅 eagler-proxy 需要）
+            if [ "$topo" = "eagler-proxy" ] && [ "$(eagler_port EAGLER_RPC true)" = "true" ]; then
                 eagler_fetch "$(eagler_lock EAGLER_RPC_URL)" \
                     "$(eagler_jars_dir)/EaglerXBackendRPC-$(eagler_lock EAGLER_RPC_VERSION).jar" \
                     "$(eagler_lock EAGLER_RPC_SHA256)" "EaglerXBackendRPC $(eagler_lock EAGLER_RPC_VERSION)"
             fi
-            if [ "$(eagler_geyser_enabled)" = "true" ]; then
+            if [ "$(geyser_target)" = "velocity" ]; then
                 eagler_fetch "$(eagler_lock GEYSER_URL)" "${pdir}/plugins/Geyser-Velocity.jar" \
                     "$(eagler_lock GEYSER_SHA256)" "Geyser-Velocity $(eagler_lock GEYSER_VERSION)-$(eagler_lock GEYSER_BUILD)"
+            else
+                eagler_stash_plugin "${pdir}/plugins/Geyser-Velocity.jar"
             fi
             eagler_ensure_secret "${pdir}/forwarding.secret"
             backend="host.docker.internal:$(eagler_backend_port)"
             eagler_render_velocity_toml "${pdir}/velocity.toml" "$backend"
-            eagler_write_setup_doc proxy
-            eagler_write_caddy_snippet "orzmc-eagler-proxy"
+            eagler_write_setup_doc "$topo"
+            if [ "$topo" = "eagler-proxy" ]; then
+                eagler_write_caddy_snippet "orzmc-velocity"
+            fi
             ;;
     esac
 }
 
-# up 之后调用：EaglerXServer 已生成 listeners.toml 则修正为面向反代的配置。
+# up 之后调用：插件首次启动才生成配置，随后修正为面向反代/宿主的形态。
 # 返回 0 表示改过（需要重启代理容器才生效）。
 eagler_post_up() {
-    local mode cfg changed
-    mode="$(eagler_mode)"
-    [ "$mode" = "proxy" ] || return 1
-    cfg="$(eagler_proxy_dir)/plugins/eaglerxserver"
+    local cfg changed
     changed=1
-    if eagler_patch_listeners "${cfg}/listeners.toml"; then
-        info "已修正 listeners.toml（forward_ip / X-Real-IP）"
-        changed=0
+    if [ "$(eagler_dialect)" = "eaglerxserver" ]; then
+        cfg="$(eagler_proxy_dir)/plugins/eaglerxserver"
+        if eagler_patch_listeners "${cfg}/listeners.toml"; then
+            info "已修正 listeners.toml（forward_ip / X-Real-IP）"
+            changed=0
+        fi
+        if eagler_patch_settings "${cfg}/settings.toml"; then
+            info "已修正 settings.toml（http_websocket_max_frame_length=65535）"
+            changed=0
+        fi
     fi
-    if eagler_patch_settings "${cfg}/settings.toml"; then
-        info "已修正 settings.toml（http_websocket_max_frame_length=65535）"
-        changed=0
-    fi
-    if [ "$(eagler_geyser_enabled)" = "true" ] \
+    if [ "$(geyser_target)" = "velocity" ] \
         && eagler_patch_geyser "$(eagler_proxy_dir)/plugins/Geyser-Velocity/config.yml"; then
         info "已修正 Geyser-Velocity/config.yml（端口/后端/离线认证）"
         changed=0
@@ -378,16 +444,24 @@ eagler_post_up() {
 
 # validate 用：检查运行时是否就绪（只告警，不因缺文件失败——init 后 up 前是常态）
 eagler_runtime_check() {
-    local mode
-    mode="$(eagler_mode)"
-    [ "$mode" = "off" ] && return 0
-    if [ "$mode" = "proxy" ]; then
-        if [ ! -f "$(eagler_proxy_dir)/velocity.jar" ] || [ ! -f "$(eagler_proxy_dir)/plugins/EaglerXServer.jar" ]; then
-            warn "代理运行时未就绪（首次 up 会自动下载；离线环境请预置 $(eagler_proxy_dir)）"
-        fi
-    else
+    local dialect
+    dialect="$(eagler_dialect)"
+    if [ "$dialect" = "eaglerxpaper" ]; then
         if ! ls "$(eagler_jars_dir)"/EaglerXPaper-*.jar >/dev/null 2>&1; then
             warn "EaglerXPaper 未下载（首次 up 会自动下载）"
+        fi
+    fi
+    if velocity_enabled; then
+        if [ ! -f "$(eagler_proxy_dir)/velocity.jar" ]; then
+            warn "Velocity 运行时未就绪（首次 up 会自动下载；离线环境请预置 $(eagler_proxy_dir)）"
+        fi
+        if [ "$dialect" = "eaglerxserver" ] \
+            && [ ! -f "$(eagler_proxy_dir)/plugins/EaglerXServer.jar" ]; then
+            warn "EaglerXServer 插件缺失（ENABLE_EAGLER=true 但代理 plugins 里没有）"
+        fi
+        if [ "$(geyser_target)" = "velocity" ] \
+            && [ ! -f "$(eagler_proxy_dir)/plugins/Geyser-Velocity.jar" ]; then
+            warn "Geyser-Velocity 插件缺失（基岩由代理托管时必需）"
         fi
     fi
     return 0

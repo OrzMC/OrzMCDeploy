@@ -64,23 +64,20 @@ port_specs() {
     tcp="$(env_val MC_TCP_PORTS)";      [ -n "$tcp" ]  || tcp="25565,25566"
     udp="$(env_val MC_UDP_PORTS)";      [ -n "$udp" ]  || udp="19132"
     rcon="$(env_val RCON_PORTS)";       [ -n "$rcon" ] || rcon="25575,25576"
-    # EAGLER_MODE=proxy + Geyser 装在代理时，基岩端口也由代理发布，并入 MC-UDP 口径。
-    if [ "$(env_val EAGLER_MODE)" = "proxy" ]; then
-        local ge
-        ge="$(env_val EAGLER_GEYSER)"; [ -n "$ge" ] || ge="true"
-        if [ "$ge" = "true" ]; then
-            local gp gw
-            gp="$(env_val EAGLER_GEYSER_PORT)"; [ -n "$gp" ] || gp="19132"
-            gw="$(env_val EAGLER_GEYSER_WEBRTC_PORT)"; [ -n "$gw" ] || gw="19134"
-            case ",${udp}," in *",${gp},"*) ;; *) udp="${udp},${gp}" ;; esac
-            case ",${udp}," in *",${gw},"*) ;; *) udp="${udp},${gw}" ;; esac
-        fi
+    # 基岩端口跟着前端走（ADR-036）：代理托管基岩时端口由代理发布，并入 MC-UDP 口径。
+    # velocity-only 拓扑下基岩由实例侧 Geyser-Spigot 发布，已在 MC_UDP_PORTS 里。
+    if [ "$(geyser_target)" = "velocity" ]; then
+        local gp gw
+        gp="$(eagler_geyser_port)"
+        gw="$(eagler_geyser_webrtc_port)"
+        case ",${udp}," in *",${gp},"*) ;; *) udp="${udp},${gp}" ;; esac
+        case ",${udp}," in *",${gw},"*) ;; *) udp="${udp},${gw}" ;; esac
     fi
-    # EAGLER_MODE=proxy 时玩家 Java 入口是代理端口（可能不是 25565），并入 MC-TCP 口径。
+    # velocity 拓扑下玩家 Java 入口是代理端口（可能不是 25565），并入 MC-TCP 口径。
     # WSS/TLS 端口属站点自建反代规则（如 OrzMC-Web-TLS），不在本脚本管辖。
-    if [ "$(env_val EAGLER_MODE)" = "proxy" ]; then
+    if velocity_enabled; then
         local ej
-        ej="$(env_val EAGLER_JAVA_PORT)"; [ -n "$ej" ] || ej="25565"
+        ej="$(eagler_java_port)"
         case ",${tcp}," in *",${ej},"*) ;; *) tcp="${tcp},${ej}" ;; esac
     fi
     printf '%s\n' \

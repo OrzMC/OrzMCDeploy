@@ -6,7 +6,7 @@
 > **相关文档**：实施与验收见 [eaglercraft-deploy](eaglercraft-deploy.md)；
 > 暴露面与反代见 [security](security.md)；实例字段见 [papermc-template](papermc-template.md)。
 
-**决策状态**：已落 **ADR-035**，并实现为**可选单开关** `EAGLER_MODE=off|direct|proxy`
+**决策状态**：已落 **ADR-035**，开关随后由 **ADR-036** 拆成 `ENABLE_VELOCITY` / `ENABLE_EAGLER`
 （缺省 `off`，对现有部署零影响）。启用步骤见 [eaglercraft-deploy](eaglercraft-deploy.md)；
 生产启用前先在测试服跑完 T1–T12。
 
@@ -234,7 +234,7 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
   LuckPerms 权限。这是**有意选择**——玩家用同一个名字在浏览器与 Java 之间无缝接续。
   含义与代价：
   - **不装**改名插件（原先考虑的 `w_` 前缀方案未采用）：代码层面无需任何改动，
-    `EAGLER_MODE` 已足够；`IEaglercraftLoginEvent` 的 `setProfileUsername`/`setProfileUUID`
+    `ENABLE_EAGLER` 已足够；`IEaglercraftLoginEvent` 的 `setProfileUsername`/`setProfileUUID`
     仍留给将来"账号映射"类需求。
   - **唯一门槛是口令登录**（LoginSecurity）：同名玩家必须知道该账号密码，否则进不去。
     真正的门是**白名单**：只有名单里的名字能进（本机实测 95 个名字），所以「随便取名」
@@ -284,7 +284,7 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
 | 4 | Velocity 4.3.1 + EaglerXServer 1.1.1 → Paper 26.3（MODERN 转发） | `Listener "listener0" injected ... (Velocity method)`；进服成功 |
 | 5 | 同上，后端换 **Folia 26.3 build 6** | 进服成功（`logged in with entity id 1`） |
 | 6 | `--sniff` 抓真客户端首帧 | `eagler_protocols=[3,4,5]`、`minecraft_protocols=[777]`、`brand=Eaglercraft 26.2` |
-| 7 | `EAGLER_MODE=proxy` 生成的 velocity.toml + forwarding.secret → Paper 26.3（MODERN 转发） | 代理 `Done`、`Listener "listener0" injected`；浏览器进服、后端 1 秒内登录（`logged in with entity id 1`） |
+| 7 | `ENABLE_VELOCITY+ENABLE_EAGLER` 生成的 velocity.toml + forwarding.secret → Paper 26.3（MODERN 转发） | 代理 `Done`、`Listener "listener0" injected`；浏览器进服、后端 1 秒内登录（`logged in with entity id 1`） |
 | 8 | `eagler_post_up` 自动修正 `listeners.toml`（`forward_ip=true` / `X-Real-IP` / 帧长 65535） | 二次执行幂等（`NOCHANGE`）；修正后经反代进服正常，直连 `ws://` 被拒 |
 | 9 | **真实插件栈**（复制某站的 20+ 插件：LuckPerms/LoginSecurity/GrimAC/GriefPrevention/EzShops/Geyser/Via*/SVC/自研插件，全新平原地形） | 浏览器进服成功；`/register` 在聊天框可用，注册后自动登录；LuckPerms 命中默认组；GrimAC 持续移动 3 s 无踢人/误判 |
 | 10 | 同名双开（两个浏览器会话同名） | 第二个连接在**代理层**被拒：`You are already connected to this proxy!`；**原会话不受影响**（未被顶号），也没走到口令提示 |

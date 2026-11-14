@@ -157,11 +157,13 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | 可选 | 实例进服端口的防火墙放行清单（仅 `firewall` 使用） |
 | `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP` | 可选 | **对公网开放**的游戏端口（缺省空 = 全限源；见 §8 与 [security.md](security.md) §4） |
 | `DAEMON_MEMORY_LIMIT` / `DAEMON_NODE_HEAP_MB` | 可选 | daemon 容器/堆上限（缺省 512M / 384） |
-| `EAGLER_MODE` | 可选 | Eaglercraft Web 开关：`off`（缺省，零影响）/ `direct`（实例直挂 EaglerXPaper）/ `proxy`（Velocity 代理，支持 Folia）。见 [eaglercraft-deploy.md](eaglercraft-deploy.md) |
-| `EAGLER_JAVA_PORT` / `EAGLER_BACKEND_PORT` / `EAGLER_WS_PORT` | 可选 | 缺省 `25565` / `25566` / `18444`；只有 `proxy` 用到后端端口 |
+| `ENABLE_VELOCITY` | 可选 | 是否用 Velocity 当前端（多服大厅；玩家 Java 端口由代理发布）。缺省 `false`，ADR-036 |
+| `ENABLE_EAGLER` | 可选 | 是否接 Eaglercraft Web 客户端。缺省 `false`；实现方式由 `ENABLE_VELOCITY` 派生（`true` → 代理装 EaglerXServer；`false` → 实例挂 EaglerXPaper，不支持 Folia）。见 [eaglercraft-deploy.md](eaglercraft-deploy.md) |
+| `EAGLER_MODE` | 已废弃 | 旧三态 `off`/`direct`/`proxy`：两个新开关都没写时才生效（`proxy` → `ENABLE_VELOCITY+ENABLE_EAGLER`），`validate` 提示迁移 |
+| `EAGLER_JAVA_PORT` / `EAGLER_BACKEND_PORT` / `EAGLER_WS_PORT` | 可选 | 缺省 `25565` / `25566` / `18444`；后端端口只在 `ENABLE_VELOCITY=true` 时用到 |
 | `EAGLER_PUBLIC_HOST` | 可选 | 只影响提示文案（如 `dev.jokerhub.cn`）；留空打印占位符，域名可随时换 |
 | `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | 可选 | 代理容器/堆上限（缺省 1024M / 768） |
-| `EAGLER_GEYSER` / `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | 可选 | proxy 模式下代理是否自带 Geyser（缺省 true）与基岩端口（缺省 19132 / 19134） |
+| `EAGLER_GEYSER` / `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | 可选 | 基岩装在谁身上由拓扑派生：有代理 → 代理的 Geyser-Velocity（端口由代理发布）；无代理 → 实例侧 Geyser-Spigot（端口不动）。`EAGLER_GEYSER=false` = 不提供基岩。缺省 `true` / `19132` / `19134` |
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
 | `COMPOSE_FILE_EXTRA` | 可选 | 追加任意路径 compose 文件（空格/逗号分隔） |
@@ -636,8 +638,8 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | `19134` / `19135` | 基岩 NetherNet 媒体（WebRTC） | UDP；同上 |
 | `24454` | Simple Voice Chat（可选） | UDP；先在实例端口映射里加 `24454:24454/udp` |
 | `25575` / `25576` | RCON（可选） | 仅局域网，**永不公网** |
-| `19132` / `19134` | 基岩（`EAGLER_MODE=proxy` 时由代理 Geyser 发布） | UDP+TCP 信令 / UDP WebRTC 媒体；与实例侧原来的端口号一致 |
-| `18444` | Eaglercraft WSS（可选，`EAGLER_MODE≠off`） | 站点自备 TLS 反代端口（Caddy `8443`）；公网需路由器转发 + 站点 TLS 防火墙规则，**不要**写进 `MC_PUBLIC_TCP` |
+| `19132` / `19134` | 基岩（`ENABLE_VELOCITY=true` 时由代理 Geyser 发布） | UDP+TCP 信令 / UDP WebRTC 媒体；与实例侧原来的端口号一致 |
+| `18444` | Eaglercraft WSS（可选，`ENABLE_EAGLER=true`） | 站点自备 TLS 反代端口（Caddy `8443`）；公网需路由器转发 + 站点 TLS 防火墙规则，**不要**写进 `MC_PUBLIC_TCP` |
 
 > 除上面两个 `LAN_*_PORT` 源站端口外，其余端口都不发布到宿主（仅容器网络内可达）。
 > PaperMC 实例端口由 MCSManager 按实例配置发布，供局域网玩家直连。
@@ -656,7 +658,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 │       └── logs/
 ├── easybot/
 │   └── data/                      # gateway.db 等网关数据
-└── eagler/                        # EAGLER_MODE≠off 才有（ADR-035）
+└── eagler/                        # 任一前端开关为 true 才有（ADR-036）
     ├── proxy/                     # proxy 模式：velocity.jar + plugins/ + velocity.toml
     ├── jars/                      # direct 模式：EaglerXPaper-<版本>.jar
     ├── instance-setup.md          # 实例侧待办（每次 up 刷新，含转发密钥）

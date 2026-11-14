@@ -13,6 +13,30 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **前端拓扑拆成两个正交开关**（ADR-036）：`ENABLE_VELOCITY` / `ENABLE_EAGLER`（缺省都 `false`）。
+  - 四种组合：`java-only`（缺省，零影响）、`velocity`（只上代理大厅，**新增能力**）、
+    `eagler-direct`（实例挂 EaglerXPaper）、`eagler-proxy`（Velocity + EaglerXServer）。
+  - 实现方式由 `ENABLE_VELOCITY` 派生，不设第三个开关；旧 `EAGLER_MODE=off|direct|proxy`
+    仍可解析（`validate` 提示迁移），升级不会断。
+  - 服务/容器改名：`eagler-proxy` / `orzmc-eagler-proxy` → `velocity` / `orzmc-velocity`
+    （profile 由 `eagler` 改为 `velocity`）；运行时目录仍是 `$DATA_ROOT/eagler/proxy`。
+  - 基岩端口（19132/19134）改为条件追加 `templates/compose.velocity-geyser.yaml`，
+    仅在代理托管 Geyser 时发布，避免与实例侧 Geyser-Spigot 抢端口。
+  - 切换拓扑时，当前实现不需要的插件会被移到 `$DATA_ROOT/eagler/disabled/`
+    （否则 `ENABLE_EAGLER=false` 后 Web 端点仍可连）。
+  - 防火墙口径改为按派生值判断（`velocity_enabled` / `geyser_target`）。
+  - CI/单测：`tests/windows_ci.sh` 74 → 83 项，覆盖 4 象限、派生、兼容与端口冲突。
+
+### Migration
+
+- 老 `.env` 无需改动即可继续运行；建议改成新开关并删掉 `EAGLER_MODE`（`validate` 会提示）。
+- 已部署 `orzmc-eagler-proxy` 的站点执行一次 `./orzmc.sh -d <数据目录> stop && up`，
+  旧容器由 `down --remove-orphans` 清理。
+
+## [Unreleased]
+
 ### 新功能
 
 - **Eaglercraft Web 接入做成可选单开关**（ADR-035）：`.env` 新增 `EAGLER_MODE=off|direct|proxy`
