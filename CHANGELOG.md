@@ -19,6 +19,10 @@
   （媒体复用主端口）→ `nethernet` + `0` 时只需 `19132` 一个端口号（TCP 信令 + UDP 媒体），
   独立媒体端口改为按需追加 `templates/compose.velocity-geyser-webrtc.yaml`；
   防火墙口径同时把基岩 **TCP 信令**并入 `MC-TCP`（此前只用 UDP）。
+  实测：手机流量（外网）直连 `dev.jokerhub.cn:19132` 进服成功，路由器只需一条 TCP +
+  一条 UDP（同号）。配套要求见 `docs/eaglercraft-deploy.md` §13.2：
+  `advertise-addresses` 必须显式给（宿主跑代理/VPN 时 STUN 会探到 VPN 出口），
+  且代理容器 DNS 要指向内网（否则域名被 fake-ip 解析成 `198.18.x.x`）。
 - **多后端大厅**（Velocity）：`.env` 一行 `VELOCITY_SERVERS=<名字>=<宿主端口>,...` +
   `VELOCITY_TRY=<落地顺序>`，`up` 渲染 `velocity.toml` 的 `[servers]`/`try`。
   值支持两种写法：`<名字>=<宿主端口>` 与 `<名字>=<主机>:<端口>`（实例与代理同在
