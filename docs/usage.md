@@ -570,6 +570,7 @@ platforms:
 | 玩家进不去 `25565` | 实例未启动 / 端口映射错 / `online-mode` 阻挡 | 面板启动实例；核对 `docker.ports`；离线服把 `server.properties` 的 `online-mode` 设 `false` |
 | 局域网能连、域名/公网连不上 | 防火墙只放行 `LAN_CIDR`；或路由器未转发该端口 | `.env` 配 `MC_PUBLIC_TCP` / `MC_PUBLIC_UDP` 后 `firewall apply`；核对路由器转发（TCP/UDP 都要） |
 | 改了实例 JSON 又回退 | 实例运行中直接改被内存副本覆盖；先改后 `docker restart` 也会被退出刷盘覆盖 | 按[第 6.5 节](#65-生命周期与配置持久化)正确顺序：**停 daemon → 改 → 启 daemon** |
+| **局域网直连正常、域名连上几秒/几十秒就断**（客户端 `Connection reset by peer` / Eaglercraft `1006`，服务端只有 `lost connection: Disconnected`、无踢人原因） | 客户端侧的**系统代理 / TUN**（Clash、Mihomo 等）把自家域名送进用户态转发（甚至送出国再绕回家宽回环），长连接在突发流量下被 RST；服务端无辜 | 在客户端代理里把自家域名与 WAN 直连：`DOMAIN-SUFFIX,<你的域名>,DIRECT` + `dns.fake-ip-filter` + 把 WAN IP 加进 `tun.route-exclude-address`（三者缺一流量仍会过 TUN 数据面）。更彻底的做法是路由器加本地 DNS：`<域名> → LAN_HOST_IP`，局域网设备连 TUN 都不碰。诊断要点：`Get-NetTCPConnection -RemotePort 25565` 看对端是 WAN IP 还是代理节点 |
 
 ---
 

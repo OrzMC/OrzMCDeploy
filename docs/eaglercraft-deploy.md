@@ -317,6 +317,21 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 3. **容错参数**（已在本站生效，仍建议保留）：`velocity.toml` 的 `read-timeout` 120000、`spigot.yml` 的 `settings.timeout-time` 180。
 4. 已给 `dev.jokerhub.cn` 开 Caddy 访问日志（`/data/access-eagler.log`），下次可直接对比是反代断还是上游踢。
 
+### 13.0 实测结论：客户端侧 TUN/代理是「域名连上就断、IP 直连正常」的头号原因
+
+2026-11-14 在真实站点上按变量逐层剥离，链路为
+`客户端 → Mihomo TUN（fake-ip）→ 海外节点 → 家宽 WAN → 路由器回环 → 宿主 → 容器`：
+
+| 步骤 | 结果 |
+|---|---|
+| 局域网 IP 直连 | 稳定（60 s+，可反复 `/server` 切换） |
+| 域名（TUN + 海外中继 + 回环） | 1–30 s 内被 RST（Java `-54 Connection reset by peer`；Web `1006`） |
+| 域名 + `DOMAIN-SUFFIX,DIRECT`（不出国，但仍过 TUN 数据面） | 仍然断 |
+| 域名 + `fake-ip-filter` + 把 WAN IP 加入 `tun.route-exclude-address`（完全绕开 TUN） | **稳定** |
+
+结论：只要流量经过客户端代理的用户态数据面，长连接在高吞吐（进服/切服/传送的区块与背包同步）时会被重置；
+服务端三侧日志始终只有 `Disconnected`。处置见 `docs/usage.md` §9 表格最后一行。
+
 ## 13. 基岩（Geyser）上线实测清单
 
 按踩坑顺序排列，全部来自 2026-11-12 的真实上线：
