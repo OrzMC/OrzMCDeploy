@@ -410,6 +410,29 @@ if ( validate_topology ) >/dev/null 2>&1; then fail "非法 Geyser 端口应报�
 eg_env 'ENABLE_EAGLER=true
 EAGLER_JAVA_PORT=25570'
 check "自定义端口生效" "25570 25566 18444"     "$(eagler_java_port) $(eagler_backend_port) $(eagler_ws_port)"
+# 基岩传输方式与端口最小化
+eg_env 'ENABLE_VELOCITY=true'
+check "基岩传输缺省 both" "both" "$(eagler_geyser_transport)"
+check "缺省需要独立媒体端口" "yes" "$(geyser_needs_webrtc_port && echo yes || echo no)"
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER_WEBRTC_PORT=0'
+check "媒体端口 0 → 派生 nethernet" "nethernet" "$(eagler_geyser_transport)"
+check "媒体端口 0 → 不需要独立端口" "no" "$(geyser_needs_webrtc_port && echo yes || echo no)"
+if ( validate_topology ) >/dev/null 2>&1; then ok "nethernet + 复用端口校验通过"; else fail "nethernet 复用端口应通过"; fi
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER_TRANSPORT=nethernet'
+check "nethernet + 独立端口" "nethernet" "$(eagler_geyser_transport)"
+check "nethernet + 独立端口仍需发布" "yes" "$(geyser_needs_webrtc_port && echo yes || echo no)"
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER_TRANSPORT=both
+EAGLER_GEYSER_WEBRTC_PORT=0'
+if ( validate_topology ) >/dev/null 2>&1; then fail "both + 媒体端口 0 应报错"; else ok "both 传输禁止复用端口"; fi
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER_WEBRTC_PORT=19132'
+if ( validate_topology ) >/dev/null 2>&1; then fail "媒体端口与主端口相同应报错"; else ok "媒体端口撞主端口被拦下"; fi
+eg_env 'ENABLE_VELOCITY=true
+EAGLER_GEYSER_TRANSPORT=bogus'
+if ( validate_topology ) >/dev/null 2>&1; then fail "非法 transport 应报错"; else ok "非法 transport 被拦下"; fi
 
 # ===========================================================================
 section "多后端大厅（VELOCITY_SERVERS / VELOCITY_TRY）"

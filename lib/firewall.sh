@@ -70,8 +70,12 @@ port_specs() {
         local gp gw
         gp="$(eagler_geyser_port)"
         gw="$(eagler_geyser_webrtc_port)"
+        # 信令是 TCP；RakNet / NetherNet 媒体是 UDP
+        case ",${tcp}," in *",${gp},"*) ;; *) tcp="${tcp},${gp}" ;; esac
         case ",${udp}," in *",${gp},"*) ;; *) udp="${udp},${gp}" ;; esac
-        case ",${udp}," in *",${gw},"*) ;; *) udp="${udp},${gw}" ;; esac
+        if [ "$gw" != "0" ]; then
+            case ",${udp}," in *",${gw},"*) ;; *) udp="${udp},${gw}" ;; esac
+        fi
     fi
     # velocity 拓扑下玩家 Java 入口是代理端口（可能不是 25565），并入 MC-TCP 口径。
     # WSS/TLS 端口属站点自建反代规则（如 OrzMC-Web-TLS），不在本脚本管辖。

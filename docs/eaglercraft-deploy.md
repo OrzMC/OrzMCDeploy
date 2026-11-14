@@ -358,6 +358,25 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
   面板/EasyBot（同端口按 Host 分流）。
 - 切完各跑一次：`./orzmc.sh -d <数据目录> validate` → `status` → §7.2 探针。
 
+## 13.2 基岩端口最小化（NetherNet-only）
+
+Geyser 2.12 起 `transport` 只有 `both` / `nethernet`（RakNet-only 已移除）。要少占端口：
+
+```ini
+EAGLER_GEYSER_TRANSPORT=nethernet
+EAGLER_GEYSER_WEBRTC_PORT=0            # 媒体复用 EAGLER_GEYSER_PORT
+```
+
+| 配置 | 需要的端口 | 说明 |
+|---|---|---|
+| `both` + `19134`（缺省） | TCP `19132`、UDP `19132`、UDP `19134` | 兼容 RakNet 老客户端 |
+| `nethernet` + `19134` | TCP `19132`、UDP `19134` | 不要 RakNet，但媒体仍独立 |
+| **`nethernet` + `0`** | **TCP `19132`、UDP `19132`** | 一个端口号搞定；需客户端走 NetherNet（26.x 均可） |
+
+取舍：`nethernet`-only 放弃 RakNet 兜底，老版本基岩客户端无法进服；换来的好处是
+路由器只需一条 TCP + 一条 UDP（同号），且不会出现「STUN 学到的外部端口与内部端口不一致」
+那类问题（静态转发同号即可）。
+
 ## 10. 排障速查
 
 | 现象 | 定位 |

@@ -139,7 +139,7 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 ```bash
 for f in *.sh lib/*.sh tests/*.sh; do bash -n "$f"; done
 shellcheck -x --shell=bash *.sh lib/*.sh tests/*.sh
-bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义 + 前端拓扑 4 象限 + 多后端（100 项）
+bash tests/windows_ci.sh      # Windows 分支逻辑 + env 读取语义 + 前端拓扑 4 象限 + 多后端 + 基岩端口（110 项）
 bash tests/docs_check.sh      # 文档链接/锚点
 python3 -m py_compile tests/eaglercraft_probe.py   # Eaglercraft 握手探针语法（手工工具）
 ./orzmc.sh -d /tmp/orzmc-test init && ./orzmc.sh -d /tmp/orzmc-test validate

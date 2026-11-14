@@ -8,10 +8,14 @@
 #
 # 端口值必须与 lib/eagler.sh 写入的 Geyser-Velocity/config.yml 一致；路由器端口号
 # 不变，所以玩家侧无需改动。
+#
+# 覆盖的端口语义：
+#   EAGLER_GEYSER_PORT        信令（TCP）+ RakNet / NetherNet 复用（UDP）
+#   EAGLER_GEYSER_WEBRTC_PORT 独立媒体端口；=0 表示复用 EAGLER_GEYSER_PORT
+#                             （此时由 compose.velocity-geyser-webrtc.yaml 不再追加）
 # ===========================================================================
 services:
   velocity:
     ports:
       - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_GEYSER_PORT:-19132}:${EAGLER_GEYSER_PORT:-19132}/udp"
       - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_GEYSER_PORT:-19132}:${EAGLER_GEYSER_PORT:-19132}/tcp"
-      - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_GEYSER_WEBRTC_PORT:-19134}:${EAGLER_GEYSER_WEBRTC_PORT:-19134}/udp"

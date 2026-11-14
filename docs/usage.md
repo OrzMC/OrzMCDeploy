@@ -165,7 +165,7 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `VELOCITY_TRY` | 可选 | 玩家首次落地顺序（名字须在 `VELOCITY_SERVERS` 里）；留空 = 第一个 |
 | `EAGLER_PUBLIC_HOST` | 可选 | 只影响提示文案（如 `dev.jokerhub.cn`）；留空打印占位符，域名可随时换 |
 | `EAGLER_PROXY_MEMORY_LIMIT` / `EAGLER_PROXY_HEAP_MB` | 可选 | 代理容器/堆上限（缺省 1024M / 768） |
-| `EAGLER_GEYSER` / `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | 可选 | 基岩装在谁身上由拓扑派生：有代理 → 代理的 Geyser-Velocity（端口由代理发布）；无代理 → 实例侧 Geyser-Spigot（端口不动）。`EAGLER_GEYSER=false` = 不提供基岩。缺省 `true` / `19132` / `19134` |
+| `EAGLER_GEYSER` / `EAGLER_GEYSER_TRANSPORT` / `EAGLER_GEYSER_PORT` / `EAGLER_GEYSER_WEBRTC_PORT` | 可选 | 基岩装在谁身上由拓扑派生：有代理 → 代理的 Geyser-Velocity（端口由代理发布）；无代理 → 实例侧 Geyser-Spigot（端口不动）。`EAGLER_GEYSER=false` = 不提供基岩。`TRANSPORT=both`（缺省，兼容老客户端）或 `nethernet`；`WEBRTC_PORT=0` 表示媒体复用主端口（需 nethernet）→ 端口集合缩为一个端口号。缺省 `true` / `both` / `19132` / `19134` |
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
 | `COMPOSE_FILE_EXTRA` | 可选 | 追加任意路径 compose 文件（空格/逗号分隔） |
@@ -640,7 +640,7 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | `19134` / `19135` | 基岩 NetherNet 媒体（WebRTC） | UDP；同上 |
 | `24454` | Simple Voice Chat（可选） | UDP；先在实例端口映射里加 `24454:24454/udp` |
 | `25575` / `25576` | RCON（可选） | 仅局域网，**永不公网** |
-| `19132` / `19134` | 基岩（`ENABLE_VELOCITY=true` 时由代理 Geyser 发布） | UDP+TCP 信令 / UDP WebRTC 媒体；与实例侧原来的端口号一致 |
+| `19132`（+ 可选 `19134`） | 基岩（`ENABLE_VELOCITY=true` 时由代理 Geyser 发布） | TCP 信令 + UDP 媒体；`EAGLER_GEYSER_WEBRTC_PORT=0` 时媒体复用 `19132/UDP`，不再需要 `19134` |
 | `18444` | Eaglercraft WSS（可选，`ENABLE_EAGLER=true`） | 站点自备 TLS 反代端口（Caddy `8443`）；公网需路由器转发 + 站点 TLS 防火墙规则，**不要**写进 `MC_PUBLIC_TCP` |
 
 > 除上面两个 `LAN_*_PORT` 源站端口外，其余端口都不发布到宿主（仅容器网络内可达）。

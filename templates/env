@@ -63,10 +63,14 @@ ENABLE_EAGLER=false
 # EAGLER_PUBLIC_HOST=
 # 基岩（Geyser）装在谁身上由拓扑派生：有代理 → Geyser-Velocity（端口由代理发布）；
 # 无代理 → 留给实例侧 Geyser-Spigot（端口保持原样）。EAGLER_GEYSER=false 一律不装。
-# 三个端口号一般不用改；改了要同时保证路由器/防火墙一致（MC_PUBLIC_UDP/TCP）。
+# 传输方式（Geyser 2.12 起 raknet-only 已移除）：
+#   both      信令 TCP + RakNet UDP + NetherNet UDP（媒体端口独立）——兼容老客户端
+#   nethernet 只走 NetherNet；把 EAGLER_GEYSER_WEBRTC_PORT 设成 0 即让媒体复用主端口，
+#             端口集合缩到「一个端口号（TCP 信令 + UDP 媒体）」
 # EAGLER_GEYSER=true
+# EAGLER_GEYSER_TRANSPORT=both
 # EAGLER_GEYSER_PORT=19132
-# EAGLER_GEYSER_WEBRTC_PORT=19134
+# EAGLER_GEYSER_WEBRTC_PORT=19134   # 设 0 = 复用 EAGLER_GEYSER_PORT（需 transport=nethernet）
 
 # ---- 容器内端口（须与镜像默认一致；宿主端口见上方 LAN_*_PORT）----
 MCS_WEB_PORT=23333

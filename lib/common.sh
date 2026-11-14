@@ -200,7 +200,30 @@ velocity_try() { # 输出 try 列表里的服务器名（每行一个；缺省�
 }
 
 eagler_geyser_port()        { eagler_port EAGLER_GEYSER_PORT 19132; }
+# 基岩媒体端口：0 = 复用 EAGLER_GEYSER_PORT（NetherNet-only 的最小端口集合）
 eagler_geyser_webrtc_port() { eagler_port EAGLER_GEYSER_WEBRTC_PORT 19134; }
+
+# 基岩传输方式（Geyser 2.12 起 raknet-only 已移除）：
+#   both      信令 TCP + RakNet UDP + NetherNet UDP（媒体端口独立）
+#   nethernet 只有 NetherNet：媒体可复用主端口（EAGLER_GEYSER_WEBRTC_PORT=0）
+# 派生规则：媒体端口为 0 时必然是 nethernet（RakNet 需要独立 UDP 端口）。
+eagler_geyser_transport() {
+    local v wp
+    v="$(read_env_value EAGLER_GEYSER_TRANSPORT)"; [ -n "$v" ] || v="both"
+    wp="$(eagler_geyser_webrtc_port)"
+    if [ "$wp" = "0" ]; then
+        printf 'nethernet'
+        return 0
+    fi
+    printf '%s' "$v"
+}
+
+# 是否需要单独发布媒体端口（独立且不同于主端口）
+geyser_needs_webrtc_port() {
+    local gp wp
+    gp="$(eagler_geyser_port)"; wp="$(eagler_geyser_webrtc_port)"
+    [ "$wp" != "0" ] && [ "$wp" != "$gp" ]
+}
 
 is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac }
 
@@ -270,7 +293,7 @@ validate_velocity_servers() { # <java-port>
 
 # 值域/端口一致性校验（validate 调用；不碰网络，不要求运行时就绪）
 validate_topology() {
-    local topo dialect leg leg_topo jp bp wp ph
+    local topo dialect leg leg_topo jp bp wp ph gp gw gtr
     topo="$(topology)"
     dialect="$(eagler_dialect)"
     leg="$(legacy_eagler_mode)"
@@ -304,7 +327,19 @@ validate_topology() {
     if ! is_uint "$wp"; then die "EAGLER_WS_PORT 必须是数字（当前 ${wp}）"; fi
     if [ "$(geyser_target)" != "none" ]; then
         if ! is_uint "$(eagler_geyser_port)"; then die "EAGLER_GEYSER_PORT 必须是数字"; fi
-        if ! is_uint "$(eagler_geyser_webrtc_port)"; then die "EAGLER_GEYSER_WEBRTC_PORT 必须是数字"; fi
+        gp="$(eagler_geyser_port)"; gw="$(eagler_geyser_webrtc_port)"
+        if ! is_uint "$gw"; then die "EAGLER_GEYSER_WEBRTC_PORT 必须是数字（0 = 复用 EAGLER_GEYSER_PORT）"; fi
+        gtr="$(read_env_value EAGLER_GEYSER_TRANSPORT)"
+        case "$gtr" in
+            ''|both|nethernet) ;;
+            *) die "EAGLER_GEYSER_TRANSPORT=${gtr} 无效：只允许 both / nethernet" ;;
+        esac
+        if [ "$gw" != "0" ] && [ "$gw" = "$gp" ]; then
+            die "EAGLER_GEYSER_WEBRTC_PORT 与 EAGLER_GEYSER_PORT 相同（都是 ${gp}）：复用请写 0，否则换一个端口"
+        fi
+        if [ "$gtr" = "both" ] && [ "$gw" = "0" ]; then
+            die "both 传输需要独立媒体端口：EAGLER_GEYSER_WEBRTC_PORT 不能为 0（或改用 EAGLER_GEYSER_TRANSPORT=nethernet）"
+        fi
     fi
     if velocity_enabled; then
         validate_velocity_servers "$jp"
@@ -615,6 +650,9 @@ compose_cmd() {
     #  实例侧的 Geyser-Spigot 抢 19132。）
     if [ "$(geyser_target)" = "velocity" ]; then
         extra+=(-f "${TEMPLATES_DIR}/compose.velocity-geyser.yaml")
+        if geyser_needs_webrtc_port; then
+            extra+=(-f "${TEMPLATES_DIR}/compose.velocity-geyser-webrtc.yaml")
+        fi
     fi
     # 站点增量 override（issue #11）：$DATA_ROOT/compose.site.yaml + .env 的
     # COMPOSE_FILE_EXTRA，存在即追加；与包内文件解耦，升级/换包不丢。
