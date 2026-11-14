@@ -170,9 +170,20 @@ jobs:
             echo "!! 两个开关都关仍渲染 velocity"; exit 1
           fi
 
-          # 旧键兼容：EAGLER_MODE=proxy 等价于 ENABLE_VELOCITY+ENABLE_EAGLER
+          # 旧键兼容：EAGLER_MODE=proxy 等价于 ENABLE_VELOCITY+ENABLE_EAGLER。
+          # 注意语义：新键存在时旧键按设计被忽略（validate 会提示），所以先删新键。
+          sed -i '/^ENABLE_VELOCITY=/d;/^ENABLE_EAGLER=/d' "$d/.env"
           printf 'EAGLER_MODE=proxy\n' >> "$d/.env"
           svcs | grep -qx velocity || { echo "!! 旧 EAGLER_MODE=proxy 未生效"; exit 1; }
+          rendered | grep -q 'published: "19132"' || { echo "!! 旧键未带出基岩端口"; exit 1; }
+
+          # 新旧并存时旧键必须被忽略（新键显式 false 优先），防止静默回退
+          printf 'ENABLE_VELOCITY=false\n' >> "$d/.env"
+          ./orzmc.sh -d "$d" validate 2>&1 | grep -q 'EAGLER_MODE' \
+            || { echo "!! 新旧并存未提示旧键被忽略"; exit 1; }
+          if svcs | grep -qx velocity; then
+            echo "!! 新旧并存时旧键仍生效（应被忽略）"; exit 1
+          fi
           echo "前端拓扑开关正确"
 
       - name: 局域网端口随 LAN_*_PORT 生效
