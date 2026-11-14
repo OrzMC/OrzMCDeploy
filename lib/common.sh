@@ -161,16 +161,31 @@ eagler_geyser_enabled() {
     printf '%s' "$v"
 }
 # 多后端（Velocity）：.env 的 VELOCITY_SERVERS=lobby=25567,survival=25566
-# 名字 = 代理里的服务器名，端口 = 该实例发布到宿主的端口（面板里配的 docker 端口）。
+# 值的两种写法（都能混用）：
+#   <端口>            实例发布到宿主的端口 → 归一化为 host.docker.internal:<端口>
+#   <主机>:<端口>      任意可解析地址 → 直接用（实例与代理由同一 docker 网络时，
+#                     写实例容器名最省事：MCSM-xxxxxx:25565，不用挪宿主端口）
 # 留空则退化为单个 lobby = EAGLER_BACKEND_PORT（旧行为，老 .env 不用改）。
-velocity_servers() { # 输出 "name=port"，每行一个
-    local v
+velocity_servers() { # 输出 "name=host:port"，每行一个
+    local v srv name addr
     v="$(read_env_value VELOCITY_SERVERS)"
     if [ -z "$v" ]; then
-        printf 'lobby=%s\n' "$(eagler_backend_port)"
+        printf 'lobby=host.docker.internal:%s\n' "$(eagler_backend_port)"
         return 0
     fi
-    printf '%s\n' "$v" | tr ',' '\n'
+    printf '%s\n' "$v" | tr ',' '\n' | while IFS= read -r srv; do
+        [ -n "$srv" ] || continue
+        case "$srv" in
+            *=*) ;;
+            *) printf '%s\n' "$srv"; continue ;;
+        esac
+        name="${srv%%=*}"
+        addr="${srv##*=}"
+        case "$addr" in
+            *:*) printf '%s=%s\n' "$name" "$addr" ;;                       # 已是 host:port
+            *)   printf '%s=host.docker.internal:%s\n' "$name" "$addr" ;;  # 只有端口
+        esac
+    done
 }
 
 velocity_try() { # 输出 try 列表里的服务器名（每行一个；缺省取第一个后端）
@@ -200,7 +215,7 @@ _check_bool() { # _check_bool <KEY>：允许留空（用缺省）
 
 # 多后端校验：名字合法/端口是数字/不与代理入口撞/名字不重复/try 必须是已定义的名字
 validate_velocity_servers() { # <java-port>
-    local jp="$1" srv name port t names
+    local jp="$1" srv name addr host port t names
     names=""
     while IFS= read -r srv; do
         # 只裁首尾空白：名字中间有空格要报错，不能悄悄改成别的名字
@@ -212,16 +227,27 @@ validate_velocity_servers() { # <java-port>
             *) die "VELOCITY_SERVERS 格式应为 <名字>=<宿主端口>，当前项 '${srv}'" ;;
         esac
         name="${srv%%=*}"
-        port="${srv##*=}"
+        addr="${srv##*=}"
         case "$name" in
             ''|*[!A-Za-z0-9_-]*)
                 die "VELOCITY_SERVERS 里的服务器名 '${name}' 非法：只允许字母/数字/下划线/连字符" ;;
         esac
+        case "$addr" in
+            *:*) host="${addr%:*}"; port="${addr##*:}" ;;
+            *)   host="";            port="$addr" ;;
+        esac
+        case "$host" in
+            ''|*[!A-Za-z0-9_.-]*) die "VELOCITY_SERVERS 里 ${name} 的地址 '${host}' 非法（只允许主机名/容器名/IP）" ;;
+        esac
         if ! is_uint "$port"; then
             die "VELOCITY_SERVERS 里 ${name} 的端口 '${port}' 不是数字"
         fi
-        if [ "$port" = "$jp" ]; then
-            die "后端 ${name} 的端口 ${port} 与代理入口端口 EAGLER_JAVA_PORT 相同：实例要让出玩家端口"
+        # 只有走宿主端口（host.docker.internal）时才可能和代理入口抢同一宿主端口；
+        # 容器名/内网地址是另一套命名空间，不参与该检查。
+        if [ -z "$host" ] || [ "$host" = "host.docker.internal" ]; then
+            if [ "$port" = "$jp" ]; then
+                die "后端 ${name} 的宿主端口 ${port} 与代理入口端口 EAGLER_JAVA_PORT 相同：实例要让出玩家端口"
+            fi
         fi
         case " ${names} " in
             *" ${name} "*) die "VELOCITY_SERVERS 里服务器名 '${name}' 重复" ;;

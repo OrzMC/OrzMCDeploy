@@ -126,7 +126,7 @@ eagler_ensure_secret() { # eagler_ensure_secret <file>
 }
 
 eagler_render_velocity_toml() { # eagler_render_velocity_toml <dest>
-    local dest="$1" line srv name port t
+    local dest="$1" line srv name addr t
     if [ -f "$dest" ]; then
         info "velocity.toml 已存在（不覆盖）: ${dest}"
         return 0
@@ -139,8 +139,8 @@ eagler_render_velocity_toml() { # eagler_render_velocity_toml <dest>
                 while IFS= read -r srv; do
                     [ -n "$srv" ] || continue
                     name="${srv%%=*}"
-                    port="${srv##*=}"
-                    printf '%s = "host.docker.internal:%s"\n' "$name" "$port" >> "${dest}.tmp"
+                    addr="${srv##*=}"   # 已是 host:port（容器名或 host.docker.internal）
+                    printf '%s = "%s"\n' "$name" "$addr" >> "${dest}.tmp"
                 done < <(velocity_servers)
                 ;;
             '__VELOCITY_TRY__')

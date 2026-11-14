@@ -46,11 +46,13 @@ ENABLE_EAGLER=false
 # 仅 ENABLE_VELOCITY=true：实例内部端口（面板里把实例 docker 端口改成 <此端口>:25565，不再发布 25565）。
 # 必须避开其他实例已占用的宿主端口（例：Folia 常用 25566 → Paper 改 25567）；多后端各占一个。
 # EAGLER_BACKEND_PORT=25566
-# 仅 ENABLE_VELOCITY=true：多后端列表（逗号分隔 <名字>=<实例发布到宿主的端口>）。
+# 仅 ENABLE_VELOCITY=true：多后端列表（逗号分隔 <名字>=<地址>）。两种写法可混用：
+#   <名字>=<端口>            实例发布到宿主的端口（=面板里的 docker 端口映射）
+#   <名字>=<主机>:<端口>      任意可解析地址；实例与代理同处 orzmc_default 网络时，
+#                            直接写实例容器名最省事（不用挪宿主端口、不抢 25565）
 # 留空 = 单个后端 lobby = EAGLER_BACKEND_PORT（旧行为，老 .env 不用改）。
-# 名字随意（大厅/生存/资源…），端口必须与面板里该实例的 docker 端口映射一致，
-# 且不能等于 EAGLER_JAVA_PORT（那是代理入口）。validate 会拦格式/重复/撞端口。
-# VELOCITY_SERVERS=lobby=25567,survival=25566
+# 名字随意（大厅/生存/资源…）；validate 会拦格式/重复/走宿主端口时撞代理入口。
+# VELOCITY_SERVERS=lobby=MCSM-aaaaaaaa:25565,survival=MCSM-bbbbbbbb:25565
 # 玩家首次落地顺序（逗号分隔，名字须在上一行里）；留空 = 列表第一个。
 # VELOCITY_TRY=lobby
 

@@ -17,6 +17,8 @@
 
 - **多后端大厅**（Velocity）：`.env` 一行 `VELOCITY_SERVERS=<名字>=<宿主端口>,...` +
   `VELOCITY_TRY=<落地顺序>`，`up` 渲染 `velocity.toml` 的 `[servers]`/`try`。
+  值支持两种写法：`<名字>=<宿主端口>` 与 `<名字>=<主机>:<端口>`（实例与代理同在
+  `orzmc_default` 网络时写实例容器名，不用挪宿主端口）。
   留空退化为单后端 `lobby=EAGLER_BACKEND_PORT`（老 `.env` 不用改）。
   校验覆盖名字字符集、端口数字、端口撞代理入口、名字重复、`try` 未定义。
 

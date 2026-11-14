@@ -414,12 +414,12 @@ check "自定义端口生效" "25570 25566 18444"     "$(eagler_java_port) $(eag
 # ===========================================================================
 section "多后端大厅（VELOCITY_SERVERS / VELOCITY_TRY）"
 eg_env 'ENABLE_VELOCITY=true'
-check "缺省后端列表 = lobby=EAGLER_BACKEND_PORT" "lobby=25566" "$(velocity_servers)"
+check "缺省后端 = lobby 的宿主端口（归一化）" "lobby=host.docker.internal:25566" "$(velocity_servers)"
 check "缺省 try = 第一个后端" "lobby" "$(velocity_try)"
 eg_env 'ENABLE_VELOCITY=true
 VELOCITY_SERVERS=lobby=25567,survival=25566
 VELOCITY_TRY=lobby'
-check "多后端解析" "lobby=25567 survival=25566" "$(velocity_servers | tr '\n' ' ' | sed 's/ $//')"
+check "多后端解析（纯端口→宿主，归一化）" "lobby=host.docker.internal:25567 survival=host.docker.internal:25566" "$(velocity_servers | tr '\n' ' ' | sed 's/ $//')"
 check "try 显式指定生效" "lobby" "$(velocity_try | head -n1)"
 # shellcheck disable=SC1091  # 仓库内相对路径，函数定义无副作用
 source "$REPO_ROOT/lib/eagler.sh"
@@ -443,6 +443,15 @@ if ( validate_topology ) >/dev/null 2>&1; then fail "重复名字应报错"; els
 eg_env 'ENABLE_VELOCITY=true
 VELOCITY_SERVERS=lobby=25565'
 if ( validate_topology ) >/dev/null 2>&1; then fail "后端端口撞代理入口应报错"; else ok "后端端口撞代理入口被拦下"; fi
+# 容器名写法：实例与代理同一 docker 网络时直接用容器名（不挪宿主端口）
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=MCSM-716c2f:25565,survival=25566'
+check "容器名写法原样保留" "lobby=MCSM-716c2f:25565 survival=host.docker.internal:25566" \
+    "$(velocity_servers | tr '\n' ' ' | sed 's/ $//')"
+if ( validate_topology ) >/dev/null 2>&1; then ok "容器名写法不做宿主端口冲突检查"; else fail "容器名写法该校验通过"; fi
+eg_env 'ENABLE_VELOCITY=true
+VELOCITY_SERVERS=lobby=bad host!:25565'
+if ( validate_topology ) >/dev/null 2>&1; then fail "非法主机名应报错"; else ok "非法主机名被拦下"; fi
 
 # ===========================================================================
 section "firewall apply —— 只重建受管规则，不碰站点自建（OrzMC-Web-TLS）"
