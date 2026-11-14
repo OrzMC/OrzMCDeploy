@@ -374,6 +374,26 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
   面板/EasyBot（同端口按 Host 分流）。
 - 切完各跑一次：`./orzmc.sh -d <数据目录> validate` → `status` → §7.2 探针。
 
+## 12.1 四象限实跑结果（2026-11-14，测试服）
+
+两个开关 × 四种拓扑，全部**实跑**（不是只跑 validate/渲染）：
+
+| 拓扑 | `.env` | 实例侧 | 实测证据 |
+|---|---|---|---|
+| `java-only` | `V=false E=false` | 关 `proxies.velocity`；实例发布 `25565`/`25566` + `19132/19133`（Geyser-Spigot 自恢复） | 状态查询 `Paper 26.3` / `Folia 26.2`；原始协议登录 `LOGIN SUCCESS`；无代理容器 |
+| `velocity` | `V=true E=false` | 开转发；实例只留 RCON/语音；基岩由代理 Geyser 托管 | `/server` lobby↔survival 往返；手机流量基岩进服（`Player connected with username …`） |
+| `eagler-direct` | `V=false E=true` | 关转发；实例发布 `25565`；`EaglerXPaper` 放实例 `plugins/`；反代指向实例容器 | WSS 握手 `brand='EaglercraftXServer' version='1.1.1 Stable 2'`；无头 Chrome 进服 + 移动 + 聊天 **3 分钟**稳定 |
+| `eagler-proxy` | `V=true E=true` | 开转发；`EaglerXServer` 在代理；反代指向 `orzmc-velocity:25565` | WSS 握手 `version='1.1.1'`；无头 Chrome 进服 **2 分钟**稳定；基岩单端口 19132 |
+
+切换时**必然要动的三处**（容易漏）：
+
+1. 实例 `config/paper-global.yml` 的 `proxies.velocity.enabled`（开/关都行，但必须与拓扑一致，否则直接连会被拒）
+2. 实例 `docker.ports`（代理拓扑只留 RCON/语音；直连拓扑要把 `25565`/基岩端口还给实例）
+3. 站点 Caddy 里 Eaglercraft 站点的上游（`orzmc-velocity:25565` ⇄ 实例容器 `MCSM-<uuid8>:25565`），改完必须 `caddy reload`
+
+> 注：`eagler-direct` 只对 Paper 有效（EaglerXPaper 不支持 Folia），Folia 在该拓扑下只能给 Java 玩家直连。
+> 另外 `EaglerXPaper` 与 `EaglerXServer` 在**同一实例**上不能同时启用（换拓扑时要把对方的 jar 移出 `plugins/`）。
+
 ## 13.2 基岩端口最小化（NetherNet-only）
 
 Geyser 2.12 起 `transport` 只有 `both` / `nethernet`（RakNet-only 已移除）。要少占端口：
