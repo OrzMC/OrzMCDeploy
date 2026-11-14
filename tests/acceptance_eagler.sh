@@ -80,6 +80,44 @@ if [ "$dialect" != "none" ] || velocity_enabled; then
     fi
 fi
 
+echo ""
+echo "== 三端连通性（Java / 基岩 / Eagler）=="
+
+# ---- Java：状态查询 + 登录链路（经玩家入口，含代理）----
+JP="$(eagler_java_port)"
+if python3 "${REPO_ROOT}/tests/mc_status.py" --host 127.0.0.1 --port "$JP" >/tmp/mc_status.out 2>&1; then
+    ok "Java 状态查询: $(sed 's/^-> STATUS //' /tmp/mc_status.out | cut -c1-70)"
+else
+    bad "Java 状态查询失败: $(tail -1 /tmp/mc_status.out)"
+fi
+if python3 "${REPO_ROOT}/tests/mc_status.py" --host 127.0.0.1 --port "$JP" --login AcceptJava >/tmp/mc_login.out 2>&1; then
+    ok "Java 登录链路: $(sed 's/^-> //' /tmp/mc_login.out | cut -c1-70)"
+else
+    bad "Java 登录链路失败: $(tail -1 /tmp/mc_login.out)"
+fi
+
+# ---- 基岩：信令端口 + Geyser 广播地址（媒体是 UDP，无法脚本探测）----
+if [ "$(geyser_target)" = "velocity" ] || [ "$(geyser_target)" = "spigot" ]; then
+    GP="$(eagler_geyser_port)"
+    if timeout 3 bash -c "echo > /dev/tcp/127.0.0.1/${GP}" 2>/dev/null; then
+        ok "基岩信令 TCP/${GP} 可连"
+    else
+        bad "基岩信令 TCP/${GP} 不可连"
+    fi
+    if docker logs orzmc-velocity 2>&1 | tail -200 | grep -q "Built-in signaling started"; then
+        ok "Geyser 内置信令已启动（代理侧）"
+    elif grep -rqs "Built-in signaling started" "${DATA_ROOT}/mcsmanager/daemon/logs" 2>/dev/null; then
+        ok "Geyser 内置信令已启动（实例侧）"
+    else
+        skip "Geyser 信令日志" "日志窗口内未见，可 docker logs / 实例日志复查"
+    fi
+    if docker logs orzmc-velocity 2>&1 | tail -200 | grep -q "Advertised address"; then
+        ok "Geyser 广播地址已解析（$(docker logs orzmc-velocity 2>&1 | grep -o "Advertised address.*resolve[s]* to .*" | tail -1 | cut -c1-60)）"
+    fi
+else
+    skip "基岩" "EAGLER_GEYSER=false"
+fi
+
 if [ "$dialect" != "none" ]; then
     HOST="$(eagler_public_host)"; WSP="$(eagler_ws_port)"
     if [ -z "$HOST" ]; then

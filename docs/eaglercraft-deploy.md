@@ -239,12 +239,25 @@ bash tests/acceptance_eagler.sh -d <数据目录>
 # 或 ORZMC_DATA_ROOT=<数据目录> bash tests/acceptance_eagler.sh
 ```
 
-它做四件事：① 按 `.env` 打印派生拓扑（`topology`/`dialect`/`geyser_target`）；
-② T1 查代理与信令启动、Geyser 广播地址；③ T2/T3 经**反代**（玩家真实链路）跑握手与
-同名两次登录比对 UUID；④ 核对端口归属（玩家端口必须归代理、实例不得抢占）。
-末尾会打印仍需真人跑的 T4–T12 清单。
+它做五件事：① 按 `.env` 打印派生拓扑（`topology`/`dialect`/`geyser_target`）；
+② T1 查代理与信令启动、Geyser 广播地址；③ **三端连通性**（见下表）；④ T2/T3 经**反代**
+（玩家真实链路）跑握手与同名两次登录比对 UUID；⑤ 核对端口归属（玩家端口必须归代理、
+实例不得抢占）。末尾会打印仍需真人跑的 T4–T12 清单。
 
-### 7.2 探针（`tests/eaglercraft_probe.py`，手工，不进 CI）
+三端连通性的自动判定口径（都不需要真人，但都只是"链路层"证据）：
+
+| 端 | 自动检查 | 通过标准 | 局限 |
+|---|---|---|---|
+| **Java** | 状态查询 + 登录流程（`tests/mc_status.py`） | `version=Velocity …`（代理拓扑）/`Paper`/`Folia`；登录返回 `LOGIN SUCCESS` 或**带原因**的 `DISCONNECT` | 不做玩法验证；被白名单/登录插件拦下也算通（能看到原因就说明链路通） |
+| **基岩** | 信令 `TCP/<EAGLER_GEYSER_PORT>` 可连 + Geyser 日志 | `Built-in signaling started` + `Advertised address <域名> resolves to <WAN IP>` | **媒体是 UDP，脚本探不了**；真正"能进服"必须真机（手机流量实测见 §13） |
+| **Eagler** | 握手探针（`tests/eaglercraft_probe.py`） | `eagler_protocol=5 minecraft_protocol=777`；同名两次 UUID 一致 | 同上，进服后的玩法要真人 |
+
+三端**同时在线互见**属于 T6，必须真人（三种客户端各一个）。
+
+### 7.2 探针（`tests/eaglercraft_probe.py` / `tests/mc_status.py`，手工，不进 CI）
+
+> `mc_status.py` 用于 **Java 端**：`--host --port` 做状态查询，加 `--login <名字>` 走登录流程。
+> 例：`python3 tests/mc_status.py --host 127.0.0.1 --port 25565 --login AcceptJava`
 
 ```bash
 # 经反代（推荐：等价玩家真实链路，Caddy 会带 X-Real-IP）
