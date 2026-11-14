@@ -742,7 +742,7 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip bind cidr eb host wp jp bp
+    local lan_ip bind cidr eb host wp jp
     lan_ip="$(read_env_value LAN_HOST_IP)"
     bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
     cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
@@ -768,8 +768,8 @@ print_access_info() {
             echo "  前端代理: 未启用（ENABLE_VELOCITY=false，玩家直连实例）"
             ;;
         velocity|eagler-proxy)
-            jp="$(eagler_java_port)"; bp="$(eagler_backend_port)"
-            echo "  Velocity: Java 入口 ${jp} → 实例内部端口 ${bp}（多服大厅；EAGLERCRAFT=$(if eagler_enabled; then echo on; else echo off; fi)）"
+            jp="$(eagler_java_port)"
+            echo "  Velocity: Java 入口 ${jp} → 后端 $(velocity_servers | tr '\n' ' ' | sed 's/ $//')（EAGLERCRAFT=$(if eagler_enabled; then echo on; else echo off; fi)）"
             if [ "$(geyser_target)" = "velocity" ]; then
                 echo "  Geyser（基岩）: udp/$(eagler_geyser_port) + tcp/$(eagler_geyser_port)（信令） + udp/$(eagler_geyser_webrtc_port)（NetherNet 媒体）"
             fi
