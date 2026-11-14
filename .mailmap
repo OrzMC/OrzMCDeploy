@@ -1,0 +1,9 @@
+# 统一历史提交身份（仅影响显示，不改写提交对象与 SHA）
+#
+# 背景：2026-10-29（2302c9e）起，仓库改为在 WSL 中以 root 运行脚本/agent 提交，
+# 而当时未配置 user.name/user.email，git 退回操作系统身份兜底值
+#   root <root@<hostname>.localdomain>
+# 现已在 /root/.gitconfig 写入正确身份（新提交不再出现 root），这里把历史提交
+# 映射回 GitHub 账号，便于 `git shortlog/blame/log` 与 GitHub 页面正确归属。
+wangzhizhou <824219521@qq.com> <root@LAPTOP-APCBNCLR.localdomain>
+wangzhizhou <824219521@qq.com> <wangzhizhou@users.noreply.github.com>
