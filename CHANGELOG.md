@@ -11,85 +11,81 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
-## [Unreleased]
+## [0.2.0] - 2026-11-15
+
+主题：**三端同服**（Java / 浏览器 Web / 基岩）。Eaglercraft Web 接入从单开关演进为
+两个正交开关，并补齐基岩端口最小化、多后端大厅、一键验收与 DDNS 约定。
 
 ### Added
 
-- **基岩端口可最小化**：`EAGLER_GEYSER_TRANSPORT=both|nethernet` + `EAGLER_GEYSER_WEBRTC_PORT=0`
-  （媒体复用主端口）→ `nethernet` + `0` 时只需 `19132` 一个端口号（TCP 信令 + UDP 媒体），
-  独立媒体端口改为按需追加 `templates/compose.velocity-geyser-webrtc.yaml`；
-  防火墙口径同时把基岩 **TCP 信令**并入 `MC-TCP`（此前只用 UDP）。
-  实测：手机流量（外网）直连 `dev.jokerhub.cn:19132` 进服成功，路由器只需一条 TCP +
-  一条 UDP（同号）。配套要求见 `docs/eaglercraft-deploy.md` §13.2：
-  `advertise-addresses` 必须显式给（宿主跑代理/VPN 时 STUN 会探到 VPN 出口），
-  且代理容器 DNS 要指向内网（否则域名被 fake-ip 解析成 `198.18.x.x`）。
+- **Eaglercraft Web 接入**（ADR-035 → ADR-036）：浏览器客户端（EaglercraftX 1.8 协议 /
+  MC 777）与 Java、基岩玩家进同一世界、同一白名单、同一经济数据。
+  - `eagler-direct`（实例直挂 EaglerXPaper，同端口兼任 WSS，不支持 Folia）
+    与 `eagler-proxy`（Velocity 4.3.1 + EaglerXServer 1.1.1，镜像 digest 锁定）两种形态。
+  - 版本锁 `templates/eagler/versions.env`（版本 + sha256），`up` 时校验后下载到
+    `$DATA_ROOT/eagler/`，生成 `velocity.toml` / `forwarding.secret`(600) /
+    `instance-setup.md`（实例侧待办）/ Caddy 反代片段。
+  - 首启后自动修正 EaglerXServer 的 `forward_ip`（缺 `X-Real-IP` 即拒，等于只允许反代入口）。
+  - 身份策略：**Web 与 Java 共用名字空间**（同名 = 同 UUID = 同账号），不引入改名插件。
+- **基岩（Geyser）由代理托管**：`Geyser-Velocity` 版本锁 + 自动配置
+  `bedrock.port` / `webrtc-port` / `transport` 与 `remote.address` / `auth-type: offline`，
+  `advertise-addresses` 按 `LAN_HOST_IP` + `EAGLER_PUBLIC_HOST` 派生（不写死公网 IP）。
+  实测 Geyser-Spigot 检测到 Velocity 转发会自我禁用，因此不会抢端口。
+- **基岩端口可最小化**：`EAGLER_GEYSER_TRANSPORT=both|nethernet` +
+  `EAGLER_GEYSER_WEBRTC_PORT=0`（媒体复用主端口）→ `nethernet` + `0` 时只需 `19132`
+  一个端口号（TCP 信令 + UDP 媒体），独立媒体端口改为按需追加
+  `templates/compose.velocity-geyser-webrtc.yaml`；防火墙口径同时把 **TCP 信令**并入 `MC-TCP`。
+  实测手机流量直连 `<域名>:19132` 进服。
 - **多后端大厅**（Velocity）：`.env` 一行 `VELOCITY_SERVERS=<名字>=<宿主端口>,...` +
-  `VELOCITY_TRY=<落地顺序>`，`up` 渲染 `velocity.toml` 的 `[servers]`/`try`。
-  值支持两种写法：`<名字>=<宿主端口>` 与 `<名字>=<主机>:<端口>`（实例与代理同在
-  `orzmc_default` 网络时写实例容器名，不用挪宿主端口）。
-  留空退化为单后端 `lobby=EAGLER_BACKEND_PORT`（老 `.env` 不用改）。
-  校验覆盖名字字符集、端口数字、端口撞代理入口、名字重复、`try` 未定义。
+  `VELOCITY_TRY=<落地顺序>`，`up` 渲染 `velocity.toml` 的 `[servers]` / `try`；
+  支持 `<名字>=<主机>:<端口>` 写法（实例与代理同网络时用容器名，不用挪宿主端口），
+  留空退化为单后端。校验覆盖名字字符集、端口数字、端口撞代理入口、名字重复、`try` 未定义。
+- **一键验收脚本** `tests/acceptance_eagler.sh`：拓扑/端口归属/暴露面 + 三端连通性
+  （Java 状态与登录、基岩信令与广播地址、Eagler 握手与 UUID 稳定性），手工工具不进 CI。
+  配套 `tests/mc_status.py`（状态查询 / 登录链路探针）。
 
 ### Changed
 
 - **前端拓扑拆成两个正交开关**（ADR-036）：`ENABLE_VELOCITY` / `ENABLE_EAGLER`（缺省都 `false`）。
   - 四种组合：`java-only`（缺省，零影响）、`velocity`（只上代理大厅，**新增能力**）、
-    `eagler-direct`（实例挂 EaglerXPaper）、`eagler-proxy`（Velocity + EaglerXServer）。
-  - 实现方式由 `ENABLE_VELOCITY` 派生，不设第三个开关；旧 `EAGLER_MODE=off|direct|proxy`
-    仍可解析（`validate` 提示迁移），升级不会断。
+    `eagler-direct`、`eagler-proxy`；实现方式由 `ENABLE_VELOCITY` 派生，不设第三个开关。
+  - 旧 `EAGLER_MODE=off|direct|proxy` 仍可解析（`validate` 提示迁移），升级不断服。
   - 服务/容器改名：`eagler-proxy` / `orzmc-eagler-proxy` → `velocity` / `orzmc-velocity`
     （profile 由 `eagler` 改为 `velocity`）；运行时目录仍是 `$DATA_ROOT/eagler/proxy`。
-  - 基岩端口（19132/19134）改为条件追加 `templates/compose.velocity-geyser.yaml`，
-    仅在代理托管 Geyser 时发布，避免与实例侧 Geyser-Spigot 抢端口。
-  - 切换拓扑时，当前实现不需要的插件会被移到 `$DATA_ROOT/eagler/disabled/`
-    （否则 `ENABLE_EAGLER=false` 后 Web 端点仍可连）。
-  - 防火墙口径改为按派生值判断（`velocity_enabled` / `geyser_target`）。
-  - CI/单测：`tests/windows_ci.sh` 74 → 83 项，覆盖 4 象限、派生、兼容与端口冲突。
+  - 基岩端口改为条件追加模板，仅在代理托管 Geyser 时发布，避免与实例侧 Geyser-Spigot 抢端口。
+- **切换拓扑时自动停用多余插件**：当前实现不需要的插件移到 `$DATA_ROOT/eagler/disabled/`
+  （否则 `ENABLE_EAGLER=false` 后 Web 端点仍可连）。
+- **防火墙口径按派生值判断**：玩家端口（含基岩 TCP 信令/UDP 媒体）并入 `MC-TCP` / `MC-UDP`，
+  不新增规则名与变量；`MC_PUBLIC_*` 行为不变。
+- `status` 打印实际后端列表（不再只显示单个 `EAGLER_BACKEND_PORT`）。
+
+### Fixed
+
+- **`advertise-addresses` 写入缩进错位**：`eagler_cfg_set` 硬编码 2 空格会把
+  `signaling.*` 写到 `bedrock` 一级，导致配置静默失效；现保留原缩进并补单测。
+- **实例侧 Geyser-Spigot 写死公网 IP**：家宽 WAN IP 随 DDNS 变化，`["<WAN IP>:19134"]`
+  会在换 IP 后失效（端口也已不在方案内）；改为 `advertise-addresses: []` +
+  `stun-discovery: false`，外网基岩统一走代理侧 Geyser-Velocity。
+- **容器继承宿主 fake-ip**：代理容器一度把域名解析成 `198.18.x.x`，导致
+  `AdvertisedAddresses.requireUsable` 异常、基岩信令起不来；用 `compose.site.yaml` 的
+  `dns:` 指向内网解析器解决，并写入部署文档。
+
+### Docs
+
+- 新增 `docs/eaglercraft.md`（协议证据、方案对比、兼容矩阵、身份与安全口径）与
+  `docs/eaglercraft-deploy.md`（实施/验收/回滚，含四象限实跑结果、多后端、一键验收、
+  基岩清单、端口最小化、§13.3 DDNS 与「不要写死 IP」）。
+- `docs/usage.md` 增补 TUN / 域名回环排查（「域名连上即断、IP 直连正常」的客户端代理归因）。
+- `AGENTS.md` / `docs/architecture.md` 同步 ADR-036 与基线（112 项 Windows 分支单测）。
 
 ### Migration
 
-- 老 `.env` 无需改动即可继续运行；建议改成新开关并删掉 `EAGLER_MODE`（`validate` 会提示）。
-- 已部署 `orzmc-eagler-proxy` 的站点执行一次 `./orzmc.sh -d <数据目录> stop && up`，
-  旧容器由 `down --remove-orphans` 清理。
-
-## [Unreleased]
-
-### 新功能
-
-- **Eaglercraft Web 接入做成可选单开关**（ADR-035）：`.env` 新增 `EAGLER_MODE=off|direct|proxy`
-  （缺省 `off`，对现有部署零影响）。
-  - `direct`：实例直挂 EaglerXPaper，同端口兼任 WSS，Java 连接方式不变（不支持 Folia）；
-  - `proxy`：compose 追加 `eagler` profile（Velocity 4.3.1 + EaglerXServer 1.1.1，镜像 digest
-    锁定）接管玩家端口，支持 Folia / 多后端 / 代理层改写用户名与 UUID。
-  - 版本锁 `templates/eagler/versions.env`（版本 + sha256），`up` 时校验后下载到
-    `$DATA_ROOT/eagler/`；生成 `velocity.toml` / `forwarding.secret`（600）/
-    `instance-setup.md`（实例侧待办）/ `caddy-eagler.snippet`（站点反代片段）。
-  - 首启后自动修正 EaglerXServer 的 `forward_ip`（缺 `X-Real-IP` 即拒，等于只允许反代入口）
-    与 WebSocket 帧长；`validate` 拦端口冲突与非法模式；`firewall` 把 proxy 玩家端口并入
-    `MC-TCP` 口径（不新增规则名/变量）。
-  - 实测：真 26.3 浏览器客户端经 TLS 反代进服、Folia 26.3 后端进服、`EAGLER_MODE` 三态
-    渲染与回退均通过；`tests/windows_ci.sh` 49 → 69 项。
-  - 身份策略：**Web 与 Java 共用名字空间**（同名 = 同 UUID = 同账号），不引入改名插件；
-    门槛是 LoginSecurity 口令，上线前须关闭开放注册 + 开启白名单（ADR-035 第 6 条）。
-
-### 新功能
-
-- **`proxy` 模式自动带基岩（Geyser-Velocity）**：实测 Geyser-Spigot 检测到 Velocity 转发会自我禁用，
-  因此 `EAGLER_MODE=proxy` 时由 `up` 下载 `Geyser-Velocity`（版本锁 + sha256）并自动配置
-  `bedrock.port/webrtc-port/transport` 与 `remote.address/port/auth-type: offline`；
-  compose 由代理发布 `19132/udp+tcp`、`19134/udp`（端口号不变，路由器无需改），
-  `firewall` 把基岩端口并入 `MC-UDP` 口径。`EAGLER_GEYSER=false` 可关闭。测试 69 → 74 项。
-
-### 文档
-
-- **Eaglercraft Web 接入调研（未实施）**：新增 `docs/eaglercraft.md`
-  （26.3 客户端实测协议证据 = MC 777 / 握手 v5、四种方案对比、推荐方案 B = Velocity +
-  EaglerXServer、兼容矩阵、身份与安全口径）与 `docs/eaglercraft-deploy.md`
-  （站点增量实施步骤、Caddy WSS 片段、T1–T12 验收表、回滚）。
-  实测记录：EaglerXPaper 1.1.1-S2 在 Paper 26.3 build 249 上加载并进服；
-  Velocity 4.3.1 + EaglerXServer 1.1.1 经 MODERN 转发进 Paper 26.3 与 Folia 26.3 均成功。
-- 新增手工工具 `tests/eaglercraft_probe.py`（握手协商 / 登录放行 / 抓客户端首帧），
-  不进 CI；`AGENTS.md` 本地门禁补一条 `py_compile` 语法检查。
+- 老 `.env` 无需改动即可继续运行；建议改成 `ENABLE_VELOCITY` / `ENABLE_EAGLER` 并删掉
+  `EAGLER_MODE`（`validate` 会提示）。
+- 已部署 `orzmc-eagler-proxy` 的站点执行一次
+  `./orzmc.sh -d <数据目录> stop && ./orzmc.sh -d <数据目录> up`，
+  旧容器由 `down --remove-orphans` 清理；`$DATA_ROOT/eagler/proxy` 数据不迁移、不丢失。
+- 曾用 `EAGLER_MODE=off` 的站点行为不变（`java-only` 零差异）。
 
 ## [0.1.2] - 2026-10-29
 
@@ -482,7 +478,10 @@
 - 文档：`README`、`docs/architecture.md`（ADR-001–014）、`docs/usage.md`、
   `docs/easybot.md`、`docs/papermc-template.md`。
 
-[Unreleased]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.6...HEAD
+[0.2.0]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.6...v0.1.0
 [0.0.6]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/OrzMC/OrzMCDeploy/compare/v0.0.3...v0.0.4

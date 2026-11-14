@@ -254,13 +254,15 @@ jobs:
           # 打包"运行时"：入口脚本 + lib + templates + compose + 文档。
           # 显式排除 .git/.github/tests/数据（铁律：密钥与数据不入包）。
           # 文件清单必须与仓库实际文件一致（删脚本时同步删这里，否则 tar 直接失败）。
-          tar --exclude='./.git' --exclude='./.github' --exclude='./tests' \
+          # tests/ 只打包文档引用的手工验收工具；CI 自身的用例留在仓库（docs_check/windows_ci）。
+          tar --exclude='./.git' --exclude='./.github' --exclude='__pycache__' \
               --exclude='./.env' --exclude='./.local-data' --exclude='./.local-data-lan' \
               --exclude='./.local-backups' \
               -czf "orzmc-${VERSION}.tar.gz" \
-              AGENTS.md CLAUDE.md README.md CHANGELOG.md .gitignore \
+              LICENSE AGENTS.md CLAUDE.md README.md CHANGELOG.md .gitignore \
               orzmc.sh deploy.sh backup.sh restore.sh update-image-digests.sh install.sh \
-              lib templates compose.yaml docs
+              lib templates compose.yaml docs \
+              tests/acceptance_eagler.sh tests/mc_status.py tests/eaglercraft_probe.py
           sha256sum "orzmc-${VERSION}.tar.gz" > "orzmc-${VERSION}.tar.gz.sha256"
           echo "=== 打包内容 ==="
           tar -tzf "orzmc-${VERSION}.tar.gz" | head -20
