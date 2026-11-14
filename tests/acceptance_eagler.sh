@@ -5,6 +5,9 @@
 # 覆盖 docs/eaglercraft-deploy.md §7.1 的 T1–T3 + 拓扑/端口/防火墙口径，
 # 其余（三端共存、玩法、身份、弱网、回滚）必须真人 + 真客户端，见脚本末尾清单。
 #
+# 注意：代理侧对短时间重复连接有节流（实测连打 3 次以上会直接关闭 WebSocket，
+# 表现为 "连接已关闭"）。本脚本给登录探针加了重试；手工连打探针时请间隔 20s。
+#
 # 用法：
 #   bash tests/acceptance_eagler.sh -d <数据目录>
 #   ORZMC_DATA_ROOT=<数据目录> bash tests/acceptance_eagler.sh
@@ -36,6 +39,9 @@ check() { # check <desc> <expected> <actual>
 
 # shellcheck disable=SC1091
 source "${REPO_ROOT}/lib/common.sh"
+# common.sh 以内建 errexit 引入；本脚本要把失败项聚合成"结果: N 通过"再退出，
+# 任何一个探针失败就中断会让诊断信息全丢（实测过：T2 失败 → 后续全无输出）。
+set +e
 DATA_ROOT="$(resolve_data_root)"
 
 topo="$(topology)"
@@ -126,20 +132,28 @@ if [ "$dialect" != "none" ]; then
         echo ""
         echo "== T2 握手协商（经反代 ${HOST}:${WSP}）=="
         out="$(timeout 60 python3 "${REPO_ROOT}/tests/eaglercraft_probe.py" \
-                --host "$HOST" --port "$WSP" --tls --address 127.0.0.1 2>&1 | tail -2)"
+                --host "$HOST" --port "$WSP" --tls --address 127.0.0.1 2>&1 | tail -2 || true)"
         case "$out" in
             *"eagler_protocol=5 minecraft_protocol=777"*) ok "eagler=5 / mc=777 协商成功" ;;
             *) bad "握手失败: ${out}" ;;
         esac
         echo ""
         echo "== T3 登录放行 + UUID 稳定（同名两次）=="
-        u1="$(timeout 60 python3 "${REPO_ROOT}/tests/eaglercraft_probe.py" \
-                --host "$HOST" --port "$WSP" --tls --address 127.0.0.1 --login AcceptTest 2>&1 \
-                | grep -o "uuid=[0-9a-f-]*" | head -n1)"
-        sleep 10
-        u2="$(timeout 60 python3 "${REPO_ROOT}/tests/eaglercraft_probe.py" \
-                --host "$HOST" --port "$WSP" --tls --address 127.0.0.1 --login AcceptTest 2>&1 \
-                | grep -o "uuid=[0-9a-f-]*" | head -n1)"
+        probe_uuid() {   # 代理有连接节流：空结果按 20s 间隔重试，最多 3 次
+            local n=0 out u=""
+            while [ "$n" -lt 3 ]; do
+                out="$(timeout 60 python3 "${REPO_ROOT}/tests/eaglercraft_probe.py" \
+                        --host "$HOST" --port "$WSP" --tls --address 127.0.0.1 \
+                        --login AcceptTest 2>&1 || true)"
+                u="$(printf '%s' "$out" | grep -m1 -o 'uuid=[0-9a-f-]*' || true)"
+                [ -n "$u" ] && { printf '%s' "$u"; return 0; }
+                n=$((n + 1))
+                [ "$n" -lt 3 ] && sleep 20
+            done
+            return 1
+        }
+        u1="$(probe_uuid)"; sleep 15
+        u2="$(probe_uuid)"
         if [ -n "$u1" ] && [ "$u1" = "$u2" ]; then
             ok "ALLOW_LOGIN 两次 UUID 一致 ($u1)"
         else
@@ -150,7 +164,7 @@ fi
 
 echo ""
 echo "== 端口与暴露面 =="
-ports="$(docker ps --format '{{.Names}}\t{{.Ports}}')"
+ports="$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null || true)"
 case "$ports" in
     *"orzmc-velocity"*"25565"*) ok "代理发布 25565/tcp（Java + WSS）" ;;
     *) skip "25565/tcp" "当前拓扑可能不经过代理" ;;

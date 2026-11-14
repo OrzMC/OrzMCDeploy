@@ -66,6 +66,9 @@
 - **实例侧 Geyser-Spigot 写死公网 IP**：家宽 WAN IP 随 DDNS 变化，`["<WAN IP>:19134"]`
   会在换 IP 后失效（端口也已不在方案内）；改为 `advertise-addresses: []` +
   `stun-discovery: false`，外网基岩统一走代理侧 Geyser-Velocity。
+- **验收脚本被 `set -e` 短路**：`lib/common.sh` 的 `set -euo pipefail` 会传染给
+  `tests/acceptance_eagler.sh`，探针一失败脚本就静默中断（诊断信息全丢）；现改为聚合失败后
+  统一退出，并给登录探针加 20s 重试（代理对重复连接有节流，表现为 WebSocket 直接关闭）。
 - **容器继承宿主 fake-ip**：代理容器一度把域名解析成 `198.18.x.x`，导致
   `AdvertisedAddresses.requireUsable` 异常、基岩信令起不来；用 `compose.site.yaml` 的
   `dns:` 指向内网解析器解决，并写入部署文档。
@@ -77,6 +80,9 @@
   基岩清单、端口最小化、§13.3 DDNS 与「不要写死 IP」）。
 - `docs/usage.md` 增补 TUN / 域名回环排查（「域名连上即断、IP 直连正常」的客户端代理归因）。
 - `AGENTS.md` / `docs/architecture.md` 同步 ADR-036 与基线（112 项 Windows 分支单测）。
+- `docs/eaglercraft-deploy.md` §7 重排（一键验收/探针/无头进服/插件矩阵）并补齐 T5 实测基线；
+  `docs/usage.md` 新增 §5.7「变更后验收清单」，故障排查的客户端 TUN 条目改为
+  「路由器本地 DNS 优先」的最终口径。
 
 ### Migration
 

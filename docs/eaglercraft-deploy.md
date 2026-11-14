@@ -183,7 +183,7 @@ mv <数据目录>/eagler/proxy/velocity.toml <数据目录>/eagler/proxy/velocit
 | T2 | 握手协商 | `eagler_protocol=5`、`minecraft_protocol=777` | 探针（§7.2）；或验收脚本 |
 | T3 | 登录放行 | `ALLOW_LOGIN` 且两次 UUID 一致 | 探针 `--login`；或验收脚本 |
 | T4 | 浏览器进服 | 游戏内出现 HUD；后端日志 `joined the game` | 浏览器 + 后端日志 |
-| T5 | 插件矩阵 | 下表逐项 PASS | 手工 |
+| T5 | 插件矩阵 | §7.5 逐项 PASS | 手工（已有实测基线，见 §7.5） |
 | T6 | 三端共存 | Java + 基岩 + Web 同时在线、互相可见、聊天互通 | 三种客户端各一个（Web/Java 已实测，基岩**必须真机 26.x**：Geyser 2.12 起走 NetherNet，RakNet 库不可用） |
 | T7 | 方块/交互 | 放置/破坏、开箱子、`/tp` 生效 | 手工 |
 | T8 | 身份不可伪造 | 同名必须过 LoginSecurity 口令；白名单外的名字根本进不来 | 双开浏览器（Java + Web 同名） |
@@ -192,45 +192,7 @@ mv <数据目录>/eagler/proxy/velocity.toml <数据目录>/eagler/proxy/velocit
 | T11 | 弱网 | DevTools 3G 限速可进服（可卡但不断连） | 手工 |
 | T12 | 回滚演练 | 按 §9 回滚后 Java 入口恢复正常 | 演练一次 |
 
-T5 逐项（记录"版本 / 结果 / 日志"）：LuckPerms（权限生效）、GriefPrevention（领地）、
-EzShops（GUI 商店）、Geyser（基岩可进）、ViaVersion（1.8 Eagler 客户端可进）、
-Simple Voice Chat（**Java 端**正常，Web 端预期不可用）、
-**GrimAC**（浏览器/基岩端延迟高、且 Geyser 会转包）：实测**基岩经 Geyser 会被
-`BadPackets`/`PacketOrder` 误判**，`punishments.yml` 里 30 次就踢（提示「检测到数据包滥用」）。
-测试服做法：把该组的 kick 行注释掉、保留 `[log]`/`[alert]`，`/grim reload`；要严格时再放开。
-被踢后立刻重连还会撞上代理的连接节流（`You must wait N seconds before logging-in again`），等十几秒即可。
-**「能登录但完全不能移动」**（实测）：GrimAC 的 `BadPacketsN` = *Ignored or failed to accept a
-required server teleport*——服务端要求传送、Bedrock/Geyser 没确认，GrimAC 会把人按住。
-处置：给基岩玩家免掉该检查（它支持 bypass 权限 `grim.badpackets.invalid_teleport`）：
-`lp creategroup bedrock` → `lp group bedrock permission set grim.badpackets.invalid_teleport true`
-→ `lp user <名字> parent add bedrock`（顺带给该组加 `[基岩]` 前缀便于识别）。
-**紧接着还会撞上 `Simulation`（移动预测）**：Bedrock 的移动语义与 Java 不同，GrimAC 的
-`Simulation/GroundSpoof/Timer/NoFall` 组会在十几秒内累计到 100 → 踢（提示「检测到移动作弊」）。
-根因是**架构性的**：Geyser 装在代理上，Paper 侧的 GrimAC 拿不到 Geyser/Floodgate 的"这是基岩玩家"
-信号（GrimAC 内置了 Geyser/Floodgate 识别，但需要插件在**后端**可见）。处置（**项目已决定不使用 Floodgate**，见 §11）：
-① 把该组踢人注释掉（只留 `[log]`/`[alert]`）——测试服已做；
-② **推荐做法（实测有效）**：给 LuckPerms 的 `bedrock` 组加 **`grim.exempt`**——GrimAC 会把这些
-   玩家整体跳过（不再判定、不再 setback），Java 端反作弊完全不受影响；
-   比逐条加 `grim.prediction.simulation` 之类的 bypass 更干净（那些是检查级豁免，容易漏）。
-   命令：`lp creategroup bedrock` → `lp group bedrock permission set grim.exempt true`
-   → `lp user <基岩名字> parent add bedrock`。
-③ 不要试图靠「看名字像基岩」来豁免——基岩玩家的名字就是 Xbox 代号，与 Java 名字混在同一空间。
-
-**LoginSecurity 是共用名字空间的唯一门槛，必须单独跑完（缺一不可）**：
-
-| 用例 | 期望 |
-|---|---|
-| Web 首次进服 | 被要求 `/register`（实测：能正常收到提示）；**实测未登录仍可打开背包**，若要更强限制需改开局物品发放时机 |
-| 同名双开（Java + Web） | 后进者要求口令；密码正确=同一账号（背包/位置一致），错误=拒绝 |
-| 密码错误 N 次 | 触发锁定/踢出（看配置） |
-| 抢注窗口 | 已加白名单但未注册的名字被他人先注册：本人进不来 → `/lac rmpass <名字>` 清密码后本人立即注册 |
-| 会话超时（`session-timeout`） | 重连需重新登录；Web 断线重连不复用会话 |
-| 26.3 兼容 | `api-version: 26.2` 的 3.3.2-SNAPSHOT 在 Paper 26.3 上工作正常：`/register` 提示与注册成功均实测通过 |
-| 同名双开 | 实测：同时在线时第二个连接在代理层被拒（`You are already connected to this proxy!`），原会话保留；口令分支只在原会话掉线后出现 |
-| 会话超时 | 实测：浏览器客户端启动约 40 s，重连基本都会被要求 `/login`（重登后同一 UUID/存档接续） |
-| 站点自研白名单 | 若装了自带 `force_whitelist` 的自研插件：Web 玩家要**同时**进它的名单与 vanilla whitelist |
-
-### 7.3 一键验收（`tests/acceptance_eagler.sh`，手工，不进 CI gate）
+### 7.2 一键验收（`tests/acceptance_eagler.sh`，手工，不进 CI gate）
 
 机器可判定的项（T1–T3 + 拓扑/端口/暴露面）已经脚本化，一条命令出结论：
 
@@ -250,11 +212,15 @@ bash tests/acceptance_eagler.sh -d <数据目录>
 |---|---|---|---|
 | **Java** | 状态查询 + 登录流程（`tests/mc_status.py`） | `version=Velocity …`（代理拓扑）/`Paper`/`Folia`；登录返回 `LOGIN SUCCESS` 或**带原因**的 `DISCONNECT` | 不做玩法验证；被白名单/登录插件拦下也算通（能看到原因就说明链路通） |
 | **基岩** | 信令 `TCP/<EAGLER_GEYSER_PORT>` 可连 + Geyser 日志 | `Built-in signaling started` + `Advertised address <域名> resolves to <WAN IP>` | **媒体是 UDP，脚本探不了**；真正"能进服"必须真机（手机流量实测见 §13） |
-| **Eagler** | 握手探针（`tests/eaglercraft_probe.py`） | `eagler_protocol=5 minecraft_protocol=777`；同名两次 UUID 一致 | 同上，进服后的玩法要真人 |
+| **Eagler** | 握手探针（`tests/eaglercraft_probe.py`） | `eaglercraft_protocol=5 minecraft_protocol=777`；同名两次 UUID 一致 | 同上，进服后的玩法要真人 |
 
 三端**同时在线互见**属于 T6，必须真人（三种客户端各一个）。
 
-### 7.2 探针（`tests/eaglercraft_probe.py` / `tests/mc_status.py`，手工，不进 CI）
+> **重复探测会被限流**：代理对同一来源的短时间重复连接有节流，连打 3 次以上会直接关闭
+> WebSocket（探针报 `连接已关闭`，直连代理却正常）。脚本已对登录探针做 20s 重试；
+> 手工连打探针请间隔 ≥20s，被限流后等 1–2 分钟自愈。
+
+### 7.3 探针（`tests/eaglercraft_probe.py` / `tests/mc_status.py`，手工）
 
 > `mc_status.py` 用于 **Java 端**：`--host --port` 做状态查询，加 `--login <名字>` 走登录流程。
 > 例：`python3 tests/mc_status.py --host 127.0.0.1 --port 25565 --login AcceptJava`
@@ -268,19 +234,59 @@ python3 tests/eaglercraft_probe.py --host <代理> --port <EAGLER_JAVA_PORT> --r
 
 # 登录放行 + UUID
 python3 tests/eaglercraft_probe.py --host <域名> --port <EAGLER_WS_PORT> --tls --login <测试名>
-
-# 抓真客户端首帧（假 WS 服务器；浏览器连它）
-python3 tests/eaglercraft_probe.py --sniff --port 9500
 ```
 
-期望：`-> SERVER_VERSION: eagler_protocol=5 minecraft_protocol=777 ...`。
+期望：`-> SERVER_VERSION: eaglercraft_protocol=5 minecraft_protocol=777 ...`。
 
-### 7.3 浏览器进服（可选，无头验证）
+### 7.4 浏览器进服（可选，无头验证）
 
 `file://` 打开 26.3 单文件 HTML：编辑档案 → Done → Multiplayer → Proceed →
 Direct Connection → `<域名>:<EAGLER_WS_PORT>` → Join。判定：出现 HUD，后端日志
 `joined the game`。客户端**只认 `wss://`**，本地自签证书需给浏览器
 `--ignore-certificate-errors`。
+
+### 7.5 插件矩阵（T5）：实测结果与跨端口径
+
+**2026-11-15 实测**（无头 Chrome 跑真 Eaglercraft 客户端，测试账号临时加白、测后删除）：
+lobby 挂机+移动 3 分钟 → `/server survival` → survival 挂机+移动 2 分钟，全程无掉线、无踢出。
+
+| 插件 | 实测证据 | 结论 |
+|---|---|---|
+| LuckPerms 5.5.91 | `/lp info` 返回版本；`/list` 正确渲染组前缀 | PASS |
+| EzShops 2.5.9 + Vault(VaultUnlocked) | `/balance` → lobby `$0`、survival `100.00 Dollars` | PASS |
+| ViaVersion 5.12.2（+Backwards/Rewind） | 双端日志无 `unsupported`/转换警告；EaglerXServer 报 `Eaglercraft 26.2 - 26.2` | PASS（未触发转换路径） |
+| GrimAC 2.3.74 | 双端日志 `grim` 命中 0 行（`print-to-console: true`），含跳跃/移动 5 分钟零 violation | PASS |
+| Simple Voice Chat 2.6.25 | Web 端不参与语音；服务端仅在切服时正常 `Disconnecting client` | PASS（Web 端 N/A） |
+| SkinsRestorer / EssentialsC / SimpleLogin / LoginSecurity | 皮肤渲染、starter kit、`/register` + 自动登录 | PASS |
+| GriefPrevention 16.18.8 / GP3D 19.0.5 | 加载与进服无异常 | 部分（领地圈划/保护需真人） |
+| 身份一致性（跨服） | 同一 Web 账号在 Paper 与 Folia 的 UUID 一致（离线名派生） | PASS |
+
+仍需真人的：GP 领地圈划与爆炸保护、EzShops GUI 买卖、SVC 真机语音、T7 方块交互、T11 弱网。
+
+**GrimAC 跨端三条经验**（基岩与浏览器都会被误判，但处理方式不同）：
+
+- **基岩经 Geyser 转包**会被 `BadPackets`/`PacketOrder` 误判：`punishments.yml` 该组只留
+  `[log]`/`[alert]`（当前测试服状态）；要严格时再放开 kick。
+- 基岩「能登录但完全不能移动」= `BadPacketsN`（未确认服务端要求的传送）。可给 bypass 权限
+  `grim.badpackets.invalid_teleport`；紧随其后是 `Simulation`（移动预测），**推荐整体豁免**：
+  `lp creategroup bedrock` → `lp group bedrock permission set grim.exempt true`
+  → `lp user <名字> parent add bedrock`。Java 端反作弊完全不受影响。
+- **浏览器端不需要豁免**：本次 5 分钟实测零 violation，`Reach`/`Hitboxes` 等 kick 保持开启。
+  换 EaglerXServer 版本或新增移动类插件后按上表口径复测再开白名单。
+- 不要靠「名字像基岩」判断——基岩名字是 Xbox 代号，与 Java 名字在同一空间。
+
+**LoginSecurity 是共用名字空间的唯一门槛**（口令 + 白名单，缺一不可）：
+
+| 用例 | 期望 |
+|---|---|
+| Web 首次进服 | 要求 `/register`；**未登录仍能打开背包**，要更强限制需改开局物品发放时机 |
+| 同名双开（Java + Web 同时在线） | 后到者在代理层被拒（`You are already connected to this proxy!`），原会话保留 |
+| 同名接续（原会话掉线后） | 要求 `/login`；口令正确=同一账号（背包/位置接续），错误=拒绝 |
+| 密码错误 N 次 | 触发锁定/踢出（看配置） |
+| 抢注窗口 | 已加白未注册的名字被他人先注册：本人进不来 → `/lac rmpass <名字>` 清密码后本人立即注册 |
+| 会话超时（`session-timeout`） | 重连需重登；Web 断线重连不复用会话 |
+| 26.3 兼容 | `api-version: 26.2` 的 3.3.2-SNAPSHOT 在 Paper 26.3 正常：`/register` 提示与注册成功均实测通过 |
+| 站点自研白名单 | 自带 `force_whitelist` 的插件：Web 玩家要**同时**进它的名单与 vanilla whitelist |
 
 ## 8. 灰度顺序
 

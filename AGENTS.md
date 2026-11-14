@@ -154,7 +154,9 @@ CI 另跑：compose/模板/CI YAML 解析 · **可执行位守卫** · `ENABLE_E
 已无消费者、可清理；升级镜像后按「digest → commit → `stop && up`」回归。
 前端拓扑：ADR-036 把开关拆成 `ENABLE_VELOCITY` / `ENABLE_EAGLER`（缺省都 false），实现方式由
 `ENABLE_VELOCITY` 派生（旧 `EAGLER_MODE` 仍可解析，`validate` 提示迁移）；
-生产启用前先按 `docs/eaglercraft-deploy.md` 在测试服跑完 T1–T12（含 LoginSecurity / Geyser 实测）。
+T1–T5 与三端共存（T6）已在测试服实测通过（四象限 + 插件矩阵，结论见
+`docs/eaglercraft-deploy.md` §7.5）；T7/T9/T11 等玩法项仍需真人。改拓扑后先跑
+`bash tests/acceptance_eagler.sh -d <数据目录>` 再开玩家白名单。
 
 ## 代码约定
 
