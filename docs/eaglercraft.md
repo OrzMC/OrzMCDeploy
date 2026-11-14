@@ -293,6 +293,7 @@ Paper 26.3 / Folia 26.3 实例（MCSManager 管理，online-mode=false，后端�
 | 13 | 老版本 Java 客户端（node `minecraft-protocol` 1.20.4）经代理进 26.3 后端 | 成功：后端日志 `joined the game`、`logged in with entity id`、LuckPerms 默认组；证明 ViaVersion 在代理链路里生效 |
 | 14 | Folia 26.3 后端（经同一代理） | 进服成功；持续 W/D 移动 8 s，Folia 日志无区域/线程检查异常 |
 | 15 | **Geyser（基岩）与代理共存**（仓库已自动化：`proxy` 模式下载 Geyser-Velocity 并改端口/后端） | **Geyser-Spigot 检测到上层是 Velocity 后自我禁用**（日志要求把 Geyser 装到代理）；Geyser 2.12.1 已移除 RakNet-only 传输，强制 NetherNet → 自动化 RakNet 客户端无法再用于验证，**基岩端必须用真实 26.x 客户端** |
+| 17 | **外网基岩（手机流量）走 NetherNet-only 单端口** | `transport: nethernet` + `webrtc-port: 0` + 路由器只转发 `19132`(TCP+UDP)；手机 4G 直连 `dev.jokerhub.cn:19132` 进服成功（`Player connected with username …` → `-> lobby has connected`）。关键前置：`signaling.advertise-addresses=[LAN_IP, 域名]` + `stun-discovery: false`（否则广播宿主代理出口的错地址）+ 容器 DNS 指向内网（否则域名被 fake-ip 解析成 `198.18.x.x`） |
 | 16 | **基岩真机验收**（手机 26.x → `dev.jokerhub.cn:19132`） | 进服、`/login` 成功、**移动正常**；全程无踢出；断线原因为客户端主动断开。关键前置：`java.auth-type: offline` + whitelist + `bedrock` 组 `grim.exempt` |
 
 实测中观察到的**非致命异常**（备查）：

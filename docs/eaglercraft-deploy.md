@@ -330,7 +330,8 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 | 5 | 能走两步就被踢「检测到数据包滥用」 | GrimAC `BadPackets/PacketOrder` 对 Geyser 转包误判 | `punishments.yml` 该组只留 `[log]`/`[alert]`（去掉 kick），`/grim reload` |
 | 6 | 登录成功后仍走不动 + `Simulation` 刷屏 | GrimAC 移动预测对 Bedrock 误判并 **setback** | **给 `bedrock` 组 `grim.exempt`**（整体豁免）：`lp group bedrock permission set grim.exempt true`；Java 端不受影响 |
 | 8 | 闲置/离开一会儿后掉线，客户端 1006，**服务端没有任何 kick 记录** | macOS App Nap / 显示器休眠 / Chrome 后台节流把页面冻住，TCP 被系统掐断 | 客户端侧：`caffeinate -dimsu`（或关显示器休眠）、游戏窗口保持前台、对本站点关掉 Chrome「内存节省」；服务端无法挽救系统级休眠 |
-| 7 | 无法用自动化库验证基岩 | Geyser 2.12 起移除 RakNet-only，改 NetherNet | 必须用真实 26.x 基岩客户端验收（信令 TCP 19132 + 媒体 UDP 19134） |
+| 7 | 无法用自动化库验证基岩 | Geyser 2.12 起移除 RakNet-only，改 NetherNet | 必须用真实 26.x 基岩客户端验收（信令 TCP 19132 + 媒体端口见 §13.2） |
+| 9 | 手机流量连不上、同一服务器 Wi-Fi 能连 | ① 媒体端口 19134 在路由器上没有静态转发（NAT 给了临时端口）；② Geyser 用 STUN 探到的是**宿主代理/VPN 出口**（实测 `64.176.82.52`），把错地址广播给外网客户端 | 切 `nethernet` + `webrtc-port: 0` 收敛到单端口；显式 `advertise-addresses` 并关 STUN；路由器只转发 `19132`(TCP+UDP)。**实测手机流量进服成功** |
 
 新基岩玩家入场三步：`whitelist add <Xbox代号>` → 客户端首登 `/register <密码>` → `lp user <代号> parent add bedrock`。
 
