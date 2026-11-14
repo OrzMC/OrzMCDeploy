@@ -373,7 +373,7 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 | 6 | 登录成功后仍走不动 + `Simulation` 刷屏 | GrimAC 移动预测对 Bedrock 误判并 **setback** | **给 `bedrock` 组 `grim.exempt`**（整体豁免）：`lp group bedrock permission set grim.exempt true`；Java 端不受影响 |
 | 8 | 闲置/离开一会儿后掉线，客户端 1006，**服务端没有任何 kick 记录** | macOS App Nap / 显示器休眠 / Chrome 后台节流把页面冻住，TCP 被系统掐断 | 客户端侧：`caffeinate -dimsu`（或关显示器休眠）、游戏窗口保持前台、对本站点关掉 Chrome「内存节省」；服务端无法挽救系统级休眠 |
 | 7 | 无法用自动化库验证基岩 | Geyser 2.12 起移除 RakNet-only，改 NetherNet | 必须用真实 26.x 基岩客户端验收（信令 TCP 19132 + 媒体端口见 §13.2） |
-| 9 | 手机流量连不上、同一服务器 Wi-Fi 能连 | ① 媒体端口 19134 在路由器上没有静态转发（NAT 给了临时端口）；② Geyser 用 STUN 探到的是**宿主代理/VPN 出口**（实测 `64.176.82.52`），把错地址广播给外网客户端 | 切 `nethernet` + `webrtc-port: 0` 收敛到单端口；显式 `advertise-addresses` 并关 STUN；路由器只转发 `19132`(TCP+UDP)。**实测手机流量进服成功** |
+| 9 | 手机流量连不上、同一服务器 Wi-Fi 能连 | ① 媒体端口 19134 在路由器上没有静态转发（NAT 给了临时端口）；② Geyser 用 STUN 探到的是**宿主代理/VPN 出口**（实测会探到宿主代理/VPN 的出口地址），把错地址广播给外网客户端 | 切 `nethernet` + `webrtc-port: 0` 收敛到单端口；显式 `advertise-addresses` 并关 STUN；路由器只转发 `19132`(TCP+UDP)。**实测手机流量进服成功** |
 | 10 | 手机**流量**下基岩反复 `no network path`（Wi-Fi 正常） | 移动网络普遍 CGNAT：UDP 映射保活短、易静默失效。实测同一配置 20:37 流量进服成功，22:31:52 会话中 `juice: Lost connectivity` 后，客户端一直用失效 ICE 候选重试。排查结论：路由器转发（`ALL 19132`）与 Windows/Hyper-V 两层防火墙（`OrzMC-MC-Public-UDP` Any）均正确，问题在运营商侧 | **项目决定：不引入 RakNet 回退**（会让端口结构从 1 个变 3 个、维护成本上升）。基岩玩家统一走 **Wi-Fi 局域网直连**（`192.168.0.33:19132`，最稳）；外出场景不承诺支持 |
 
 新基岩玩家入场三步：`whitelist add <Xbox代号>` → 客户端首登 `/register <密码>` → `lp user <代号> parent add bedrock`。
@@ -421,6 +421,34 @@ Web 玩家的离线 UUID 数据仍留在世界里，不影响 Java 玩家。
 
 > 注：`eagler-direct` 只对 Paper 有效（EaglerXPaper 不支持 Folia），Folia 在该拓扑下只能给 Java 玩家直连。
 > 另外 `EaglerXPaper` 与 `EaglerXServer` 在**同一实例**上不能同时启用（换拓扑时要把对方的 jar 移出 `plugins/`）。
+
+## 13.3 DDNS / 动态公网 IP 与「不要写死 IP」
+
+家宽 WAN IP 会变（重播、断线重连），凡是要发给外网客户端的地址都必须是**域名**。
+
+| 位置 | 应该写什么 | 现状 |
+|---|---|---|
+| `.env` 的 `EAGLER_PUBLIC_HOST` | 域名 | ✅ 域名 |
+| 站点 Caddyfile | 域名（`tls { dns cloudflare … }`） | ✅ 域名 |
+| 代理侧 `Geyser-Velocity` 的 `signaling.advertise-addresses` | `[LAN_IP, 域名]` | ✅ 域名（**启动时解析一次**） |
+| `velocity.toml` 的 `[servers]` | 容器名（`MCSM-xxxxxxxx:25565`） | ✅ 容器名 |
+| 防火墙规则 | `LAN_CIDR` / `Any` | ✅ 无 IP 硬编码 |
+| 实例侧 `Geyser-Spigot` 的 `advertise-addresses` | **不要写公网 IP** | ✅ 已清空（见下） |
+
+**两个必须知道的点**：
+
+1. **代理侧 Geyser 只在启动时解析一次域名**（日志：`Advertised address <域名> resolves to <IP>`）。
+   WAN IP 变化后，外网基岩客户端仍会拿到旧 IP → 需要 `docker restart orzmc-velocity`
+   （约 15 秒，Java/Web 会断线重连）。判断方法：对比日志里的 IP 与 `Resolve-DnsName <域名>` 的结果。
+2. **实例侧 Geyser-Spigot 不要写 `advertise-addresses` 的公网 IP**：历史上曾写死过
+   `"<WAN IP>:19134"`，DDNS 一变即失效，且端口在 NetherNet 单端口方案里已经不需要。
+   现在两台实例都是 `advertise-addresses: []` + `stun-discovery: false`：
+   - **非代理拓扑**（`java-only` / `eagler-direct`）下基岩**仅局域网可用**——因为实例容器
+     不支持自定义 DNS（面板没有该字段），容器内解析域名会命中宿主的 fake-ip
+     （`198.18.x.x`），写域名反而更不可靠；宿主机跑代理时 STUN 又会探到代理出口。
+   - 生产拓扑是 `eagler-proxy`（基岩由代理托管），实例侧 Geyser 本来就自我禁用，不受影响。
+
+> 结论：**基岩外网访问只走代理侧的 Geyser-Velocity**；DDNS 变更后重启一次代理即可。
 
 ## 13.2 基岩端口最小化（NetherNet-only）
 

@@ -316,6 +316,9 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
                 echo "## 2.5 基岩（Geyser）——实例侧自行托管"
                 echo
                 echo "- 没有代理，基岩由实例自己装 Geyser-Spigot，端口保持原样"
+                echo "- **不要**在 \`advertise-addresses\` 里写公网 IP：家宽 WAN IP 是 DDNS 动态的，"
+                echo "  写死会在换 IP 后失效；保持 \`[]\` + \`stun-discovery: false\`，基岩仅局域网可用"
+                echo "- 需要外网基岩时改用 \`ENABLE_VELOCITY=true\`（基岩由代理的 Geyser-Velocity 托管）"
                 echo
                 ;;
         esac
