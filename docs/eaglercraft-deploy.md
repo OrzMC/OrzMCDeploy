@@ -179,9 +179,9 @@ mv <数据目录>/eagler/proxy/velocity.toml <数据目录>/eagler/proxy/velocit
 
 | 编号 | 验收项 | 通过标准 | 手段 |
 |---|---|---|---|
-| T1 | 代理启动 | 日志 `Listener "listener0" injected ... (Velocity method)` + `Done` | `docker logs orzmc-velocity` |
-| T2 | 握手协商 | `eagler_protocol=5`、`minecraft_protocol=777` | 探针（§7.2） |
-| T3 | 登录放行 | `ALLOW_LOGIN` 且两次 UUID 一致 | 探针 `--login` |
+| T1 | 代理启动 | 日志 `Listener "listener0" injected ... (Velocity method)` + `Done` | `docker logs orzmc-velocity`；或用验收脚本（见 §7.3） |
+| T2 | 握手协商 | `eagler_protocol=5`、`minecraft_protocol=777` | 探针（§7.2）；或验收脚本 |
+| T3 | 登录放行 | `ALLOW_LOGIN` 且两次 UUID 一致 | 探针 `--login`；或验收脚本 |
 | T4 | 浏览器进服 | 游戏内出现 HUD；后端日志 `joined the game` | 浏览器 + 后端日志 |
 | T5 | 插件矩阵 | 下表逐项 PASS | 手工 |
 | T6 | 三端共存 | Java + 基岩 + Web 同时在线、互相可见、聊天互通 | 三种客户端各一个（Web/Java 已实测，基岩**必须真机 26.x**：Geyser 2.12 起走 NetherNet，RakNet 库不可用） |
@@ -229,6 +229,20 @@ required server teleport*——服务端要求传送、Bedrock/Geyser 没确认�
 | 同名双开 | 实测：同时在线时第二个连接在代理层被拒（`You are already connected to this proxy!`），原会话保留；口令分支只在原会话掉线后出现 |
 | 会话超时 | 实测：浏览器客户端启动约 40 s，重连基本都会被要求 `/login`（重登后同一 UUID/存档接续） |
 | 站点自研白名单 | 若装了自带 `force_whitelist` 的自研插件：Web 玩家要**同时**进它的名单与 vanilla whitelist |
+
+### 7.3 一键验收（`tests/acceptance_eagler.sh`，手工，不进 CI gate）
+
+机器可判定的项（T1–T3 + 拓扑/端口/暴露面）已经脚本化，一条命令出结论：
+
+```bash
+bash tests/acceptance_eagler.sh -d <数据目录>
+# 或 ORZMC_DATA_ROOT=<数据目录> bash tests/acceptance_eagler.sh
+```
+
+它做四件事：① 按 `.env` 打印派生拓扑（`topology`/`dialect`/`geyser_target`）；
+② T1 查代理与信令启动、Geyser 广播地址；③ T2/T3 经**反代**（玩家真实链路）跑握手与
+同名两次登录比对 UUID；④ 核对端口归属（玩家端口必须归代理、实例不得抢占）。
+末尾会打印仍需真人跑的 T4–T12 清单。
 
 ### 7.2 探针（`tests/eaglercraft_probe.py`，手工，不进 CI）
 
