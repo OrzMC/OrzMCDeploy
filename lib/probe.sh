@@ -79,6 +79,7 @@ probe_ws() {
         101) _probe_row ok "ws ${domain}" "101 Switching Protocols（Web 客户端可连）" ;;
         4*)  _probe_row warn "ws ${domain}" "HTTP ${code} —— 反代与上游都通，握手被上游拒绝（视协议实现而定）" ;;
         502|503) _probe_row fail "ws ${domain}" "HTTP ${code} —— 上游没起" ;;
+        000) _probe_row warn "ws ${domain}" "TLS/反代通，升级请求被上游直接断开（客户端需带子协议/路径）" ;;
         *)   _probe_row fail "ws ${domain}" "HTTP ${code}" ;;
     esac
 }
@@ -127,8 +128,10 @@ probe_all() {
         while IFS="$(printf '\t')" read -r domain upstream opts; do
             [ -n "$domain" ] || continue
             probe_site "$domain" "$upstream"
+            # 只探显式声明 wscheck 的域（真正的 WebSocket 入口）。面板的 ws 只是终端长连接，
+            # 对 / 发 Upgrade 会让上游 EOF（Caddy 记 502，属预期而非故障）。
             case ",$opts," in
-                *",ws,"*) probe_ws "$domain" ;;
+                *",wscheck,"*) probe_ws "$domain" ;;
             esac
         done <<EOF
 $(site_parse_routes)

@@ -239,6 +239,7 @@ services:
 | 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
 | 真探协议（面板/端口/TLS/WS/实例） | `./orzmc.sh -d <数据目录> status --probe` |
 | 站点层 TLS 声明 | `./orzmc.sh -d <数据目录> site init` / `render` / `apply` / `status` |
+| 备份/恢复演练 | `./orzmc.sh -d <数据目录> drill [归档]` |
 | 校验配置 | `./orzmc.sh -d <数据目录> validate` |
 | 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
 | 证书到期 | `./orzmc.sh -d <数据目录> cert [--min-days 21]` |
@@ -458,6 +459,39 @@ SITE_ROUTES="mcs.jokerhub.cn=mcsmanager-web:23333|encode,ws;easybot.jokerhub.cn=
 判定分层：回环是硬指标（FAIL 阻断、exit 1）；「经 LAN IP」的探测只给 WARN —— Windows 上宿主
 连自己的 LAN IP 常被防火墙/路由挡住，不代表局域网真的进不来。UDP 19132 不探（RakNet 需构造
 握手包），基岩侧交给实例验收。
+
+---
+
+### 5.11 备份/恢复演练（drill）
+
+备份成功 ≠ 能还原。`drill` 每天跟着备份跑一次，把「这份归档到底能不能用」变成可判定的结论：
+
+```bash
+./orzmc.sh -d <数据目录> drill                    # 取备份目录里最新归档
+./orzmc.sh -d <数据目录> drill <归档>              # 指定归档
+./orzmc.sh -d <数据目录> drill --keep-restore      # 核对完不删现场
+```
+
+它做四件事：
+
+1. **还原到数据目录之外**的演练根（默认 `<备份目录的父目录>/orzmc-drills/drill-<时间>/orzmc`，
+   可用 `.env` 的 `DRILL_ROOT` 覆盖）——生产数据一个字节都不碰。
+2. 复用正式 `restore.sh`（含顶层目录名校验、`DATA_ROOT` 改写）。
+3. **三项核对**：
+   - 条目数：归档成员数 vs 还原文件数（还原会多一个 `.env.bak-restore`，允许 +1）
+   - 关键文件 md5：`server.properties` / `velocity.toml` / `forwarding.secret` / `level.dat` /
+     `ops.json` / `eula.txt` 取样，**md5 直接从归档流解出来比**，不依赖解压路径——这样才算真校验
+   - `DATA_ROOT` 已改写到演练路径（否则还原副本仍指向生产目录）
+4. 默认删掉还原出来的临时树，只留结论；任何一项不符就 `exit 1`，可直接挂在 cron 里报警。
+
+空间：需要约归档体积的 2 倍（实测 3.9G 归档 → 5.9G 还原），不够会先拒绝，不会写满盘。
+
+日常定时任务（备份 + 演练连跑）：
+
+```cron
+0 4 * * *  cd <程序目录> && ./orzmc.sh -d <数据目录> backup --keep 1
+30 5 * * * cd <程序目录> && ./orzmc.sh -d <数据目录> drill
+```
 
 ---
 

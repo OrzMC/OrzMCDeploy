@@ -35,7 +35,7 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 |---|---|---|
 | 局域网入口 | `.env` 的 `LAN_HOST_IP` / `LAN_MCS_WEB_PORT` / `LAN_EASYBOT_PORT` | 面板与 EasyBot 发布到宿主端口，纯 HTTP |
 | 可选服务 | `.env` 的 `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即停用；核心 web/daemon 常驻 |
-| 入口脚本 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status [--probe]\|validate\|backup\|restore\|doctor\|cert\|site\|firewall` |
+| 入口脚本 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status [--probe]\|validate\|backup\|restore\|drill\|doctor\|cert\|site\|firewall` |
 
 - **没有边缘层服务**：不跑 cloudflared / Caddy。对外访问由站点自备
   （DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**。
@@ -81,6 +81,7 @@ orzmc.sh               唯一部署入口（三平台一致；局域网模式，
 install.sh             免克隆一键安装（ADR-018：下载 Release tarball + 校验 sha256 + 解压）
 deploy.sh               orzmc.sh 的内部实现（init/up/stop/status/validate 命令体）
 backup.sh / restore.sh  数据备份 / 还原迁移
+lib/drill.sh            备份/恢复演练（还原到临时根 + 条目/md5 核对 + 清理）
 lib/firewall.sh         防火墙收敛（./orzmc.sh firewall show|apply，ADR-028）
 lib/eagler.sh           前端拓扑可选运行时（ENABLE_VELOCITY/ENABLE_EAGLER 下载校验/生成配置，ADR-036）
 update-image-digests.sh 刷新 compose.yaml 镜像 digest（easybot 用发布 tag：EASYBOT_TAG）
@@ -113,6 +114,7 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 | 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
 | 证书到期检查（只读） | `./orzmc.sh -d <数据目录> cert [--min-days 21]` |
 | 备份数据 | `./orzmc.sh -d <数据目录> backup [--stop] [--keep N]` |
+| 备份演练（还原+核对） | `./orzmc.sh -d <数据目录> drill [归档]` |
 | 防火墙收敛（默认限源） | `./orzmc.sh -d <数据目录> firewall show` / `apply` |
 | 还原/迁移 | `./orzmc.sh -d <数据目录> restore <归档> [--force] [--start]` |
 

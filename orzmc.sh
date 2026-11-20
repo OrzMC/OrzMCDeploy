@@ -41,6 +41,7 @@ usage() {
   orzmc.sh -d <数据目录> cert           # 站点层证书到期检查（--min-days N，只读，不续期）
   orzmc.sh -d <数据目录> backup         # 打包 $DATA_ROOT（可加 --stop/--keep）
   orzmc.sh -d <数据目录> restore <归档>  # 从归档还原 / 迁移（--force 覆盖、--start 还原后启动）
+orzmc.sh -d <数据目录> drill [归档]   # 备份/恢复演练：还原到临时根 → 条目数+md5 核对 → 清理
   orzmc.sh -d <数据目录> site init|apply|status  # 站点层 TLS：由 .env 的 SITE_ROUTES 生成 Caddyfile 并热重载
   orzmc.sh -d <数据目录> firewall show|apply   # 防火墙收敛（默认只信任局域网，ADR-028）
   orzmc.sh -d <数据目录> print-root     # 打印解析后的 DATA_ROOT
@@ -89,6 +90,7 @@ case "$CMD" in
     validate)   bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" validate ;;
     backup)     bash "${ORZMC_BIN_DIR}/backup.sh" -d "$DATA_ROOT" "$@" ;;
     restore)    bash "${ORZMC_BIN_DIR}/restore.sh" -d "$DATA_ROOT" "$@" ;;
+    drill)      bash "${ORZMC_BIN_DIR}/lib/drill.sh" -d "$DATA_ROOT" "$@" ;;
     doctor)     bash "${ORZMC_BIN_DIR}/lib/doctor.sh" -d "$DATA_ROOT" "$@" ;;
     cert)       bash "${ORZMC_BIN_DIR}/lib/cert.sh" -d "$DATA_ROOT" "$@" ;;
     site)       bash "${ORZMC_BIN_DIR}/lib/site.sh" -d "$DATA_ROOT" "$@" ;;
