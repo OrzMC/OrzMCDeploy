@@ -11,6 +11,14 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.5.2] - 2026-11-20
+
+### Added
+
+- `validate` 增加版本漂移提示：面板实例里的 `velocity-<ver>.jar` 与 `templates/eagler/versions.env`
+  的 `VELOCITY_VERSION` 不一致时 warn（只提示，不覆盖 —— ADR-040 规定已有 jar 一律不下载）。
+  jar 文件名只带版本号、不带 build 号，因此只比版本、不比 build。
+
 ## [0.5.1] - 2026-11-20
 
 ### Fixed

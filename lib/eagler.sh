@@ -565,8 +565,18 @@ eagler_runtime_check() {
         fi
     fi
     if velocity_enabled; then
-        if [ -z "$(eagler_proxy_jar)" ]; then
+        local vjar vver vlock
+        vjar="$(eagler_proxy_jar)"
+        if [ -z "$vjar" ]; then
             warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；up 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
+        else
+            # 面板里换过版本时，versions.env 的锁会漂移；只提示不覆盖（ADR-040：已有 jar 一律不下载）
+            vver="$(basename "$vjar" | sed -n 's/^velocity-\(.*\)\.jar$/\1/p')"
+            # jar 名只带版本号（velocity-4.3.1.jar），build 号（45）在文件名里没有 → 只比版本
+            vlock="$(eagler_lock VELOCITY_VERSION)"
+            if [ -n "$vver" ] && [ "$vver" != "$vlock" ]; then
+                warn "面板实例里的 Velocity 版本 ($vver) 与 versions.env 锁定的 ${vlock}（build $(eagler_lock VELOCITY_BUILD)）不一致；up 不会覆盖，如需对齐请改 versions.env"
+            fi
         fi
         if [ "$dialect" = "eaglerxserver" ] \
             && [ ! -f "$(eagler_proxy_dir)/plugins/EaglerXServer.jar" ]; then
