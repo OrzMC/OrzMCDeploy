@@ -67,7 +67,12 @@ case "$DATA_ROOT" in
     *)           TAR_PARENT="$(dirname -- "$DATA_ROOT")" ;;
 esac
 TAR_NAME="${DATA_ROOT##*/}"
-tar -C "$TAR_PARENT" -czf "$archive" "$TAR_NAME"
+# GNU tar 会把 "E:/..." 形式的归档路径同样当远程主机（host:path）解析，
+# 报 "Cannot connect to E: resolve failed"。--force-local 强制按本地文件处理。
+# BSD tar（macOS）无此选项，故只在 Windows 下加。
+TAR_OPTS=()
+[ "$(detect_os)" = "windows" ] && TAR_OPTS+=(--force-local)
+tar ${TAR_OPTS[@]+"${TAR_OPTS[@]}"} -C "$TAR_PARENT" -czf "$archive" "$TAR_NAME"
 
 if [ "$STOP" = 1 ] && [ -f "$(env_file)" ]; then
     info "重新拉起 compose 服务..."
