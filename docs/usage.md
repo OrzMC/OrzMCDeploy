@@ -502,7 +502,7 @@ ADR-040 起 Velocity 是 MCSM 面板里的 Docker 实例（容器名固定 `orzm
 
 | 想做什么 | 怎么做 |
 |---|---|
-| 换 Velocity 版本 | 面板文件管理把 `velocity-<新版本>.jar` 传到实例目录 → 改启动命令里的 jar 名 → 重启实例 |
+| 换 Velocity / paper / folia 核心版本 | 面板文件管理把官方 jar（`velocity-<ver>-<build>.jar` / `paper-…` / `folia-…`）传到实例目录 → 重启实例；`start.sh` 自动选版本最高，换版本不用改启动命令（旧 jar 留着回滚） |
 | 换 EaglerXServer / Geyser 插件 | 传 jar 到实例目录 `plugins/` → 重启实例 |
 | 改 `velocity.toml` | 面板文件管理直接改 → 重启实例（`up` 只在文件缺失时渲染，不会覆盖） |
 | 看日志 | 实例控制台 / 实例目录 `logs/latest.log` |

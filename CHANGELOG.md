@@ -11,6 +11,24 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.6.1] - 2026-11-21
+
+### Changed
+
+- **代理插件也交给面板（ADR-042）**：`lib/eagler.sh` 不再下载 EaglerXServer / Geyser-Velocity / EaglerXPaper /
+  EaglerXBackendRPC，只在缺失时 warn（该移走的仍由 `eagler_stash_plugin` 处理）。
+- **删除 `templates/eagler/versions.env`** 与 `eagler_lock` / `eagler_fetch`：部署仓库里不再有任何 jar 版本锁，
+  「现在跑的是哪个版本」以面板实例目录为准。
+- **`up` 会在代理实例目录生成 `start.sh`（不覆盖已有文件）**：内容与 paper/folia 同构 ——
+  `ls -1 velocity-*.jar | sort -V | tail -1` 自动选版本最高的核心，回退 `velocity.jar`；面板启动命令写
+  `sh /server/start.sh`。换版本从此只需「传 jar + 重启」，与 paper/folia 完全一致，也绕开了
+  「MCSM 启动命令按空格硬切、不能写 shell」的限制（把 shell 逻辑放进脚本文件）。
+
+### Docs
+
+- 新增 ADR-042；ADR-041 的「换版本要改启动命令」被取代。
+- `docs/eaglercraft-deploy.md`、`docs/usage.md` 的升级/排查行同步为「传 jar + 重启」。
+
 ## [0.6.0] - 2026-11-21
 
 ### Changed
