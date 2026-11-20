@@ -11,6 +11,13 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.5.1] - 2026-11-20
+
+### Fixed
+
+- `validate` 的运行时检查仍按固定名 `velocity.jar` 判断，面板实例里叫 `velocity-4.3.1.jar` 时
+  误报「Velocity 运行时未就绪」→ 改用 `eagler_proxy_jar()` 探测（任意 `velocity*.jar`）。
+
 ## [0.5.0] - 2026-11-20
 
 ### Changed
