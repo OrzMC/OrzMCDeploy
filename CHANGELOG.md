@@ -11,6 +11,15 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.4.2] - 2026-11-20
+
+### Fixed
+
+- `status --probe` 的 WebSocket 探测恒报 000：101 之后连接不会自动关闭，`curl` 以 28（超时）
+  退出，而 `code="$(curl …)" || code=""` 会把已打印的 `101` 抹成空值，于是真能连的 Web 入口被
+  判成「上游断开」。改为 `|| true` 保留状态码（三处 curl 调用一并修）。
+  实测 `dev.jokerhub.cn` 由 `WARN … 断开` 变为 `[ OK ] 101 Switching Protocols`。
+
 ## [0.4.1] - 2026-11-20
 
 备份/恢复演练（`drill`）落地，以及 `site`/`status --probe` 上生产后暴露的三个缺陷。

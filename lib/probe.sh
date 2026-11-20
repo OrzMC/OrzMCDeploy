@@ -42,7 +42,7 @@ probe_tcp() {
 # probe_http <url> <label> <允许的码正则>
 probe_http() {
     local url="$1" label="$2" okpat="$3" soft="${4:-0}" code
-    code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "$url" 2>/dev/null)" || code=""
+    code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "$url" 2>/dev/null || true)"
     [ -n "$code" ] && [ "$code" != "000" ] || code="000"
     if printf '%s' "$code" | grep -Eq "$okpat"; then
         _probe_row ok "$label" "HTTP ${code}"
@@ -55,7 +55,7 @@ probe_http() {
 probe_site() {
     local domain="$1" upstream="$2" code
     code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' \
-        --resolve "${domain}:443:127.0.0.1" "https://${domain}:443/" 2>/dev/null)" || code=""
+        --resolve "${domain}:443:127.0.0.1" "https://${domain}:443/" 2>/dev/null || true)"
     [ -n "$code" ] || code="000"
     case "$code" in
         000) _probe_row fail "$domain" "TLS/连接失败（证书或 Caddy 未起）" ;;
@@ -68,12 +68,14 @@ probe_site() {
 # 502 = 上游没起；000 = TLS/连接失败
 probe_ws() {
     local domain="$1" code
-    code="$(curl -sk -o /dev/null -m 10 -w '%{http_code}' \
+    # 注意：101 之后连接不会自动关闭，curl 会以 28（超时）退出——但不能因此丢掉已打印的
+    # 状态码（`|| code=""` 会把 101 抹成 000，这正是之前误报「上游断开」的原因）。
+    code="$(curl -sk -o /dev/null -m 6 -w '%{http_code}' \
         --resolve "${domain}:443:127.0.0.1" \
         -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
         -H 'Sec-WebSocket-Version: 13' \
         -H 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==' \
-        "https://${domain}:443/" 2>/dev/null)" || code=""
+        "https://${domain}:443/" 2>/dev/null || true)"
     [ -n "$code" ] || code="000"
     case "$code" in
         101) _probe_row ok "ws ${domain}" "101 Switching Protocols（Web 客户端可连）" ;;
