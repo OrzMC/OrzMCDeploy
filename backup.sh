@@ -60,7 +60,14 @@ if [ "$STOP" = 1 ]; then
 fi
 
 info "打包 $DATA_ROOT -> $archive"
-tar -C "$(dirname "$DATA_ROOT")" -czf "$archive" "$(basename "$DATA_ROOT")"
+# tar -C 的父目录：Windows 盘符路径（E:/orzmc）的 dirname 是 "E:"，GNU tar 会把它
+# 当成远程主机（host:path 语法）→ "Cannot connect to E: resolve failed"。盘符根必须保留斜杠。
+case "$DATA_ROOT" in
+    [A-Za-z]:/*) TAR_PARENT="${DATA_ROOT%%/*}/" ;;
+    *)           TAR_PARENT="$(dirname -- "$DATA_ROOT")" ;;
+esac
+TAR_NAME="${DATA_ROOT##*/}"
+tar -C "$TAR_PARENT" -czf "$archive" "$TAR_NAME"
 
 if [ "$STOP" = 1 ] && [ -f "$(env_file)" ]; then
     info "重新拉起 compose 服务..."
