@@ -172,8 +172,10 @@ jobs:
           # 注意语义：新键存在时旧键按设计被忽略（validate 会提示），所以先删新键。
           sed -i '/^ENABLE_VELOCITY=/d;/^ENABLE_EAGLER=/d' "$d/.env"
           printf 'EAGLER_MODE=proxy\n' >> "$d/.env"
-          svcs | grep -qx velocity || { echo "!! 旧 EAGLER_MODE=proxy 未生效"; exit 1; }
-          rendered | grep -q 'published: "19132"' || { echo "!! 旧键未带出基岩端口"; exit 1; }
+          # ADR-040：旧键仍应派生出 velocity 拓扑，但代理不再由 compose 渲染
+          ./orzmc.sh -d "$d" validate >/dev/null || { echo "!! 旧键 EAGLER_MODE=proxy 校验未通过"; exit 1; }
+          bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; [ "$(topology)" = "eagler-proxy" ]' \
+            || { echo "!! 旧 EAGLER_MODE=proxy 未派生出 eagler-proxy 拓扑"; exit 1; }
 
           # 新旧并存时旧键必须被忽略（新键显式 false 优先），防止静默回退
           printf 'ENABLE_VELOCITY=false\n' >> "$d/.env"
