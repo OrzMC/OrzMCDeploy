@@ -60,15 +60,31 @@ if [ "$STOP" = 1 ]; then
 fi
 
 info "打包 $DATA_ROOT -> $archive"
-tar -C "$(dirname "$DATA_ROOT")" -czf "$archive" "$(basename "$DATA_ROOT")"
+# tar -C 的父目录：Windows 盘符根（E:/orzmc → E:/）必须保留斜杠，
+# 因为 dirname 给出的是 "E:"，GNU tar 会把它当远程主机（host:path 语法）→
+# "Cannot connect to E: resolve failed"。
+TAR_NAME="${DATA_ROOT##*/}"
+TAR_PARENT="${DATA_ROOT%/*}"
+case "$TAR_PARENT" in
+    [A-Za-z]:) TAR_PARENT="$TAR_PARENT/" ;;      # E:/orzmc → E:/
+    "") TAR_PARENT="/" ;;
+esac
+[ "$TAR_PARENT" = "$DATA_ROOT" ] && TAR_PARENT="."   # 相对路径（无斜杠）
+# GNU tar 会把 "E:/..." 形式的归档路径同样当远程主机（host:path）解析，
+# 报 "Cannot connect to E: resolve failed"。--force-local 强制按本地文件处理。
+# BSD tar（macOS）无此选项，故只在 Windows 下加。
+TAR_OPTS=()
+[ "$(detect_os)" = "windows" ] && TAR_OPTS+=(--force-local)
+tar ${TAR_OPTS[@]+"${TAR_OPTS[@]}"} -C "$TAR_PARENT" -czf "$archive" "$TAR_NAME"
 
 if [ "$STOP" = 1 ] && [ -f "$(env_file)" ]; then
     info "重新拉起 compose 服务..."
     compose_cmd up -d
 fi
 
-# 校验归档可读
-if tar tzf "$archive" >/dev/null 2>&1; then
+# 校验归档可读（同样要 --force-local；另注意用 -tzf 带短横线，
+# 否则 --force-local 在前面时 GNU tar 不再把裸 "tzf" 当选项束解析）
+if tar ${TAR_OPTS[@]+"${TAR_OPTS[@]}"} -tzf "$archive" >/dev/null 2>&1; then
     info "备份完成并校验通过: $archive"
 else
     die "备份校验失败: $archive"
