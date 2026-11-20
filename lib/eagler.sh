@@ -566,7 +566,7 @@ eagler_runtime_check() {
     fi
     if velocity_enabled; then
         local vjar vver vlock
-        vjar="$(eagler_proxy_jar)"
+        vjar="$(eagler_proxy_jar || true)"   # find 在目录不存在时 rc=1，set -e 下会直接退出
         if [ -z "$vjar" ]; then
             warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；up 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
         else
