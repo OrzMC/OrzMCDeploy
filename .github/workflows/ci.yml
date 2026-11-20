@@ -142,15 +142,13 @@ jobs:
           # 象限 3（本次新增）：只上 Velocity 多服大厅
           sed -i 's/^ENABLE_VELOCITY=.*/ENABLE_VELOCITY=true/' "$d/.env"
           ./orzmc.sh -d "$d" validate
-          svcs | grep -qx velocity || { echo "!! ENABLE_VELOCITY=true 未渲染 velocity"; exit 1; }
-          rendered | grep -q 'published: "19132"' || { echo "!! 基岩片段未追加"; exit 1; }
-
-          # 基岩关掉后不能再发布 19132（否则和实例侧 Geyser-Spigot 抢端口）
-          echo 'EAGLER_GEYSER=false' >> "$d/.env"
-          if rendered | grep -q 'published: "19132"'; then
-            echo "!! EAGLER_GEYSER=false 仍发布 19132"; exit 1
+          # ADR-040：代理是 MCSM 面板实例，compose 里不该再有 velocity，也不该发布 19132
+          if svcs | grep -qx velocity; then
+            echo "!! ADR-040：velocity 不应再由 compose 渲染（应托管在面板实例）"; exit 1
           fi
-          sed -i '/^EAGLER_GEYSER=false/d' "$d/.env"
+          if rendered | grep -q 'published: "19132"'; then
+            echo "!! 基岩端口应由面板实例映射发布，compose 不应发布 19132"; exit 1
+          fi
 
           # 象限 4：再加 Eaglercraft
           sed -i 's/^ENABLE_EAGLER=.*/ENABLE_EAGLER=true/' "$d/.env"

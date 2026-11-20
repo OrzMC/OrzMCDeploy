@@ -58,7 +58,7 @@ eagler_proxy_dir()  {
 eagler_proxy_jar() {
     local pdir
     pdir="$(eagler_proxy_dir)"
-    ls "${pdir}"/velocity-*.jar 2>/dev/null | head -n1
+    find "${pdir}" -maxdepth 1 -name 'velocity-*.jar' 2>/dev/null | head -n1
 }
 eagler_jars_dir()   { printf '%s/jars' "$(eagler_dir)"; }
 eagler_setup_doc()  { printf '%s/instance-setup.md' "$(eagler_dir)"; }
@@ -566,7 +566,7 @@ eagler_runtime_check() {
     fi
     if velocity_enabled; then
         if [ ! -f "$(eagler_proxy_dir)/velocity.jar" ]; then
-            warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；`up` 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
+            warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；up 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
         fi
         if [ "$dialect" = "eaglerxserver" ] \
             && [ ! -f "$(eagler_proxy_dir)/plugins/EaglerXServer.jar" ]; then
