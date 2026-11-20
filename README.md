@@ -23,7 +23,7 @@ git clone <仓库地址> orzmc-deploy && cd orzmc-deploy
 vi <数据目录>/.env                # 改 LAN_HOST_IP、EASYBOT_ADMIN_PASSWORD、QQBOT_*
 ./orzmc.sh -d <数据目录> validate
 ./orzmc.sh -d <数据目录> up
-./orzmc.sh -d <数据目录> status   # 访问地址 + 容器状态
+./orzmc.sh -d <数据目录> status   # 访问地址 + 容器状态（--probe: 按真实协议探测）
 ```
 
 - **`DATA_ROOT` 没有默认值**：必须 `-d <数据目录>` 或 `export ORZMC_DATA_ROOT=<数据目录>`，
@@ -40,6 +40,8 @@ vi <数据目录>/.env                # 改 LAN_HOST_IP、EASYBOT_ADMIN_PASSWORD
 ./orzmc.sh -d <数据目录> up                    # 启动平台层
 ./orzmc.sh -d <数据目录> stop                  # 停止
 ./orzmc.sh -d <数据目录> status                # 访问地址 + 容器状态
+./orzmc.sh -d <数据目录> status --probe          # 真探：面板/EasyBot/端口/站点 TLS/WS/实例
+./orzmc.sh -d <数据目录> site apply              # 站点层 TLS：依 .env 的 SITE_ROUTES 生成 Caddyfile 并热重载
 ./orzmc.sh -d <数据目录> validate              # 配置校验
 ./orzmc.sh -d <数据目录> doctor                # 部署自检（有 FAIL 则 exit 1）
 ./orzmc.sh -d <数据目录> cert [--min-days 21]  # 证书到期检查（只读，不续期）

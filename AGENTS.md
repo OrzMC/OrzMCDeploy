@@ -35,7 +35,7 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 |---|---|---|
 | 局域网入口 | `.env` 的 `LAN_HOST_IP` / `LAN_MCS_WEB_PORT` / `LAN_EASYBOT_PORT` | 面板与 EasyBot 发布到宿主端口，纯 HTTP |
 | 可选服务 | `.env` 的 `ENABLE_EASYBOT`（缺省 `true`） | 置 `false` 即停用；核心 web/daemon 常驻 |
-| 入口脚本 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status\|validate\|backup\|firewall` |
+| 入口脚本 | `./orzmc.sh`（唯一入口，三平台一致） | `./orzmc.sh [-d DATA_ROOT] init\|up\|stop\|status [--probe]\|validate\|backup\|restore\|doctor\|cert\|site\|firewall` |
 
 - **没有边缘层服务**：不跑 cloudflared / Caddy。对外访问由站点自备
   （DDNS + 端口映射 / 反向代理 / VPN），**本仓库不管理**。
@@ -107,6 +107,8 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 | 启动平台层 | `./orzmc.sh -d <数据目录> up` |
 | 停止 | `./orzmc.sh -d <数据目录> stop` |
 | 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
+| 真探协议 | `./orzmc.sh -d <数据目录> status --probe` |
+| 站点层 TLS | `./orzmc.sh -d <数据目录> site init` / `apply` / `status` |
 | 校验配置 | `./orzmc.sh -d <数据目录> validate` |
 | 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
 | 证书到期检查（只读） | `./orzmc.sh -d <数据目录> cert [--min-days 21]` |

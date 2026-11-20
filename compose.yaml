@@ -18,7 +18,7 @@ services:
       resources:
         limits:
           memory: 512M      # 防御性保险丝：面板占用平稳，固定上限即可
-    image: githubyumao/mcsmanager-web@sha256:c3de64da162927a2386f9b036791f2eaeb610129d8742395fed4baad24678c64
+    image: githubyumao/mcsmanager-web@sha256:ab1bb06ab6df8e5a545b073b4a8936c8ed7f193e3ee58de633b6d1f1406b9761
     container_name: orzmc-mcsmanager-web
     restart: unless-stopped
     environment:

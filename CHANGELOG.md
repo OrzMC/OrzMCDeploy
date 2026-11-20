@@ -11,6 +11,37 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.4.0] - 2026-11-20
+
+站点层 TLS 下沉（`site`）、真探协议（`status --probe`）、镜像 digest 升级。
+
+### Added
+
+- **`site init|render|apply|status`（`lib/site.sh`）**：站点层两份手抄文件改为由 `.env` 的
+  `SITE_ROUTES` 单点生成。
+  - `site init` 从**现有** Caddyfile 反推 `SITE_ROUTES`（幂等），并接管 `compose.site.yaml`
+    里的 caddy 区块（无标记的早期手写块**就地替换**，不产生重复 key）。
+  - `site apply`：渲染 → `caddy adapt` 校验（失败不落盘）→ 备份 `.bak-<时间>` → 落盘 →
+    `caddy reload` 热重载；reload 失败自动回滚。
+  - 路由选项 `ws`（`flush_interval -1`）/ `xrip`（`header_up X-Real-IP`）/ `encode`，
+    漏写这两项就是「Web 客户端连上没数据」「EaglerXServer 直接拒连」。
+  - 强制项：`CF_DNS_API_TOKEN` / `ACME_EMAIL` / `SITE_ROUTES` 缺一即拒绝——空 `ACME_EMAIL`
+    会让 caddy 报 `wrong argument count ... after 'email'`，看起来像语法错。
+- **`status --probe`（`lib/probe.sh`）**：按真实协议探测——面板/EasyBot HTTP、Velocity/Geyser
+  TCP、各站点域 TLS+HTTP、`ws` 路由的 WebSocket Upgrade（101/4xx/502 分级）、daemon 内 java
+  进程数（实例没起立刻可见）。回环为硬指标（FAIL 时 exit 1），「经 LAN IP」只 WARN。
+
+### Changed
+
+- `mcsmanager-web` 镜像 digest → **10.22.1**（10.22.0 → 10.22.1，patch）。
+- Caddy 镜像 digest → **2.11.9**（caddybuilds/caddy-cloudflare，DNS-01 构建）。
+- `deploy.sh` 增加 `source lib/site.sh` / `lib/probe.sh`；`site.sh` 在被 source 时不再执行入口段。
+
+### Fixed
+
+- `site` 路由解析漏掉最后一条：`while read` 会丢掉没有尾换行的最后一行（`music.*` 静默消失）。
+- `probe` 在 curl 失败时把状态码写成 `000000`（`|| echo 000` 与 `-w` 叠加）。
+
 ## [0.3.1] - 2026-11-20
 
 ### Fixed
