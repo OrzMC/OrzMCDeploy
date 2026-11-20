@@ -47,6 +47,7 @@ vi <数据目录>/.env                # 改 LAN_HOST_IP、EASYBOT_ADMIN_PASSWORD
 ./orzmc.sh -d <数据目录> cert [--min-days 21]  # 证书到期检查（只读，不续期）
 ./orzmc.sh -d <数据目录> firewall apply        # 防火墙限源（show 查看现状）
 ./orzmc.sh -d <数据目录> backup [--stop] [--keep N]
+./orzmc.sh -d <数据目录> drill  [归档]    # 备份演练：还原到临时根 → 条目+md5 核对 → 清理
 ./orzmc.sh -d <数据目录> restore <归档> [--force] [--start]   # 还原 / 迁移
 ./update-image-digests.sh [服务]               # 刷新镜像 digest（升级用）
 ```

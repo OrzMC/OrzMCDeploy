@@ -133,7 +133,7 @@ site_derive_routes() {
     awk '
         /^[A-Za-z0-9][A-Za-z0-9.-]*[ \t]*\{/ {
             gsub(/[ \t]*\{.*/, "", $0)
-            if (dom != "" && up != "") printf "%s=%s|%s;", dom, up, opts
+            if (dom != "" && up != "") printf "%s=%s|%s;", dom, up, opts wsflag(up)
             dom=$0; up=""; opts=""
             next
         }
@@ -145,7 +145,11 @@ site_derive_routes() {
         dom != "" && /flush_interval[ \t]+-1/ { if (index(opts,"ws")==0) opts = (opts=="" ? "ws" : opts ",ws") }
         dom != "" && /header_up[ \t]+X-Real-IP/ { if (index(opts,"xrip")==0) opts = (opts=="" ? "xrip" : opts ",xrip") }
         dom != "" && /^[ \t]*encode[ \t]/ { if (index(opts,"encode")==0) opts = (opts=="" ? "encode" : opts ",encode") }
-        END { if (dom != "" && up != "") printf "%s=%s|%s;", dom, up, opts }
+        END { if (dom != "" && up != "") printf "%s=%s|%s;", dom, up, opts wsflag(up) }
+        # Velocity 的 :25565 是真正的 WebSocket 入口（Eaglercraft 浏览器客户端），
+        # 反推时补 wscheck，让 status --probe 对它做 Upgrade 探测；
+        # 面板的 ws 只是终端长连接，探 / 无意义（上游会 EOF）。
+        function wsflag(u) { return (u ~ /velocity/ || u ~ /:25565$/) ? (opts == "" ? "wscheck" : ",wscheck") : "" }
     ' "$f" | sed 's/;$//'
 }
 
@@ -241,18 +245,23 @@ site_validate_file() {
 
 # ---------------------------------------------------------------- 子命令
 site_cmd_init() {
-    local routes f
-    f="$(site_caddyfile)"
+    local routes derived force="${1:-}"
     routes="$(read_env_value SITE_ROUTES || true)"
+    derived="$(site_derive_routes)"
     if [ -z "$routes" ]; then
-        routes="$(site_derive_routes)"
-        if [ -z "$routes" ]; then
-            die "既无 SITE_ROUTES，也无法从 $(site_caddyfile) 反推；请在 .env 手写 SITE_ROUTES"
-        fi
-        set_env_value SITE_ROUTES "$routes"
-        info "已从现有 Caddyfile 反推 SITE_ROUTES 写入 .env（$(printf '%s' "$routes" | tr ';' '\n' | grep -c '=' || true) 条）"
+        [ -n "$derived" ] || die "既无 SITE_ROUTES，也无法从 $(site_caddyfile) 反推；请在 .env 手写 SITE_ROUTES"
+        set_env_value SITE_ROUTES "$derived"
+        info "已从现有 Caddyfile 反推 SITE_ROUTES 写入 .env（$(printf '%s' "$derived" | tr ';' '\n' | grep -c '=' || true) 条）"
+    elif [ "$routes" = "$derived" ]; then
+        info "SITE_ROUTES 与落盘一致，保持不变"
+    elif [ "$force" = "--force" ]; then
+        set_env_value SITE_ROUTES "$derived"
+        info "已用反推结果覆盖 SITE_ROUTES（--force）"
     else
-        info "SITE_ROUTES 已存在，保持不变"
+        # 声明与落盘不一致时不静默吞掉：这是「改了 Caddyfile 却没改声明」或反之的典型现场
+        warn "SITE_ROUTES 与现有 Caddyfile 反推结果不一致（未改动）："
+        printf '  声明: %s\n  反推: %s\n' "$routes" "$derived"
+        warn "确认以落盘为准就加 --force：./orzmc.sh -d $DATA_ROOT site init --force"
     fi
     site_write_compose
     info "init 完成。下一步：./orzmc.sh -d $DATA_ROOT site status"
@@ -326,7 +335,7 @@ site_dispatch() {
     local cmd="${1:-status}"
     [ "$#" -gt 0 ] && shift
     case "$cmd" in
-        init)   site_cmd_init ;;
+        init)   site_cmd_init "${1:-}" ;;   # shift 后 $1 才是 --force
         apply)  site_cmd_apply ;;
         render) site_render ;;        # 只打印，不落盘（写进 /tmp 对比用）
         status) site_cmd_status ;;
@@ -334,7 +343,7 @@ site_dispatch() {
             cat <<'EOF'
 用法: ./orzmc.sh -d <数据目录> site <init|apply|status>
 
-  init    从现有 Caddyfile 反推 SITE_ROUTES 写入 .env（幂等），并确认 compose 受管区块
+  init [--force]  从现有 Caddyfile 反推 SITE_ROUTES 写入 .env（已存在且不一致时需 --force），并确认 compose 受管区块
   apply   依 SITE_ROUTES 渲染 Caddyfile → caddy adapt 校验 → 备份 → 落盘 → 热重载
   render  只把渲染结果打到 stdout（不落盘、不校验），用于 review / diff
   status  声明与落盘是否一致、容器状态、各域证书剩余天数
@@ -342,6 +351,7 @@ site_dispatch() {
 路由写法（.env）：
   SITE_ROUTES="域=上游|选项;域=上游|选项"
   选项：ws（长连接必须）/ xrip（注入 X-Real-IP）/ encode（zstd gzip）
+        wscheck（该域的 / 是 WebSocket 入口，status --probe 会做 Upgrade 探测）
 EOF
             ;;
         *) die "未知 site 子命令：$cmd" ;;

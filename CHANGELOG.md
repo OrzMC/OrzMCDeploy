@@ -11,6 +11,28 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.4.1] - 2026-11-20
+
+备份/恢复演练（`drill`）落地，以及 `site`/`status --probe` 上生产后暴露的三个缺陷。
+
+### Added
+
+- **`drill`（`lib/drill.sh`）**：把「备份成功」升级成「归档能还原且内容一致」。
+  - 还原到数据目录之外的演练根（`<备份目录父目录>/orzmc-drills`，`.env DRILL_ROOT` 可覆盖），
+    复用正式 `restore.sh`，生产数据零接触。
+  - 三项核对：归档成员数 vs 还原文件数；关键文件 md5 **从归档流解出**与还原结果逐字节比对；
+    `DATA_ROOT` 已改写到演练路径。
+  - 空间预检（归档体积 2 倍）不足先拒绝；默认核对完删除现场，`--keep-restore` 保留；
+    任一项不符 `exit 1`，可直接挂 cron 告警。
+
+### Fixed
+
+- `site init --force` 不生效：`site_dispatch` 里 `shift` 之后仍读 `$2`，而 `--force` 在 `$1`。
+- `site init` 在声明与落盘不一致时静默跳过（现在打印声明/反推两份并提示 `--force`）。
+- `status --probe` 对**面板**的 `ws` 路由误报 502：面板的 `ws` 只是终端长连接，对 `/` 发 Upgrade
+  上游直接 EOF。新增路由选项 `wscheck`（`site init` 反推时对 `:25565` 上游自动补），只对真正
+  的 WebSocket 入口做 Upgrade 探测；`000` 从 FAIL 降级为 WARN 并给出原因。
+
 ## [0.4.0] - 2026-11-20
 
 站点层 TLS 下沉（`site`）、真探协议（`status --probe`）、镜像 digest 升级。
