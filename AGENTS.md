@@ -71,7 +71,7 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
 ```
 compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，核心 web/daemon 常驻 + 可选服务带 profiles 标签）
 templates/              首次 init 的配置模板
-  eagler/               Eaglercraft 版本锁（versions.env）+ velocity.toml + 反代片段
+  eagler/               Eaglercraft 版本锁（versions.env）+ 反代片段（velocity.toml 已迁到面板实例目录）
   env                   唯一 .env 模板（LAN_HOST_IP + LAN_*_PORT + EasyBot 凭据）
   gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
   compose.site.yaml     站点增量 override 模板（init 生成到 DATA_ROOT/compose.site.yaml，
@@ -135,7 +135,8 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 **当前基线**：核心 2 个服务常驻（web/daemon）+ `easybot` 可选（`ENABLE_EASYBOT=false` 时只剩 2 个）。
 前端拓扑由两个正交开关派生（ADR-036）：`java-only`（缺省）/ `velocity`（只上代理大厅）/
 `eagler-direct`（实例挂 EaglerXPaper）/ `eagler-proxy`（Velocity + EaglerXServer）；
-`ENABLE_VELOCITY=true` 时多一个 `velocity` 服务（旧名 `eagler-proxy`，已重命名），多后端由一行
+`ENABLE_VELOCITY=true` 时 Velocity 由 MCSM 面板托管成实例（容器名仍为 `orzmc-velocity`，ADR-040；
+不再是 compose 服务），多后端由一行
 `VELOCITY_SERVERS=<名字>=<宿主端口>,...` 表达（缺省单后端 `lobby=EAGLER_BACKEND_PORT`）；
 入口只有 2 个局域网 HTTP 端口；daemon 不发布端口（节点地址固定 `ws://mcsmanager-daemon:24444`，
 浏览器数据面经面板中转）；全部配置/数据落 `$DATA_ROOT`；镜像 digest 锁定。

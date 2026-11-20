@@ -142,15 +142,13 @@ jobs:
           # 象限 3（本次新增）：只上 Velocity 多服大厅
           sed -i 's/^ENABLE_VELOCITY=.*/ENABLE_VELOCITY=true/' "$d/.env"
           ./orzmc.sh -d "$d" validate
-          svcs | grep -qx velocity || { echo "!! ENABLE_VELOCITY=true 未渲染 velocity"; exit 1; }
-          rendered | grep -q 'published: "19132"' || { echo "!! 基岩片段未追加"; exit 1; }
-
-          # 基岩关掉后不能再发布 19132（否则和实例侧 Geyser-Spigot 抢端口）
-          echo 'EAGLER_GEYSER=false' >> "$d/.env"
-          if rendered | grep -q 'published: "19132"'; then
-            echo "!! EAGLER_GEYSER=false 仍发布 19132"; exit 1
+          # ADR-040：代理是 MCSM 面板实例，compose 里不该再有 velocity，也不该发布 19132
+          if svcs | grep -qx velocity; then
+            echo "!! ADR-040：velocity 不应再由 compose 渲染（应托管在面板实例）"; exit 1
           fi
-          sed -i '/^EAGLER_GEYSER=false/d' "$d/.env"
+          if rendered | grep -q 'published: "19132"'; then
+            echo "!! 基岩端口应由面板实例映射发布，compose 不应发布 19132"; exit 1
+          fi
 
           # 象限 4：再加 Eaglercraft
           sed -i 's/^ENABLE_EAGLER=.*/ENABLE_EAGLER=true/' "$d/.env"
@@ -174,8 +172,10 @@ jobs:
           # 注意语义：新键存在时旧键按设计被忽略（validate 会提示），所以先删新键。
           sed -i '/^ENABLE_VELOCITY=/d;/^ENABLE_EAGLER=/d' "$d/.env"
           printf 'EAGLER_MODE=proxy\n' >> "$d/.env"
-          svcs | grep -qx velocity || { echo "!! 旧 EAGLER_MODE=proxy 未生效"; exit 1; }
-          rendered | grep -q 'published: "19132"' || { echo "!! 旧键未带出基岩端口"; exit 1; }
+          # ADR-040：旧键仍应派生出 velocity 拓扑，但代理不再由 compose 渲染
+          ./orzmc.sh -d "$d" validate >/dev/null || { echo "!! 旧键 EAGLER_MODE=proxy 校验未通过"; exit 1; }
+          bash -c 'source lib/common.sh; DATA_ROOT="'"$d"'"; [ "$(topology)" = "eagler-proxy" ]' \
+            || { echo "!! 旧 EAGLER_MODE=proxy 未派生出 eagler-proxy 拓扑"; exit 1; }
 
           # 新旧并存时旧键必须被忽略（新键显式 false 优先），防止静默回退
           printf 'ENABLE_VELOCITY=false\n' >> "$d/.env"

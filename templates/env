@@ -41,6 +41,9 @@ EASYBOT_ADMIN_PASSWORD=lan_strong_password_change_me
 # 升级提示：旧键 EAGLER_MODE=off|direct|proxy 仍可解析（两开关都未写时生效），validate 会提示迁移。
 ENABLE_VELOCITY=false
 ENABLE_EAGLER=false
+# 可选：代理数据目录覆盖。ADR-040 起 Velocity 是面板实例，默认自动探测
+# $DATA_ROOT/mcsmanager/daemon/data/InstanceData/<uuid>/（里面有 velocity.toml 或 velocity-*.jar）。
+# VELOCITY_DIR=
 # 玩家 Java 入口端口（ENABLE_VELOCITY=true 时由代理发布；false 时是实例端口，仅用于提示）
 # EAGLER_JAVA_PORT=25565
 # 仅 ENABLE_VELOCITY=true：实例内部端口（面板里把实例 docker 端口改成 <此端口>:25565，不再发布 25565）。

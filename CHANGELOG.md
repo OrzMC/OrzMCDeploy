@@ -11,6 +11,28 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.5.0] - 2026-11-20
+
+### Changed
+
+- **Velocity 不再由 compose 管理，改由 MCSM 面板托管成 Docker 实例**（ADR-040）。日常换 Velocity
+  版本或 EaglerXServer/Geyser 插件不再需要发版：面板里传 jar、改启动命令、重启实例即可。
+  - `compose.yaml` 移除 `velocity` 服务；`enabled_profiles` 不再输出 `velocity`；
+    `templates/compose.velocity-geyser.yaml`、`-webrtc.yaml` 删除（端口改由实例映射发布）。
+  - 容器名仍是 `orzmc-velocity`（`containerName`），Caddy 路由 `dev.jokerhub.cn` 无需改动。
+  - 代理数据从 `$DATA_ROOT/eagler/proxy` 迁到面板实例目录 `InstanceData/<uuid>/`：
+    `eagler_proxy_dir()` 自动探测（`.env` 新增可选 `VELOCITY_DIR` 覆盖），
+    `eagler_proxy_jar()` 认 `velocity-*.jar` 与旧 `velocity.jar`。
+  - 代理 jar 名带版本号（`velocity-4.3.1.jar`）；已有任意 jar 时 `up` 不再下载覆盖，
+    面板里换的版本不会被打回。
+
+### Upgrade
+
+- 已有部署：先在面板建实例（`containerName=orzmc-velocity`、`autoStart=true`，
+  端口 `25565:25565/tcp`、`19132:19132/tcp`、`19132:19132/udp`），把旧
+  `$DATA_ROOT/eagler/proxy` 内容复制进实例目录，停掉旧 compose 容器，再 `up`。
+  漏做这步的话 `up` 只会在代理不存在时报警，不会重建它。
+
 ## [0.4.2] - 2026-11-20
 
 ### Fixed

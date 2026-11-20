@@ -63,7 +63,7 @@ printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
 
 | 产物 | 路径 | 说明 |
 |---|---|---|
-| Velocity jar + EaglerXServer jar | `<数据目录>/eagler/proxy/` | sha256 校验；版本锁不一致会重新下载 |
+| Velocity jar + EaglerXServer jar | 面板实例目录 `InstanceData/<uuid>/`（容器内 `/server`） | jar 名带版本号 `velocity-<版本>.jar`；已有任意 `velocity*.jar` 不覆盖 |
 | `velocity.toml` | 同上 | 首次生成后**不再覆盖**（改端口/多后端直接改它） |
 | `forwarding.secret` | 同上（600） | 与实例 `paper-global.yml` 的 `secret` 一致 |
 | `instance-setup.md` | `<数据目录>/eagler/` | 实例侧待办（含 secret、端口改动、验收命令） |
@@ -127,13 +127,13 @@ VELOCITY_TRY=lobby
 | 名字 | 只允许字母/数字/下划线/连字符，大小写敏感；`/server <名字>` 用它切换 |
 | 落地顺序 | `VELOCITY_TRY` 逗号分隔，须全部在 `VELOCITY_SERVERS` 里；留空 = 第一个 |
 | 每个后端都要做 | §4 的 1–4 步（`online-mode=false` + `proxies.velocity` + 同一条 `secret`） |
-| 生成物 | `up` 渲染 `$DATA_ROOT/eagler/proxy/velocity.toml` 的 `[servers]`/`try`；**已存在不覆盖** |
+| 生成物 | `up` 渲染代理实例目录里的 `velocity.toml` 的 `[servers]`/`try`；**已存在不覆盖** |
 | 视图/限制 | 后端之间不做视图隔离，一个后端的插件只对其玩家生效（大厅与生存请分开装插件） |
 
 改了`.env`里的服务器列表后要重建 `velocity.toml` 才生效——按 `ensure_*` 语义它不会被覆盖：
 
 ```bash
-mv <数据目录>/eagler/proxy/velocity.toml <数据目录>/eagler/proxy/velocity.toml.old
+mv <数据目录>/mcsmanager/daemon/data/InstanceData/<实例uuid>/velocity.toml <同目录>/velocity.toml.old
 ./orzmc.sh -d <数据目录> up        # 重新渲染并重启代理
 ```
 
@@ -168,10 +168,10 @@ mv <数据目录>/eagler/proxy/velocity.toml <数据目录>/eagler/proxy/velocit
 | 基岩端口 | 迁移后 `19132/udp+tcp`、`19134/udp` 由**代理**发布（端口号不变，路由器不用动）；对应 `MC_PUBLIC_UDP` / `MC_PUBLIC_TCP` 已覆盖时无需改 |
 | 端口 | 后端实例端口**不发布公网**（也不写进 `MC_PUBLIC_*`）；proxy 模式只发布 `<EAGLER_JAVA_PORT>`。代理经 `host.docker.internal:<EAGLER_BACKEND_PORT>` 访问后端——已实测宿主防火墙不会拦容器到已发布端口，无需为此加规则 |
 | 防火墙 | 代理端口按游戏端口口径（`MC_TCP_PORTS`/`MC_PUBLIC_TCP`）；WSS 端口按站点 TLS 规则 |
-| 密钥 | `eagler/proxy/forwarding.secret` + `instance-setup.md` 均 600，随 `$DATA_ROOT` 备份 |
+| 密钥 | 代理实例目录的 `forwarding.secret` + `instance-setup.md` 均 600，随 `$DATA_ROOT` 备份 |
 | 身份 | **共用名字空间（已定）**：同名 = 同 UUID = 同账号，门 = 白名单 + LoginSecurity 口令。上线前：① `white-list=true` + `enforce-whitelist=true`（名字集合收敛，真正的门）② `join.hide-inventory: true`（内置方法，不依赖 ProtocolLib）③ `registration.enabled` **保持 true**——`/lac` 没有建号命令，关注册会挡住新玩家；用「加名单即须立即首登注册」收敛窗口，被抢注时 `/lac rmpass <名字>` 兜底 ④ **上线前核对：所有 op/权限名字必须已注册**——ops.json 按 UUID 授权，而 UUID 由名字派生，未注册的 op 名字等于「谁先注册谁拿权」 |
 | 直连 | WS 直连代理端口（不带 `X-Real-IP`）会被拒，属预期：唯一入口应是反代 |
-| 升级 | 改 `templates/eagler/versions.env`（版本 + sha256）/镜像 digest → commit → `stop && up`；**不用**面板自助升级 |
+| 升级 | 面板文件管理里换 `velocity-<版本>.jar` + 改启动命令 + 重启实例；EaglerXServer/Geyser 插件同样在面板里换（ADR-040） |
 
 ## 7. 验收测试
 

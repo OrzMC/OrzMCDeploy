@@ -613,12 +613,10 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 
 1. 单一真源在 `lib/common.sh`：`velocity_enabled()` / `eagler_enabled()` / `topology()` /
    `eagler_dialect()` / `geyser_target()`；**禁止**在别处再判 `EAGLER_MODE`。
-2. 服务重命名：`eagler-proxy` → `velocity`（profile `velocity`，容器 `orzmc-velocity`），
-   因为它在 `velocity` 拓扑下与 Eaglercraft 无关；运行时目录仍是 `$DATA_ROOT/eagler/proxy`
-   （含 `forwarding.secret`、插件），**不迁移**以免动到密钥。
-3. 基岩端口条件化：compose 的 `ports` 无法按 `.env` 生成，故 19132/19134 移入
-   `templates/compose.velocity-geyser.yaml`，仅在 `geyser_target()=velocity` 时由
-   `compose_cmd` 追加 `-f`。否则 `velocity` 拓扑会与实例侧 Geyser-Spigot 抢端口。
+2. 服务重命名：`eagler-proxy` → `velocity`（容器 `orzmc-velocity`），因为它在 `velocity`
+   拓扑下与 Eaglercraft 无关。**ADR-040 起它已不是 compose 服务**，改由 MCSM 面板托管成实例。
+3. ~~基岩端口条件化~~：ADR-040 起代理容器由面板创建，19132 等端口写进实例的端口映射，
+   `compose_cmd` 不再追加 `templates/compose.velocity-geyser*.yaml`。
 4. 切换拓扑时**真正移走**当前实现不需要的插件（`$DATA_ROOT/eagler/disabled/`）：
    否则 `ENABLE_EAGLER=false` 之后 Web 端点（8081）仍然可连，开关形同虚设。
 5. 向后兼容：两开关都未写时按旧 `EAGLER_MODE` 推导（`off→false/false`、`direct→false/true`、
@@ -649,6 +647,30 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 **已知取舍**：`velocity` 拓扑下基岩只能托管在代理（Geyser-Spigot 检测到 Velocity 转发会
 自我禁用），所以 `EAGLER_GEYSER=false` 的语义是"不提供基岩"，而不是"改由实例托管"；
 `eagler-direct` 拓扑则相反（基岩留给实例）。
+
+### ADR-040：Velocity 收进 MCSM 面板实例（2026-11-20）
+
+**背景**：`velocity` 之前是 compose 里的一个服务，jar/插件都在 `$DATA_ROOT/eagler/proxy`。实际问题
+是**日常更新太绕**：换一版 Velocity 或 EaglerXServer 插件都要等 OrzMCDeploy 发版 + 重新 `up`，
+而面板本来就有 Docker 实例、文件管理、自动启动。
+
+**决策**：
+
+1. 面板里建实例 `Velocity`，`containerName` 固定 `orzmc-velocity`——Caddy 的
+   `dev.jokerhub.cn=orzmc-velocity:25565` 因此**不用改**；`eventTask.autoStart=true` +
+   `autoRestart=true`（daemon 起来就拉起它）。
+2. 端口写进实例端口映射：`25565:25565/tcp`、`19132:19132/tcp`、`19132:19132/udp`
+   （原来是 `templates/compose.velocity-geyser*.yaml` 条件追加的，两个片段已删）。
+3. 数据落在面板实例目录 `InstanceData/<uuid>/`（容器内 `/server`），jar **带版本号**
+   `velocity-4.3.1.jar`。`lib/eagler.sh` 的 `eagler_proxy_dir()` 自动探测该目录
+   （`.env` 的 `VELOCITY_DIR` 可显式覆盖），`eagler_proxy_jar()` 认 `velocity-*.jar` 与旧的
+   `velocity.jar`；已有任意 jar 就不再下载，面板里换的版本不会被打回。
+4. `compose.yaml` 不再有 `velocity` 服务，`enabled_profiles` 不再输出 `velocity`：
+   `up/stop/restart` 不碰代理生命周期。
+
+**影响**：换版本 = 面板里传 jar + 改启动命令 + 重启实例（手机也能做）；代价是代理不再由 compose
+管，`orzmc.sh status` 只能靠探针看连通性，容器是否在跑要看面板。实例的 `restart` 策略是 `no`，
+宿主重启后靠 daemon 的 autoStart 拉起，不是 Docker 的 restart policy。
 
 ### 已归档 ADR 索引（正文见 git 历史）
 
