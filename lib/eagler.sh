@@ -12,7 +12,7 @@
 # 基岩端口跟着前端走：geyser_target()=velocity 时由代理托管，否则留给实例侧
 # Geyser-Spigot。ADR-040 起代理是面板实例，19132 等端口写在该实例的端口映射里。
 #
-# 本文件只做三件事：下载校验（templates/eagler/versions.env 锁版本）→ 生成代理配置
+# 本文件只做三件事：检查运行时是否由面板就位（jar/插件一律面板上传，ADR-041/042）→ 生成代理配置
 # → 生成实例侧待办（$DATA_ROOT/eagler/instance-setup.md）。TLS 反代归站点自备
 # （ADR-027），片段见 templates/eagler/Caddyfile.snippet。
 #
@@ -23,15 +23,6 @@
 #     避免 ENABLE_EAGLER=false 之后 Web 端点仍然可连；
 #   - bash 3.2：不用 mapfile/关联数组；消息里变量一律 ${VAR}。
 # ===========================================================================
-
-# ---- 版本锁 -------------------------------------------------------------
-
-EAGLER_LOCK_FILE="${TEMPLATES_DIR}/eagler/versions.env"
-
-eagler_lock() { # eagler_lock <KEY>
-    [ -f "$EAGLER_LOCK_FILE" ] || die "缺少版本锁: ${EAGLER_LOCK_FILE}"
-    grep "^$1=" "$EAGLER_LOCK_FILE" 2>/dev/null | head -n1 | cut -d '=' -f 2- | tr -d '\r'
-}
 
 # ---- 通用小工具 ---------------------------------------------------------
 
@@ -84,48 +75,6 @@ sed_inplace() { # sed_inplace <sed-expr> <file>
 }
 
 # ---- 下载与校验 ---------------------------------------------------------
-
-eagler_fetch() { # eagler_fetch <url> <dest> <sha256> <label>
-    local url="$1" dest="$2" want="$3" label="$4" tmp have
-    if [ -f "$dest" ]; then
-        have="$(eagler_sha256_of "$dest")"
-        if [ "$have" = "$want" ]; then
-            info "${label} 已就绪（sha256 匹配）"
-            return 0
-        fi
-        warn "${label} 校验不符，重新下载（旧文件将被替换）"
-    fi
-    mkdir -p "$(dirname -- "$dest")"
-    tmp="${dest}.part"
-    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-        die "需要 curl 或 wget 才能下载 ${label}"
-    fi
-    # 官方源偶发 TLS 中断（实测），重试 3 次再放弃
-    local attempt
-    attempt=1
-    while :; do
-        rm -f "$tmp"
-        if command -v curl >/dev/null 2>&1; then
-            curl -fL --retry 2 --connect-timeout 20 -o "$tmp" "$url" && break
-        else
-            wget -q -O "$tmp" "$url" && break
-        fi
-        if [ "$attempt" -ge 3 ]; then
-            rm -f "$tmp"
-            die "下载失败（已重试 3 次）: ${url}"
-        fi
-        warn "下载中断，${attempt}/3 后重试: ${url}"
-        attempt=$((attempt + 1))
-        sleep 3
-    done
-    have="$(eagler_sha256_of "$tmp")"
-    if [ "$have" != "$want" ]; then
-        rm -f "$tmp"
-        die "${label} sha256 不符（期望 ${want}，实际 ${have}）；版本锁见 ${EAGLER_LOCK_FILE}"
-    fi
-    mv "$tmp" "$dest"
-    info "已下载 ${label}: ${dest}"
-}
 
 # ---- 生成物 -------------------------------------------------------------
 
@@ -480,10 +429,8 @@ eagler_prepare() {
             return 0
             ;;
         eagler-direct)
-            mkdir -p "$(eagler_jars_dir)"
-            eagler_fetch "$(eagler_lock EAGLERXPAPER_URL)" \
-                "$(eagler_jars_dir)/EaglerXPaper-$(eagler_lock EAGLERXPAPER_VERSION).jar" \
-                "$(eagler_lock EAGLERXPAPER_SHA256)" "EaglerXPaper $(eagler_lock EAGLERXPAPER_VERSION)"
+            # EaglerXPaper 是 paper 侧插件，同样由面板管理（ADR-042）：部署侧不下也不锁版本
+            warn "eagler-direct 拓扑需要 EaglerXPaper 插件——请在面板里上传到每个 paper 实例的 plugins/（部署侧不再下载）"
             eagler_write_setup_doc "$topo"
             eagler_write_caddy_snippet "host.docker.internal"
             ;;
@@ -493,28 +440,42 @@ eagler_prepare() {
             mkdir -p "${pdir}/plugins"
             # Velocity 本体完全由 MCSM 面板管理（ADR-041）：官方 jar 由面板上传，启动命令写文件名，
             # 部署脚本既不下也不改——换版本 = 面板传新 jar + 改启动命令里的文件名，旧 jar 留着可回滚。
+            # 启动脚本（ADR-042）：与 paper/folia 同构 —— 自动选版本号最高的 velocity-*.jar，固定名回退。
+            # 面板启动命令写 `sh /server/start.sh`，换版本只需传 jar + 重启，不用改命令。
+            if [ ! -f "${pdir}/start.sh" ]; then
+                cat > "${pdir}/start.sh" <<'EAGLER_START_SH'
+#!/bin/sh
+# MCSM 启动命令 = sh /server/start.sh ｜ 自动选版本化核心（版本最高），回退 velocity.jar
+J=$(ls -1 velocity-*.jar 2>/dev/null | sort -V | tail -1)
+exec java --sun-misc-unsafe-memory-access=allow -Xms256M -Xmx768M -jar "${J:-velocity.jar}"
+EAGLER_START_SH
+                chmod +x "${pdir}/start.sh" 2>/dev/null || true
+                info "已生成 ${pdir}/start.sh（面板启动命令应写 sh /server/start.sh）"
+            fi
             jar_cur="$(eagler_proxy_jar)"
             if [ -n "${jar_cur}" ]; then
                 info "Velocity jar 已由面板就位（$(basename "${jar_cur}")），部署侧不干预"
             else
                 warn "面板实例目录里还没有 Velocity jar（${pdir}）：请在 MCSM 面板上传官方 velocity-<版本>-<build>.jar 并设置启动命令"
             fi
+            # 代理侧插件（EaglerXServer / Geyser-Velocity）同样由面板管理（ADR-042）：
+            # 部署侧不下、不锁版本，只做「拓扑该有/该无」的检查与移走。
             if [ "$topo" = "eagler-proxy" ]; then
-                eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
-                    "$(eagler_lock EAGLERXSERVER_SHA256)" "EaglerXServer $(eagler_lock EAGLERXSERVER_VERSION)"
+                if [ -f "${pdir}/plugins/EaglerXServer.jar" ]; then
+                    info "EaglerXServer 已由面板就位，部署侧不干预"
+                else
+                    warn "代理 plugins 里没有 EaglerXServer.jar —— 请在面板上传（ENABLE_EAGLER=true 必需）"
+                fi
             else
                 # velocity-only：Web 端点必须关掉，否则"没开 Eaglercraft"也能连进来
                 eagler_stash_plugin "${pdir}/plugins/EaglerXServer.jar"
             fi
-            # 后端 RPC：给 Web/基岩玩家单独降视野（EAGLER_RPC=false 可关；仅 eagler-proxy 需要）
-            if [ "$topo" = "eagler-proxy" ] && [ "$(eagler_port EAGLER_RPC true)" = "true" ]; then
-                eagler_fetch "$(eagler_lock EAGLER_RPC_URL)" \
-                    "$(eagler_jars_dir)/EaglerXBackendRPC-$(eagler_lock EAGLER_RPC_VERSION).jar" \
-                    "$(eagler_lock EAGLER_RPC_SHA256)" "EaglerXBackendRPC $(eagler_lock EAGLER_RPC_VERSION)"
-            fi
             if [ "$(geyser_target)" = "velocity" ]; then
-                eagler_fetch "$(eagler_lock GEYSER_URL)" "${pdir}/plugins/Geyser-Velocity.jar" \
-                    "$(eagler_lock GEYSER_SHA256)" "Geyser-Velocity $(eagler_lock GEYSER_VERSION)-$(eagler_lock GEYSER_BUILD)"
+                if [ -f "${pdir}/plugins/Geyser-Velocity.jar" ]; then
+                    info "Geyser-Velocity 已由面板就位，部署侧不干预"
+                else
+                    warn "代理 plugins 里没有 Geyser-Velocity.jar —— 请在面板上传（基岩由代理托管时必需）"
+                fi
             else
                 eagler_stash_plugin "${pdir}/plugins/Geyser-Velocity.jar"
             fi

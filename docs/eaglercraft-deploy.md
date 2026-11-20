@@ -59,7 +59,7 @@ printf 'EAGLER_PUBLIC_HOST=dev.jokerhub.cn\n' >> <数据目录>/.env
 ./orzmc.sh -d <数据目录> up         # 下载并校验 jar，生成配置，启动代理
 ```
 
-`up` 会做（`lib/eagler.sh`，版本锁在 `templates/eagler/versions.env`）：
+`up` 会做（`lib/eagler.sh`；**jar 与插件一律由面板上传，部署侧不下载、不锁版本**——ADR-041/042）：
 
 | 产物 | 路径 | 说明 |
 |---|---|---|
@@ -171,7 +171,7 @@ mv <数据目录>/mcsmanager/daemon/data/InstanceData/<实例uuid>/velocity.toml
 | 密钥 | 代理实例目录的 `forwarding.secret` + `instance-setup.md` 均 600，随 `$DATA_ROOT` 备份 |
 | 身份 | **共用名字空间（已定）**：同名 = 同 UUID = 同账号，门 = 白名单 + LoginSecurity 口令。上线前：① `white-list=true` + `enforce-whitelist=true`（名字集合收敛，真正的门）② `join.hide-inventory: true`（内置方法，不依赖 ProtocolLib）③ `registration.enabled` **保持 true**——`/lac` 没有建号命令，关注册会挡住新玩家；用「加名单即须立即首登注册」收敛窗口，被抢注时 `/lac rmpass <名字>` 兜底 ④ **上线前核对：所有 op/权限名字必须已注册**——ops.json 按 UUID 授权，而 UUID 由名字派生，未注册的 op 名字等于「谁先注册谁拿权」 |
 | 直连 | WS 直连代理端口（不带 `X-Real-IP`）会被拒，属预期：唯一入口应是反代 |
-| 升级 | 面板文件管理里传**官方原名** jar `velocity-<版本>-<build>.jar` → 改启动命令里的文件名 → 重启实例；EaglerXServer/Geyser 插件同样在面板里换。版本只由面板管，部署侧不锁不下载（ADR-040/041）；启动命令按空格硬切、不能写 shell 通配 |
+| 升级 | 面板文件管理里传**官方原名** jar `velocity-<版本>-<build>.jar` → 重启实例即可（`start.sh` 自动选版本最高，与 paper/folia 同构）；EaglerXServer/Geyser 插件同样在面板里换。版本只由面板管，部署侧不锁不下载（ADR-040/041/042） |
 
 ## 7. 验收测试
 
@@ -503,4 +503,4 @@ services:
 | `You are not whitelisted` | 实例 `white-list` 与实际名单不一致 |
 | `Handshake timed out`（上游 issue #183） | 先降 `view-distance` 与 `http_websocket_max_frame_length`，再回退代理版本 |
 | 玩家 IP 全是反代地址 | `listeners.toml` 的 `forward_ip`/`forward_ip_header` 与反代头不一致 |
-| 代理起不来（jar 校验失败） | 对照 `templates/eagler/versions.env` 与工具输出的期望/实际 sha256；修好版本锁后重跑 `up` 会自动重下 |
+| 代理起不来（jar 缺失/损坏） | 看面板实例目录里有没有 `velocity-*.jar`（部署侧不再下载，也不会校验 sha256）；从面板重传官方 jar 再重启，`start.sh` 取版本最高的那个 |

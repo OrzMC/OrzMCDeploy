@@ -561,7 +561,7 @@ macOS `/Users/Shared/orzmc`、Windows `E:/orzmc`）。实践下来这个"便利"
 2. 其余值都有缺省（`EAGLER_JAVA_PORT=25565` / `EAGLER_BACKEND_PORT=25566` /
    `EAGLER_WS_PORT=18444`）；`EAGLER_PUBLIC_HOST` 仅影响提示文案，**域名不进入任何配置**。
 3. 运行时（jar / 配置 / 密钥）落 `$DATA_ROOT/eagler/`，版本锁在
-   `templates/eagler/versions.env`（版本 + sha256，`up` 时校验后下载）；配置与密钥
+   `templates/eagler/versions.env`（**ADR-042 起已删除**：jar 与插件都由面板管理）；配置与密钥
    `ensure_*` 语义（绝不覆盖），只有生成说明会刷新。
 4. **TLS 反代归站点**（沿用 ADR-027）：仓库只生成 `caddy-eagler.snippet`（通配证书 +
    `flush_interval -1` + `X-Real-IP`）与 `instance-setup.md`（实例侧待办），不起 Caddy。
@@ -668,7 +668,7 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 4. `compose.yaml` 不再有 `velocity` 服务，`enabled_profiles` 不再输出 `velocity`：
    `up/stop/restart` 不碰代理生命周期。
 
-**影响**：换版本 = 面板里传 jar + 改启动命令 + 重启实例（手机也能做）；代价是代理不再由 compose
+**影响**：换版本 = 面板里传 jar + 重启实例（`start.sh` 自动选最新，见 ADR-042）；代价是代理不再由 compose
 管，`orzmc.sh status` 只能靠探针看连通性，容器是否在跑要看面板。实例的 `restart` 策略是 `no`，
 宿主重启后靠 daemon 的 autoStart 拉起，不是 Docker 的 restart policy。
 
@@ -692,8 +692,40 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 `Container Entrypoint: sh` + `Container Start Command: -c,'exec,java,...,"$(ls ...)"'`，
 容器停在 `Created` 起不来。**换版本就必须在面板里改一次启动命令里的文件名。**
 
-**影响**：升级 Velocity = 面板上传官方 jar → 改启动命令里的文件名 → 重启实例，纯面板操作；
+**影响**：升级 Velocity = 面板上传官方 jar → 重启实例，纯面板操作（ADR-042 用 `start.sh` 消掉了「改启动命令」这一步）；
 部署脚本对版本零感知，不会再出现"锁漂移"这类互相打回。
+### ADR-042：核心 jar 与插件统一由面板管理，启动走 start.sh 自动选版本（2026-11-21）
+
+**背景**：paper/folia 早就用「面板上传版本化 jar + `sh /server/start.sh` 里 `ls -1 paper-*.jar | sort -V | tail -1`」
+的方式更新——换版本只要传 jar 再重启，启动命令一个字都不用改。而 Velocity 在 ADR-041 里还要求手改启动命令，
+两套节奏不一致；`versions.env` 里剩余的插件锁又会和面板上传的插件版本互相比对，纯属噪音。
+
+**决策**：
+
+1. **代理实例也用 `start.sh`**：`InstanceData/<velocity-uuid>/start.sh`
+   ```sh
+   J=$(ls -1 velocity-*.jar 2>/dev/null | sort -V | tail -1)
+   exec java --sun-misc-unsafe-memory-access=allow -Xms256M -Xmx768M -jar "${J:-velocity.jar}"
+   ```
+   启动命令改成 `sh /server/start.sh`（与 paper/folia 完全同构）。这解决了 ADR-041 里
+   「MCSM 启动命令按空格硬切、不能写 shell」的死结：**把 shell 逻辑放进脚本文件**，
+   entrypoint 只看到 `sh` + `/server/start.sh` 两个 token。
+2. **插件同样面板管理**：`plugins/EaglerXServer.jar`、`plugins/Geyser-Velocity.jar` 由面板上传，
+   `EaglerXPaper`/`EaglerXBackendRPC`（eagler-direct 拓扑用）也一样。`lib/eagler.sh` 不再下载任何 jar，
+   只做「这个拓扑该有/不该有」的检查与移走（`eagler_stash_plugin`），缺文件时 warn。
+3. **删除 `templates/eagler/versions.env`** 与 `eagler_lock` / `eagler_fetch`（唯一调用点已消失）。
+   版本号从此只在面板和实例目录里，部署仓库里没有任何版本锁。
+
+**升级流程（三种实例一致）**：
+
+1. 面板文件管理把官方 jar 传到实例根目录（`paper-<ver>-<build>.jar` / `folia-…` / `velocity-<ver>-<build>.jar`），旧 jar 留着；
+2. 面板里重启实例。`start.sh` 取版本号最大的那个，回退固定名（`paper.jar` / `velocity.jar`）；
+3. 想回滚就删掉/改名新 jar 再重启。
+
+**验证**：放一个 `velocity-4.3.2-1.jar` 进实例目录 → 面板 stop/open → 容器内 `ps` 显示
+`-jar velocity-4.3.2-1.jar`；移走后再重启回到 `velocity-4.3.1-45.jar`。
+
+**代价**：`versions.env` 没了，部署仓库不再能回答「现在跑的是哪个版本」——要查就进面板或看实例目录。
 ### 已归档 ADR 索引（正文见 git 历史）
 
 下列决策已废止或被取代，仅留索引避免后来者重复踩坑：
