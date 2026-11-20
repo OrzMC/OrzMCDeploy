@@ -348,7 +348,7 @@ check "三个端口缺省值" "25565 25566 18444"     "$(eagler_java_port) $(eag
 eg_env 'ENABLE_VELOCITY=true
 ENABLE_EAGLER=false'
 check "V=on/E=off → velocity" "velocity" "$(topology)"
-check "velocity 追加 velocity profile" "velocity" "$(enabled_profiles | grep -x velocity || true)"
+check "velocity 不再追加 profile（ADR-040：代理是面板实例）" "" "$(enabled_profiles | grep -x velocity || true)"
 check "velocity 不启用 Eaglercraft（dialect=none）" "none" "$(eagler_dialect)"
 check "velocity 拓扑基岩托管在代理" "velocity" "$(geyser_target)"
 if ( validate_topology ) >/dev/null 2>&1; then ok "velocity 缺省端口校验通过"; else fail "velocity 应通过校验"; fi
@@ -377,7 +377,7 @@ eg_env 'EAGLER_MODE=direct'
 check "旧值 direct 推导为 eagler-direct" "eagler-direct" "$(topology)"
 eg_env 'EAGLER_MODE=proxy'
 check "旧值 proxy 推导为 eagler-proxy" "eagler-proxy" "$(topology)"
-check "旧值 proxy 仍追加 velocity profile（服务名已改）" "velocity" \
+check "旧值 proxy 也不再追加 profile（ADR-040）" "" \
     "$(enabled_profiles | grep -x velocity || true)"
 eg_env 'EAGLER_MODE=bogus'
 if ( validate_topology ) >/dev/null 2>&1; then fail "非法 EAGLER_MODE 应报错"; else ok "非法 EAGLER_MODE 报错"; fi
