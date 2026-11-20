@@ -108,9 +108,11 @@ tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 C
 | 停止 | `./orzmc.sh -d <数据目录> stop` |
 | 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
 | 校验配置 | `./orzmc.sh -d <数据目录> validate` |
+| 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
+| 证书到期检查（只读） | `./orzmc.sh -d <数据目录> cert [--min-days 21]` |
 | 备份数据 | `./orzmc.sh -d <数据目录> backup [--stop] [--keep N]` |
 | 防火墙收敛（默认限源） | `./orzmc.sh -d <数据目录> firewall show` / `apply` |
-| 还原/迁移 | `./restore.sh -d <数据目录> <归档> [--force]` |
+| 还原/迁移 | `./orzmc.sh -d <数据目录> restore <归档> [--force] [--start]` |
 
 - 表中 `-d <数据目录>` 必填（或 `export ORZMC_DATA_ROOT=...`），无默认路径。
 - 局域网入口在 `$DATA_ROOT/.env` 里配：`LAN_HOST_IP` + `LAN_MCS_WEB_PORT`(18090) +

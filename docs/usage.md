@@ -238,7 +238,10 @@ services:
 | 停止 | `./orzmc.sh -d <数据目录> stop` |
 | 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
 | 校验配置 | `./orzmc.sh -d <数据目录> validate` |
+| 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
+| 证书到期 | `./orzmc.sh -d <数据目录> cert [--min-days 21]` |
 | 备份 | `./orzmc.sh -d <数据目录> backup [--stop]` |
+| 还原 | `./orzmc.sh -d <数据目录> restore <归档> [--force] [--start]` |
 
 `stop` 内部就是 `compose down --remove-orphans`，`status` 打印访问地址后再跑 `compose ps`，
 `validate` 跑必需变量检查 + `compose config -q`。看服务日志：
@@ -330,8 +333,8 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 ### 5.6 还原
 
 ```bash
-./restore.sh -d <数据目录> <归档>       # 还原
-./restore.sh -d <数据目录> <归档> --force --start   # 覆盖非空目标并拉起
+./orzmc.sh -d <数据目录> restore <归档>              # 还原（也可直接 ./restore.sh）
+./orzmc.sh -d <数据目录> restore <归档> --force --start   # 覆盖非空目标并拉起
 ```
 
 - 目标目录非空时默认拒绝，`--force` 把旧目录移为 `.old-<时间>`（不删除）。
@@ -346,6 +349,7 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
 | 层 | 命令 / 动作 | 通过标准 |
 |---|---|---|
+| 自检 | `./orzmc.sh -d <数据目录> doctor` | 无 `[FAIL]`（`[WARN]` 逐条确认原因） |
 | 配置 | `./orzmc.sh -d <数据目录> validate` | `校验通过`（含 compose 解析、端口冲突、开关组合） |
 | 服务 | `./orzmc.sh -d <数据目录> status` | 常驻服务 `running`；玩家入口指向代理（或实例，视拓扑） |
 | 端口 | `docker ps` + `./orzmc.sh -d <数据目录> firewall show` | 只有面板/EasyBot 与玩家端口发布；防火墙来源仍是 `LAN_CIDR` |
@@ -354,6 +358,35 @@ PaperMC 实例**不在 compose 内**，由 MCSManager 管理；实例的 `update
 
 前四层可无人值守；第五层必须真人。Eaglercraft 相关的细口径（T1–T12、插件矩阵、
 GrimAC 豁免、LoginSecurity 用例）见 [eaglercraft-deploy.md §7](eaglercraft-deploy.md)。
+
+### 5.8 自检与证书检查
+
+两条只读命令，都能直接挂 cron / CI（非 0 退出即异常）：
+
+```bash
+./orzmc.sh -d <数据目录> doctor                    # 部署自检
+./orzmc.sh -d <数据目录> cert --min-days 21        # 站点层证书到期检查
+```
+
+`doctor` 逐项判（唯一写操作是在 `DATA_ROOT` 与备份根各写一个探针文件后立即删除）：
+
+| 分组 | 判什么 | 典型故障 |
+|---|---|---|
+| 环境 | docker CLI / daemon / compose 插件 / openssl | Windows 上 Docker Desktop 落在会话 0 里起不来 |
+| 数据目录 | 存在、可写、`.env` 齐全、`.env` 内 `DATA_ROOT` 与实际一致 | 迁移后 `.env` 残留旧路径 |
+| 备份 | 备份根可写、最近归档、磁盘水位 | 单次备份约 4G（5.8G 数据 → 3.9G），空间不足会写坏归档 |
+| 运行时 | 容器数、**容器 compose 文件是否指向同一棵程序树**、期望端口是否真发布 | 改了 A 树、容器跑的是 B 树——「两棵树各管一半容器」 |
+| 工具链 | `JAVA_HOME` 指向存在 | Eagler 转译/构建失败 |
+
+判定语义：`[FAIL]` 阻断（exit 1），`[WARN]` 需人工确认。容器由**另一棵程序树**启动时只给
+`[WARN]`（发布部署时属正常），但若容器**分散在多棵树**下则 `[FAIL]`。
+
+`cert` 读 `$DATA_ROOT/caddy/data` 里 Caddy 自己续期的 `.crt`，打印每个域名的到期日与剩余
+天数；任一不足 `--min-days` 即 exit 1。**只读**：
+
+- **不要手工续期**，也不要去删 `caddy/data`——手工介入会打乱 Caddy 的 ACME 状态。
+- 站点层属站点自备（ADR-027）：没有 `caddy/data` 时提示「未启用」并正常 exit 0。
+- 到期异常时看 `docker logs orzmc-caddy`，多半是 DNS-01 token 失效或 80/443 不可达。
 
 ---
 
@@ -633,8 +666,10 @@ git clone <你的仓库地址> orzmc-deploy && cd orzmc-deploy
 | 停止 | `./orzmc.sh -d <数据目录> stop` |
 | 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
 | 校验配置 | `./orzmc.sh -d <数据目录> validate` |
+| 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
+| 证书到期检查 | `./orzmc.sh -d <数据目录> cert [--min-days N]` |
 | 备份数据 | `./orzmc.sh -d <数据目录> backup [--stop] [--keep N]` |
-| 还原/迁移 | `./restore.sh -d <数据目录> <归档> [--force]` |
+| 还原/迁移 | `./orzmc.sh -d <数据目录> restore <归档> [--force] [--start]` |
 | 打印 DATA_ROOT | `./orzmc.sh -d <数据目录> print-root` |
 | 刷新镜像 digest | `./update-image-digests.sh [服务]` |
 | 防火墙收敛 | `./orzmc.sh -d <数据目录> firewall show` / `apply` |

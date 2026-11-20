@@ -49,7 +49,7 @@ export DATA_ROOT
 # tar 收到 SIGPIPE 以 141 退出；配合顶部 `set -euo pipefail` 会让整个脚本以 141
 # 中途终止（小归档不触发）。用 `|| true` 兜住该管道退出码——首个顶层名仍由 head 正常
 # 输出；不可读/空归档由下方非空校验拦截。
-top="$( { tar tzf "$ARCHIVE" | head -n1; } || true )"; top="${top%/}"
+top="$( { tar_local -tzf "$ARCHIVE" | head -n1; } || true )"; top="${top%/}"
 [ -n "$top" ] || die "备份为空或不可读: $ARCHIVE"
 [ "$top" = "$(basename "$DATA_ROOT")" ] || [ "$FORCE" = 1 ] \
     || die "归档顶层目录($top)与目标目录名($(basename "$DATA_ROOT"))不一致；确认后用 --force"
@@ -72,11 +72,12 @@ if [ -d "$DATA_ROOT" ] && [ -n "$(ls -A "$DATA_ROOT" 2>/dev/null)" ]; then
     fi
 fi
 
-mkdir -p "$(dirname "$DATA_ROOT")"
-info "解压 $ARCHIVE -> $(dirname "$DATA_ROOT")/"
-tar -xzf "$ARCHIVE" -C "$(dirname "$DATA_ROOT")"
+PARENT_DIR="$(tar_parent_of "$DATA_ROOT")"
+mkdir -p "$PARENT_DIR"
+info "解压 $ARCHIVE -> ${PARENT_DIR}"
+tar_local -xzf "$ARCHIVE" -C "$PARENT_DIR"
 if [ "$top" != "$(basename "$DATA_ROOT")" ]; then
-    mv "$(dirname "$DATA_ROOT")/$top" "$DATA_ROOT"
+    mv "${PARENT_DIR%/}/$top" "$DATA_ROOT"
 fi
 
 # 关键：迁移到新宿主机/新路径时，env 内 DATA_ROOT 需改写为当前目标
