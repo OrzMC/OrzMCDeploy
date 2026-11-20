@@ -149,7 +149,9 @@ else
         esac
     done <<<"$containers"
     n_roots="$(printf '%s' "$roots" | awk -F'|' '{print NF}')"
-    repo_norm="${REPO_ROOT//\\//}"
+    # docker 标签里是 Windows 原生路径（E:/...），而脚本可能从 MSYS 路径（/e/...）运行：
+    # 先用 win_path 归一，否则同一棵树会被判成两棵。
+    repo_norm="$(win_path "$REPO_ROOT")"
     if [ -z "$roots" ]; then
         warn "容器没有 compose 标签（可能是手工 docker run 起的）"
     elif [ "$n_roots" -gt 1 ]; then

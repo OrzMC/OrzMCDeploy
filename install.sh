@@ -76,17 +76,21 @@ TARBALL_URL="${BASE_URL}/download/${TAG}/${ASSET}"
 SUM_URL="${BASE_URL}/download/${TAG}/${SUM_ASSET}"
 
 # ---- 下载 -------------------------------------------------------------------
+# 下载目录：不能用 /tmp —— curl 在 Windows 上是原生程序，MSYS 的 "/tmp/..."
+# 不会被翻译成 Windows 路径，会直接报「系统找不到指定的文件」。
+# 改成 mktemp 目录 + cd 后只用文件名，Git Bash / macOS / Linux 三端通用。
+DL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/orzmc-install.XXXXXX")"
+trap 'rm -rf "$DL_DIR"' EXIT
 echo "==> 下载 $ASSET"
-curl -fSL "$TARBALL_URL" -o "/tmp/${ASSET}"
-curl -fSL "$SUM_URL"      -o "/tmp/${SUM_ASSET}"
+( cd "$DL_DIR" && curl -fSL "$TARBALL_URL" -o "$ASSET" && curl -fSL "$SUM_URL" -o "$SUM_ASSET" )
 
 # ---- 校验 sha256 ------------------------------------------------------------
 echo "==> 校验 sha256"
-EXPECTED="$(awk '{print $1}' "/tmp/${SUM_ASSET}")"
+EXPECTED="$(awk '{print $1}' "${DL_DIR}/${SUM_ASSET}")"
 if command -v sha256sum >/dev/null 2>&1; then
-    ACTUAL="$(sha256sum "/tmp/${ASSET}" | awk '{print $1}')"
+    ACTUAL="$(sha256sum "${DL_DIR}/${ASSET}" | awk '{print $1}')"
 else
-    ACTUAL="$(openssl dgst -sha256 "/tmp/${ASSET}" | awk '{print $NF}')"
+    ACTUAL="$(openssl dgst -sha256 "${DL_DIR}/${ASSET}" | awk '{print $NF}')"
 fi
 if [ "$EXPECTED" != "$ACTUAL" ]; then
     echo "!! sha256 校验失败（期望 $EXPECTED，实际 $ACTUAL）" >&2
@@ -99,7 +103,7 @@ echo "    sha256 OK: $ACTUAL"
 echo "==> 解压到 $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 # 覆盖解压（幂等）；不删除无关文件，不触碰 DATA_ROOT（运行时/数据分离）
-tar -xzf "/tmp/${ASSET}" -C "$INSTALL_DIR"
+tar -xzf "${DL_DIR}/${ASSET}" -C "$INSTALL_DIR"
 
 # 确保脚本可执行（tar 保留模式位，但 Windows 解压/手工打包可能丢，保险起见再设一次）
 chmod +x "$INSTALL_DIR"/*.sh "$INSTALL_DIR"/lib/*.sh 2>/dev/null || true
