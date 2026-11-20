@@ -10,7 +10,7 @@
 #   V=true  E=true   eagler-proxy   代理装 EaglerXServer（+ 默认 Geyser-Velocity）
 #
 # 基岩端口跟着前端走：geyser_target()=velocity 时由代理托管，否则留给实例侧
-# Geyser-Spigot；代理端口用 templates/compose.velocity-geyser.yaml 条件追加。
+# Geyser-Spigot。ADR-040 起代理是面板实例，19132 等端口写在该实例的端口映射里。
 #
 # 本文件只做三件事：下载校验（templates/eagler/versions.env 锁版本）→ 生成代理配置
 # → 生成实例侧待办（$DATA_ROOT/eagler/instance-setup.md）。TLS 反代归站点自备
@@ -36,7 +36,30 @@ eagler_lock() { # eagler_lock <KEY>
 # ---- 通用小工具 ---------------------------------------------------------
 
 eagler_dir()        { printf '%s/eagler' "${DATA_ROOT}"; }
-eagler_proxy_dir()  { printf '%s/proxy' "$(eagler_dir)"; }
+# 代理数据目录（ADR-040）：Velocity 已由 MCSM 面板托管成实例，数据落在面板的实例目录
+# （InstanceData/<uuid>/，容器里就是 /server），不再是 $DATA_ROOT/eagler/proxy。
+# 解析顺序：.env 的 VELOCITY_DIR → 面板实例目录里已有 velocity-*.jar 的那个 → 旧的 proxy 目录。
+eagler_proxy_dir()  {
+    local override d inst
+    override="$(read_env_value VELOCITY_DIR 2>/dev/null | tr -d '\r')"
+    if [ -n "${override}" ]; then printf '%s' "${override}"; return 0; fi
+    inst="${DATA_ROOT}/mcsmanager/daemon/data/InstanceData"
+    if [ -d "${inst}" ]; then
+        for d in "${inst}"/*; do
+            [ -d "${d}" ] || continue
+            if [ -f "${d}/velocity.toml" ] || ls "${d}"/velocity-*.jar >/dev/null 2>&1; then
+                printf '%s' "${d}"; return 0
+            fi
+        done
+    fi
+    printf '%s/proxy' "$(eagler_dir)"
+}
+# 代理 jar：面板实例里带版本号（velocity-4.3.1.jar），旧的固定名 velocity.jar 也认。
+eagler_proxy_jar() {
+    local pdir
+    pdir="$(eagler_proxy_dir)"
+    ls "${pdir}"/velocity-*.jar 2>/dev/null | head -n1
+}
 eagler_jars_dir()   { printf '%s/jars' "$(eagler_dir)"; }
 eagler_setup_doc()  { printf '%s/instance-setup.md' "$(eagler_dir)"; }
 eagler_caddy_doc()  { printf '%s/caddy-eagler.snippet' "$(eagler_dir)"; }
@@ -295,7 +318,7 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
             echo "    enabled-force-key-authentication: false"
             echo '```'
             echo
-            echo "secret 与代理的 \`\$DATA_ROOT/eagler/proxy/forwarding.secret\` 必须一致（600 权限，随备份）。"
+            echo "secret 与代理实例目录里的 \`forwarding.secret\` 必须一致（面板实例 InstanceData/<uuid>/，600 权限，随备份）。"
             echo
         fi
         case "$(geyser_target)" in
@@ -358,7 +381,7 @@ eagler_write_setup_doc() { # eagler_write_setup_doc <velocity|eagler-direct|eagl
             echo "## 5. 验收"
             echo
             echo '```bash'
-            echo "docker exec orzmc-velocity sh -c 'ls /srv/plugins'   # velocity-only：不应有 EaglerXServer.jar"
+            echo "docker exec orzmc-velocity sh -c 'ls /server/plugins'  # velocity-only：不应有 EaglerXServer.jar"
             echo 'docker logs --tail 30 orzmc-velocity                  # 期望 "Listening on /0.0.0.0:25565"'
             echo '```'
         fi
@@ -450,7 +473,7 @@ eagler_stash_plugin() { # eagler_stash_plugin <jar-path>
 }
 
 eagler_prepare() {
-    local topo pdir
+    local topo pdir jar_cur
     topo="$(topology)"
     case "$topo" in
         java-only)
@@ -468,8 +491,17 @@ eagler_prepare() {
             eagler_check_port_conflicts
             pdir="$(eagler_proxy_dir)"
             mkdir -p "${pdir}/plugins"
-            eagler_fetch "$(eagler_lock VELOCITY_URL)" "${pdir}/velocity.jar" \
-                "$(eagler_lock VELOCITY_SHA256)" "Velocity $(eagler_lock VELOCITY_VERSION)-$(eagler_lock VELOCITY_BUILD)"
+            # jar 名带版本号（velocity-4.3.1.jar）：换版本就是换文件，旧版留着可回滚。
+            # 已有任意 velocity*.jar 就不再下载——面板里换过版本也不会被打回。
+            jar_cur="$(eagler_proxy_jar)"
+            if [ -z "${jar_cur}" ] && [ -f "${pdir}/velocity.jar" ]; then jar_cur="${pdir}/velocity.jar"; fi
+            if [ -n "${jar_cur}" ]; then
+                info "Velocity jar 已存在（$(basename "${jar_cur}")），跳过下载"
+            else
+                eagler_fetch "$(eagler_lock VELOCITY_URL)" \
+                    "${pdir}/$(basename "$(eagler_lock VELOCITY_URL)")" \
+                    "$(eagler_lock VELOCITY_SHA256)" "Velocity $(eagler_lock VELOCITY_VERSION)-$(eagler_lock VELOCITY_BUILD)"
+            fi
             if [ "$topo" = "eagler-proxy" ]; then
                 eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
                     "$(eagler_lock EAGLERXSERVER_SHA256)" "EaglerXServer $(eagler_lock EAGLERXSERVER_VERSION)"
@@ -534,7 +566,7 @@ eagler_runtime_check() {
     fi
     if velocity_enabled; then
         if [ ! -f "$(eagler_proxy_dir)/velocity.jar" ]; then
-            warn "Velocity 运行时未就绪（首次 up 会自动下载；离线环境请预置 $(eagler_proxy_dir)）"
+            warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；`up` 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
         fi
         if [ "$dialect" = "eaglerxserver" ] \
             && [ ! -f "$(eagler_proxy_dir)/plugins/EaglerXServer.jar" ]; then

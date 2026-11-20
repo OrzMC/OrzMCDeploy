@@ -495,6 +495,26 @@ SITE_ROUTES="mcs.jokerhub.cn=mcsmanager-web:23333|encode,ws;easybot.jokerhub.cn=
 
 ---
 
+### 5.12 代理（Velocity）维护 —— 面板实例，不走 compose
+
+ADR-040 起 Velocity 是 MCSM 面板里的 Docker 实例（容器名固定 `orzmc-velocity`），
+`up/stop/restart` **不碰它**；改版本、换插件都在面板里做。
+
+| 想做什么 | 怎么做 |
+|---|---|
+| 换 Velocity 版本 | 面板文件管理把 `velocity-<新版本>.jar` 传到实例目录 → 改启动命令里的 jar 名 → 重启实例 |
+| 换 EaglerXServer / Geyser 插件 | 传 jar 到实例目录 `plugins/` → 重启实例 |
+| 改 `velocity.toml` | 面板文件管理直接改 → 重启实例（`up` 只在文件缺失时渲染，不会覆盖） |
+| 看日志 | 实例控制台 / 实例目录 `logs/latest.log` |
+| 开机自启 | 实例 `eventTask.autoStart=true`（已在实例里配好）；这是 daemon 拉起，不是 Docker restart policy |
+
+代理数据目录 = 面板实例目录 `InstanceData/<uuid>/`（容器内 `/server`，内含 jar、`plugins/`、
+`velocity.toml`、`forwarding.secret`、`logs/`）。`lib/eagler.sh` 会自动探测该目录；
+`.env` 的 `VELOCITY_DIR=` 可显式覆盖（多实例时用）。
+
+端口由实例映射发布：`25565:25565/tcp`、`19132:19132/tcp`、`19132:19132/udp`；
+不要再在 compose 里加 `velocity` 服务，否则会和实例抢端口。
+
 ## 6. PaperMC 实例
 
 PaperMC 实例**不是** `compose.yaml` 的常驻服务，而是在 MCSManager 面板里创建的
@@ -816,7 +836,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 ├── easybot/
 │   └── data/                      # gateway.db 等网关数据
 └── eagler/                        # 任一前端开关为 true 才有（ADR-036）
-    ├── proxy/                     # proxy 模式：velocity.jar + plugins/ + velocity.toml
+    ├── proxy/                     # 旧位置（ADR-040 起代理数据迁到 mcsmanager/daemon/data/InstanceData/<uuid>/）
     ├── jars/                      # direct 模式：EaglerXPaper-<版本>.jar
     ├── instance-setup.md          # 实例侧待办（每次 up 刷新，含转发密钥）
     └── caddy-eagler.snippet       # 站点反代片段（TLS 归站点自备）

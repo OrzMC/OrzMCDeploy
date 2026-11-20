@@ -63,40 +63,9 @@ services:
       - "${DATA_ROOT}/mcsmanager/daemon/logs:/opt/mcsmanager/daemon/logs"
       - /var/run/docker.sock:/var/run/docker.sock
 
-  velocity:
-    # 可选服务（ENABLE_VELOCITY=true 时由 compose_cmd 追加 --profile velocity，ADR-036）：
-    # 玩家 Java 端口交给代理（EAGLER_JAVA_PORT），后端是面板管理的实例
-    # （发布到宿主 EAGLER_BACKEND_PORT）。
-    # EAGLER 插件按拓扑派生：ENABLE_EAGLER=true → plugins/ 里装 EaglerXServer；
-    # 基岩端口（Geyser-Velocity）由 templates/compose.velocity-geyser.yaml 条件追加。
-    # 运行时（jar/配置/密钥）落 $DATA_ROOT/eagler/proxy（目录名为历史原因，随数据备份）。
-    profiles: ["velocity"]
-    deploy:
-      resources:
-        limits:
-          memory: "${EAGLER_PROXY_MEMORY_LIMIT:-1024M}"
-    image: eclipse-temurin:25-jre@sha256:f9e65324a37f28209ce7dd0e5149a7aa954520ed936fb87813cf6ded2400a112
-    container_name: orzmc-velocity
-    restart: unless-stopped
-    stdin_open: true          # 允许 docker attach 进控制台
-    # Velocity 以 CWD 解析 velocity.toml / plugins / logs（漏了它会在 / 下生成默认配置）
-    working_dir: /srv
-    environment:
-      TZ: "${TZ}"
-    command:
-      - java
-      - -Xms256M
-      - -Xmx${EAGLER_PROXY_HEAP_MB:-768}m
-      - -jar
-      - /srv/velocity.jar
-    ports:
-      # 玩家 Java 入口（与 EAGLER_BACKEND_PORT 必须不同，validate 会拦）
-      - "${LAN_BIND_ADDR:-0.0.0.0}:${EAGLER_JAVA_PORT:-25565}:25565"
-    extra_hosts:
-      # 后端实例发布在宿主，容器内经 host.docker.internal 访问（Linux 需要这条）
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - "${DATA_ROOT}/eagler/proxy:/srv"
+  # 前端代理（Velocity）**不在这里**：ADR-040 起由 MCSM 面板托管成实例，
+  # 容器名仍是 orzmc-velocity（Caddy 路由不用改），jar/插件在面板的文件管理里换。
+  # 端口（EAGLER_JAVA_PORT / 基岩 19132）由面板实例的端口映射承担。
 
   easybot:
     # 可选服务：ENABLE_EASYBOT=true 时由 compose_cmd 追加 --profile easybot。

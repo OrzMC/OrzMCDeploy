@@ -93,8 +93,8 @@ enabled_profiles() {
     local eb
     eb="$(read_env_value ENABLE_EASYBOT)";  [ -n "$eb" ] || eb="true"
     if [ "$eb" = "true" ]; then printf '%s\n' "easybot"; fi
-    # Velocity 前端（ADR-036）：玩家端口交给代理，Eaglercraft 只是它上面的可选插件。
-    if velocity_enabled; then printf '%s\n' "velocity"; fi
+    # Velocity 前端（ADR-040 起）由 MCSM 面板托管成实例，不再是 compose 服务，
+    # 所以这里不再输出 velocity profile。
 }
 
 # ---- 前端拓扑：两个正交开关（ADR-036）------------------------------------
@@ -685,15 +685,8 @@ compose_cmd() {
     while IFS= read -r p; do
         [ -n "$p" ] && profiles_flags+=("--profile" "$p")
     done < <(enabled_profiles)
-    # 基岩端口（Geyser-Velocity）只在代理托管基岩时发布：用包内片段按拓扑追加 -f。
-    # （compose 的 ports 无法按 .env 条件生成，ADR-036；否则 velocity-only 拓扑会和
-    #  实例侧的 Geyser-Spigot 抢 19132。）
-    if [ "$(geyser_target)" = "velocity" ]; then
-        extra+=(-f "${TEMPLATES_DIR}/compose.velocity-geyser.yaml")
-        if geyser_needs_webrtc_port; then
-            extra+=(-f "${TEMPLATES_DIR}/compose.velocity-geyser-webrtc.yaml")
-        fi
-    fi
+    # 基岩端口（Geyser-Velocity）自 ADR-040 起由面板实例的端口映射发布，
+    # compose 不再追加 Geyser 端口片段（代理容器已不是 compose 服务）。
     # 站点增量 override（issue #11）：$DATA_ROOT/compose.site.yaml + .env 的
     # COMPOSE_FILE_EXTRA，存在即追加；与包内文件解耦，升级/换包不丢。
     # （判空再用：bash 3.2 + set -u 下空数组 "${arr[@]}" 会被当成未定义变量。）
