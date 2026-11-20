@@ -66,7 +66,26 @@ win_path() {
     esac
 }
 
-# ---- 可选服务 -------------------------------------------------------------
+# tar 的 Windows 适配选项：GNU tar 会把 "E:/..." 形式的路由参数当作远程主机
+# （host:path 语法）→ "Cannot connect to E: resolve failed"。凡把**盘符路径**传给
+# tar（归档文件、-C 目录）都必须带 --force-local；BSD tar（macOS）无此选项，故仅 Windows。
+# 用法：tar_local -tzf "$archive"（Windows 下自动补 --force-local）
+tar_local() { if is_windows; then tar --force-local "$@"; else tar "$@"; fi; }
+
+# 归档目标/解包目录的父目录：Windows 盘符根（E:/orzmc → E:/）必须保留斜杠，
+# 因为 dirname 给出的是 "E:"，GNU tar 会把它当远程主机（host:path）。
+# 注意只有父目录**恰为** "X:" 时才补斜杠：C:/Users/x/data 的父目录是 C:/Users/x。
+tar_parent_of() {
+    local target="${1%/}" parent
+    parent="${target%/*}"
+    case "$parent" in
+        [A-Za-z]:) parent="$parent/" ;;
+        "")        parent="/" ;;
+    esac
+    [ "$parent" = "$target" ] && parent="."
+    printf '%s\n' "$parent"
+}
+
 # 按 ENABLE_* / 前端拓扑输出应启用的可选服务 profile 列表（换行分隔；读 .env）
 # ENABLE_EASYBOT 缺省为 true（保持历史默认启用）；ADR-025 起只剩 easybot 一个可选服务。
 # 注意：判断写成 if（避免 set -e 下 [ false ] 返回非零导致函数退出）。

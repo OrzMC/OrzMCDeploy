@@ -41,9 +41,11 @@ vi <数据目录>/.env                # 改 LAN_HOST_IP、EASYBOT_ADMIN_PASSWORD
 ./orzmc.sh -d <数据目录> stop                  # 停止
 ./orzmc.sh -d <数据目录> status                # 访问地址 + 容器状态
 ./orzmc.sh -d <数据目录> validate              # 配置校验
+./orzmc.sh -d <数据目录> doctor                # 部署自检（有 FAIL 则 exit 1）
+./orzmc.sh -d <数据目录> cert [--min-days 21]  # 证书到期检查（只读，不续期）
 ./orzmc.sh -d <数据目录> firewall apply        # 防火墙限源（show 查看现状）
 ./orzmc.sh -d <数据目录> backup [--stop] [--keep N]
-./restore.sh -d <数据目录> <归档> [--force]    # 还原 / 迁移
+./orzmc.sh -d <数据目录> restore <归档> [--force] [--start]   # 还原 / 迁移
 ./update-image-digests.sh [服务]               # 刷新镜像 digest（升级用）
 ```
 

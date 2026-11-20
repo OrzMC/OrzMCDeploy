@@ -11,6 +11,32 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.3.0] - 2026-11-20
+
+主题：**部署可自证**。把「部署后靠人记着查」的几件事收进命令：自检、证书到期、还原接线；
+同时修掉 Windows 上 `backup.sh` / `restore.sh` 因盘符路径导致 `tar` 从未成功过的问题。
+
+### Added
+
+- **`orzmc.sh doctor`**：部署自检，逐项判环境（docker CLI/daemon/compose 插件/openssl）、
+  数据目录（存在、可写、`.env` 齐全、`.env` 内 `DATA_ROOT` 与实际一致）、备份（根可写、
+  最近归档、磁盘水位）、运行时（容器数、**容器 compose 文件是否指向同一棵程序树**、
+  期望端口是否真发布）、工具链（`JAVA_HOME`）。`[FAIL]` 阻断并 exit 1，`[WARN]` 需人工确认；
+  容器由另一棵树启动只告警，**分散在多棵树**下才判 FAIL。
+- **`orzmc.sh cert`**：只读检查 Caddy 落盘的站点层证书，打印到期日与剩余天数，
+  任一不足 `--min-days`（缺省 21）即 exit 1，可直接挂 cron/监控。明确不续期、不动 `caddy/data`；
+  无 `caddy/data` 时报「站点层未启用」并 exit 0。
+- **`orzmc.sh restore`**：此前 `restore.sh` 已在包里但入口未接线，现与 backup 对称。
+
+### Fixed
+
+- **Windows 盘符路径让 `tar` 全线失败**（`Cannot connect to E: resolve failed`）：GNU tar 把
+  `X:/...` 当远程主机（`host:path`）。三处中招并修复：`-C` 的父目录（`dirname E:/orzmc`
+  给 `E:`，盘符根必须保留斜杠）、归档路径（Windows 下加 `--force-local`）、
+  校验命令（`--force-local` 在前时裸 `tzf` 不再被当选项束，须写 `-tzf`）。
+  统一收敛到 `lib/common.sh` 的 `tar_local` / `tar_parent_of`，`backup.sh` 与 `restore.sh` 共用。
+  边界：只有父目录**恰为** `X:` 时才补斜杠，深层路径（`C:/Users/x/data`）仍按最后一级斜杠切。
+
 ## [0.2.0] - 2026-11-15
 
 主题：**三端同服**（Java / 浏览器 Web / 基岩）。Eaglercraft Web 接入从单开关演进为
