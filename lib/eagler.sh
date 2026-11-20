@@ -565,7 +565,7 @@ eagler_runtime_check() {
         fi
     fi
     if velocity_enabled; then
-        if [ ! -f "$(eagler_proxy_dir)/velocity.jar" ]; then
+        if [ -z "$(eagler_proxy_jar)" ]; then
             warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；up 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
         fi
         if [ "$dialect" = "eaglerxserver" ] \
