@@ -11,6 +11,18 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.3.1] - 2026-11-20
+
+### Fixed
+
+- **`install.sh` 在 Windows 上必然失败**：`curl -o /tmp/<asset>` —— curl 在 Windows 上是原生
+  程序，MSYS 的 `/tmp/...` 不会被翻译成 Windows 路径，报「系统找不到指定的文件」后
+  `client returned ERROR on write`。改为 `mktemp -d` + `cd` 后只用文件名，Git Bash / macOS /
+  Linux 三端通用，退出时自动清理。
+- **`doctor` 把同一棵程序树判成两棵**：docker 标签里存的是 `E:/...`，而从 Git Bash 运行时
+  `REPO_ROOT` 是 `/e/...`，字符串比较误判。改为先用 `win_path` 归一。
+  （运行 `E:/deploy/orzmc` 里的 doctor 时：修前 WARN 1，修后 OK 19 / WARN 0。）
+
 ## [0.3.0] - 2026-11-20
 
 主题：**部署可自证**。把「部署后靠人记着查」的几件事收进命令：自检、证书到期、还原接线；
