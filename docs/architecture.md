@@ -661,10 +661,10 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
    `autoRestart=true`（daemon 起来就拉起它）。
 2. 端口写进实例端口映射：`25565:25565/tcp`、`19132:19132/tcp`、`19132:19132/udp`
    （原来是 `templates/compose.velocity-geyser*.yaml` 条件追加的，两个片段已删）。
-3. 数据落在面板实例目录 `InstanceData/<uuid>/`（容器内 `/server`），jar **带版本号**
-   `velocity-4.3.1.jar`。`lib/eagler.sh` 的 `eagler_proxy_dir()` 自动探测该目录
-   （`.env` 的 `VELOCITY_DIR` 可显式覆盖），`eagler_proxy_jar()` 认 `velocity-*.jar` 与旧的
-   `velocity.jar`；已有任意 jar 就不再下载，面板里换的版本不会被打回。
+3. 数据落在面板实例目录 `InstanceData/<uuid>/`（容器内 `/server`），jar **用官方原始文件名**
+   `velocity-<版本>-<build>.jar`（如 `velocity-4.3.1-45.jar`）。`lib/eagler.sh` 的
+   `eagler_proxy_dir()` 自动探测该目录（`.env` 的 `VELOCITY_DIR` 可显式覆盖），
+   `eagler_proxy_jar()` 认 `velocity-*.jar`；**部署侧不下也不锁版本**（见 ADR-041）。
 4. `compose.yaml` 不再有 `velocity` 服务，`enabled_profiles` 不再输出 `velocity`：
    `up/stop/restart` 不碰代理生命周期。
 
@@ -672,6 +672,28 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 管，`orzmc.sh status` 只能靠探针看连通性，容器是否在跑要看面板。实例的 `restart` 策略是 `no`，
 宿主重启后靠 daemon 的 autoStart 拉起，不是 Docker 的 restart policy。
 
+### ADR-041：Velocity 的版本完全交给面板，部署侧不再锁版本（2026-11-20）
+
+**背景**：ADR-040 之后代理已经是面板实例，但 `templates/eagler/versions.env` 还留着
+`VELOCITY_VERSION/BUILD/URL/SHA256`，`up` 还会在"没有 jar"时按这套锁下载——两边都能改版本，
+锁一漂移就互相打回：面板换了新版，`up` 想拉回旧版；`validate` 又报版本不一致。
+
+**决策**：
+
+1. `versions.env` 删掉全部 `VELOCITY_*` 项，只保留插件锁（EaglerXServer / Geyser / EaglerXPaper）。
+2. `lib/eagler.sh` 的 `velocity` 分支**不再下载 jar**：有 jar 就报"已由面板就位"，没有就 warn
+   让用户去面板上传。`validate` 只判"实例目录里有没有 `velocity-*.jar`"，不比版本。
+3. jar 文件名以官方下载名称为准（`velocity-<版本>-<build>.jar`），启动命令写完整路径
+   `/server/velocity-4.3.1-45.jar`。
+
+**约束（实测，别再试）**：MCSM 的启动命令是**按空格硬切**后直接塞给容器 entrypoint 的，
+不经过 shell，引号也不解析——所以不能用 `sh -c '... $(ls velocity-*.jar) ...'` 这类写法做
+"自动选最新 jar"。实测把启动命令改成 `sh -c '...'` 后 daemon 日志是
+`Container Entrypoint: sh` + `Container Start Command: -c,'exec,java,...,"$(ls ...)"'`，
+容器停在 `Created` 起不来。**换版本就必须在面板里改一次启动命令里的文件名。**
+
+**影响**：升级 Velocity = 面板上传官方 jar → 改启动命令里的文件名 → 重启实例，纯面板操作；
+部署脚本对版本零感知，不会再出现"锁漂移"这类互相打回。
 ### 已归档 ADR 索引（正文见 git 历史）
 
 下列决策已废止或被取代，仅留索引避免后来者重复踩坑：

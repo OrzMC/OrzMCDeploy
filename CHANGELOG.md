@@ -11,6 +11,24 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.6.0] - 2026-11-21
+
+### Changed
+
+- **Velocity 的版本完全交给 MCSM 面板（ADR-041）**：`templates/eagler/versions.env` 删掉
+  `VELOCITY_VERSION` / `VELOCITY_BUILD` / `VELOCITY_URL` / `VELOCITY_SHA256`，`lib/eagler.sh`
+  不再下载 Velocity jar —— 有 jar 就报「已由面板就位」，没有就 warn 让用户去面板上传。
+  升级 = 面板传官方原名 jar（`velocity-<ver>-<build>.jar`）+ 改启动命令里的文件名 + 重启实例。
+- `validate` 只看实例目录里有没有 `velocity-*.jar`，不再比较版本（v0.5.2 的漂移提示随之删除 ——
+  版本锁没了就不会漂移，留着只是噪音）。
+
+### Docs
+
+- `docs/architecture.md`：ADR-040 第 3 条改成「官方原始文件名 + 部署侧不下不锁」，新增 ADR-041
+  记录约束：MCSM 启动命令按空格硬切、不经 shell，**不能用 `sh -c '... $(ls velocity-*.jar)'`**
+  做自动选最新 jar（实测容器停在 `Created`）。
+- `docs/eaglercraft-deploy.md` 升级行同步。
+
 ## [0.5.2] - 2026-11-20
 
 ### Added

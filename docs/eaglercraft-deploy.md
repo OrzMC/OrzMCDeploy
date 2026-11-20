@@ -171,7 +171,7 @@ mv <数据目录>/mcsmanager/daemon/data/InstanceData/<实例uuid>/velocity.toml
 | 密钥 | 代理实例目录的 `forwarding.secret` + `instance-setup.md` 均 600，随 `$DATA_ROOT` 备份 |
 | 身份 | **共用名字空间（已定）**：同名 = 同 UUID = 同账号，门 = 白名单 + LoginSecurity 口令。上线前：① `white-list=true` + `enforce-whitelist=true`（名字集合收敛，真正的门）② `join.hide-inventory: true`（内置方法，不依赖 ProtocolLib）③ `registration.enabled` **保持 true**——`/lac` 没有建号命令，关注册会挡住新玩家；用「加名单即须立即首登注册」收敛窗口，被抢注时 `/lac rmpass <名字>` 兜底 ④ **上线前核对：所有 op/权限名字必须已注册**——ops.json 按 UUID 授权，而 UUID 由名字派生，未注册的 op 名字等于「谁先注册谁拿权」 |
 | 直连 | WS 直连代理端口（不带 `X-Real-IP`）会被拒，属预期：唯一入口应是反代 |
-| 升级 | 面板文件管理里换 `velocity-<版本>.jar` + 改启动命令 + 重启实例；EaglerXServer/Geyser 插件同样在面板里换（ADR-040） |
+| 升级 | 面板文件管理里传**官方原名** jar `velocity-<版本>-<build>.jar` → 改启动命令里的文件名 → 重启实例；EaglerXServer/Geyser 插件同样在面板里换。版本只由面板管，部署侧不锁不下载（ADR-040/041）；启动命令按空格硬切、不能写 shell 通配 |
 
 ## 7. 验收测试
 

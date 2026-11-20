@@ -491,16 +491,13 @@ eagler_prepare() {
             eagler_check_port_conflicts
             pdir="$(eagler_proxy_dir)"
             mkdir -p "${pdir}/plugins"
-            # jar 名带版本号（velocity-4.3.1.jar）：换版本就是换文件，旧版留着可回滚。
-            # 已有任意 velocity*.jar 就不再下载——面板里换过版本也不会被打回。
+            # Velocity 本体完全由 MCSM 面板管理（ADR-041）：官方 jar 由面板上传，启动命令写文件名，
+            # 部署脚本既不下也不改——换版本 = 面板传新 jar + 改启动命令里的文件名，旧 jar 留着可回滚。
             jar_cur="$(eagler_proxy_jar)"
-            if [ -z "${jar_cur}" ] && [ -f "${pdir}/velocity.jar" ]; then jar_cur="${pdir}/velocity.jar"; fi
             if [ -n "${jar_cur}" ]; then
-                info "Velocity jar 已存在（$(basename "${jar_cur}")），跳过下载"
+                info "Velocity jar 已由面板就位（$(basename "${jar_cur}")），部署侧不干预"
             else
-                eagler_fetch "$(eagler_lock VELOCITY_URL)" \
-                    "${pdir}/$(basename "$(eagler_lock VELOCITY_URL)")" \
-                    "$(eagler_lock VELOCITY_SHA256)" "Velocity $(eagler_lock VELOCITY_VERSION)-$(eagler_lock VELOCITY_BUILD)"
+                warn "面板实例目录里还没有 Velocity jar（${pdir}）：请在 MCSM 面板上传官方 velocity-<版本>-<build>.jar 并设置启动命令"
             fi
             if [ "$topo" = "eagler-proxy" ]; then
                 eagler_fetch "$(eagler_lock EAGLERXSERVER_URL)" "${pdir}/plugins/EaglerXServer.jar" \
@@ -565,18 +562,9 @@ eagler_runtime_check() {
         fi
     fi
     if velocity_enabled; then
-        local vjar vver vlock
-        vjar="$(eagler_proxy_jar || true)"   # find 在目录不存在时 rc=1，set -e 下会直接退出
-        if [ -z "$vjar" ]; then
-            warn "Velocity 运行时未就绪（面板实例目录里还没有 jar；up 会下载到 $(eagler_proxy_dir)，离线环境请预置）"
-        else
-            # 面板里换过版本时，versions.env 的锁会漂移；只提示不覆盖（ADR-040：已有 jar 一律不下载）
-            vver="$(basename "$vjar" | sed -n 's/^velocity-\(.*\)\.jar$/\1/p')"
-            # jar 名只带版本号（velocity-4.3.1.jar），build 号（45）在文件名里没有 → 只比版本
-            vlock="$(eagler_lock VELOCITY_VERSION)"
-            if [ -n "$vver" ] && [ "$vver" != "$vlock" ]; then
-                warn "面板实例里的 Velocity 版本 ($vver) 与 versions.env 锁定的 ${vlock}（build $(eagler_lock VELOCITY_BUILD)）不一致；up 不会覆盖，如需对齐请改 versions.env"
-            fi
+        # 版本不再受部署侧约束（ADR-041）：只要面板实例目录里有 jar 就算就绪，版本随便换
+        if [ -z "$(eagler_proxy_jar || true)" ]; then
+            warn "Velocity 运行时未就绪：面板实例目录 $(eagler_proxy_dir) 里没有 velocity-*.jar（由面板上传，部署侧不下载）"
         fi
         if [ "$dialect" = "eaglerxserver" ] \
             && [ ! -f "$(eagler_proxy_dir)/plugins/EaglerXServer.jar" ]; then
