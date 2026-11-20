@@ -21,13 +21,16 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 # shellcheck source=lib/eagler.sh
 source "${REPO_ROOT}/lib/eagler.sh"   # common.sh 已把 SCRIPT_DIR 改为 lib/，这里用 REPO_ROOT
+source "${REPO_ROOT}/lib/site.sh"     # site_parse_routes：probe 依 SITE_ROUTES 逐域探测
+# shellcheck source=lib/probe.sh
+source "${REPO_ROOT}/lib/probe.sh"
 
 DATA_ROOT=""
 TEMPLATE="$DEFAULT_TEMPLATE"
 
 usage() {
     cat <<'EOF'
-用法: deploy.sh [-d DATA_ROOT] init|up|stop|status|validate|print-root
+用法: deploy.sh [-d DATA_ROOT] init|up|stop|status [--probe]|validate|print-root
 （对外请用 ./orzmc.sh，本脚本是其内部实现）
 EOF
 }
@@ -102,6 +105,9 @@ cmd_status() {
     echo
     echo "容器状态:"
     compose_cmd ps
+    case "${1:-}" in
+        --probe) probe_all ;;
+    esac
 }
 
 cmd_validate() {
@@ -119,7 +125,7 @@ case "$CMD" in
     init)       cmd_init ;;
     up)         cmd_up ;;
     stop)       cmd_stop ;;
-    status)     cmd_status ;;
+    status)     cmd_status "$@" ;;
     validate)   cmd_validate ;;
     print-root) echo "$DATA_ROOT" ;;
     *) usage; exit 1 ;;

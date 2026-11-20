@@ -412,6 +412,27 @@ read_env_value() {
     grep "^${key}=" "$file" 2>/dev/null | head -n1 | cut -d '=' -f 2- | tr -d '\r' || true
 }
 
+# 写回单个键：已存在则替换**第一处**（与 read_env_value 的「首个同名键优先」一致），
+# 否则追加。值里允许含空格与 =（用 awk 传参，不走 sed 替换串）。
+set_env_value() {
+    local key="$1" val="$2" file tmp
+    file="$(env_file)"
+    case "$key" in ''|*[!A-Za-z0-9_]*) die "非法 env 键：$key" ;; esac
+    mkdir -p "$(dirname "$file")"
+    [ -f "$file" ] || : > "$file"
+    tmp="$(mktemp "${TMPDIR:-/tmp}/env.XXXXXX")"
+    awk -v k="$key" -v v="$val" '
+        BEGIN { done=0 }
+        $0 ~ "^" k "=" && !done { print k "=" v; done=1; next }
+        { print }
+        END { if (!done) print k "=" v }
+    ' "$file" > "$tmp"
+    # 若替换后与原文逐字节相同则不动（幂等，避免 mtime 变化触发无谓 rebuild）
+    if cmp -s "$tmp" "$file"; then rm -f "$tmp"; return 0; fi
+    cp -p "$file" "${file}.bak-$(date +%Y%m%d-%H%M%S)"
+    mv "$tmp" "$file"
+}
+
 # 校验 env 文件内 DATA_ROOT 与生效值一致（防静默不一致导致卷挂到旧路径）
 assert_data_root_matches() {
     local file in_file

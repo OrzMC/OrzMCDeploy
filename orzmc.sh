@@ -35,12 +35,13 @@ usage() {
   orzmc.sh -d <数据目录> init           # 建目录树 + 生成 .env（-d 必填，无默认路径）
   orzmc.sh -d <数据目录> up             # init + compose up -d（启动平台层）
   orzmc.sh -d <数据目录> stop           # compose down --remove-orphans
-  orzmc.sh -d <数据目录> status         # 局域网访问地址 + compose ps
+  orzmc.sh -d <数据目录> status [--probe]     # --probe: 真探协议（面板/EasyBot/Java/站点 TLS/WS/实例）         # 局域网访问地址 + compose ps
   orzmc.sh -d <数据目录> validate       # 必需变量检查 + compose config -q
   orzmc.sh -d <数据目录> doctor         # 部署自检（环境/数据/备份/运行时/工具链，有 FAIL 则 exit 1）
   orzmc.sh -d <数据目录> cert           # 站点层证书到期检查（--min-days N，只读，不续期）
   orzmc.sh -d <数据目录> backup         # 打包 $DATA_ROOT（可加 --stop/--keep）
   orzmc.sh -d <数据目录> restore <归档>  # 从归档还原 / 迁移（--force 覆盖、--start 还原后启动）
+  orzmc.sh -d <数据目录> site init|apply|status  # 站点层 TLS：由 .env 的 SITE_ROUTES 生成 Caddyfile 并热重载
   orzmc.sh -d <数据目录> firewall show|apply   # 防火墙收敛（默认只信任局域网，ADR-028）
   orzmc.sh -d <数据目录> print-root     # 打印解析后的 DATA_ROOT
 
@@ -84,12 +85,13 @@ case "$CMD" in
     init)       bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" init ;;
     up)         bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" up ;;
     stop)       bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" stop ;;
-    status)     bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" status ;;
+    status)     bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" status "$@" ;;
     validate)   bash "${ORZMC_BIN_DIR}/deploy.sh" -d "$DATA_ROOT" validate ;;
     backup)     bash "${ORZMC_BIN_DIR}/backup.sh" -d "$DATA_ROOT" "$@" ;;
     restore)    bash "${ORZMC_BIN_DIR}/restore.sh" -d "$DATA_ROOT" "$@" ;;
     doctor)     bash "${ORZMC_BIN_DIR}/lib/doctor.sh" -d "$DATA_ROOT" "$@" ;;
     cert)       bash "${ORZMC_BIN_DIR}/lib/cert.sh" -d "$DATA_ROOT" "$@" ;;
+    site)       bash "${ORZMC_BIN_DIR}/lib/site.sh" -d "$DATA_ROOT" "$@" ;;
     firewall)   bash "${ORZMC_BIN_DIR}/lib/firewall.sh" "$@" ;;
     print-root) echo "$DATA_ROOT" ;;
     *) usage; exit 1 ;;

@@ -237,6 +237,8 @@ services:
 | 启动平台层 | `./orzmc.sh -d <数据目录> up` |
 | 停止 | `./orzmc.sh -d <数据目录> stop` |
 | 状态与访问地址 | `./orzmc.sh -d <数据目录> status` |
+| 真探协议（面板/端口/TLS/WS/实例） | `./orzmc.sh -d <数据目录> status --probe` |
+| 站点层 TLS 声明 | `./orzmc.sh -d <数据目录> site init` / `render` / `apply` / `status` |
 | 校验配置 | `./orzmc.sh -d <数据目录> validate` |
 | 部署自检 | `./orzmc.sh -d <数据目录> doctor` |
 | 证书到期 | `./orzmc.sh -d <数据目录> cert [--min-days 21]` |
@@ -387,6 +389,75 @@ GrimAC 豁免、LoginSecurity 用例）见 [eaglercraft-deploy.md §7](eaglercra
 - **不要手工续期**，也不要去删 `caddy/data`——手工介入会打乱 Caddy 的 ACME 状态。
 - 站点层属站点自备（ADR-027）：没有 `caddy/data` 时提示「未启用」并正常 exit 0。
 - 到期异常时看 `docker logs orzmc-caddy`，多半是 DNS-01 token 失效或 80/443 不可达。
+
+---
+
+### 5.9 站点层 TLS（Caddy 反代）
+
+站点层（公网入口）不再手抄两份文件，而是**由 `.env` 一条声明生成**：
+
+```bash
+./orzmc.sh -d <数据目录> site init      # 从现有 Caddyfile 反推 SITE_ROUTES 写进 .env（幂等）
+./orzmc.sh -d <数据目录> site render    # 只渲染到 stdout，review 用
+./orzmc.sh -d <数据目录> site apply     # 渲染 → 校验 → 备份 → 落盘 → 热重载
+./orzmc.sh -d <数据目录> site status    # 声明与落盘是否一致 + 当前已监听路由
+```
+
+声明写法（`.env`）：
+
+```bash
+SITE_ROUTES="域=上游|选项;域=上游|选项"
+# 选项（逗号分隔，可省略整个 |选项）：
+#   ws      长连接：写下 flush_interval -1（WS/终端被缓冲就会「连上但没数据」）
+#   xrip    写 header_up X-Real-IP {remote_host}（EaglerXServer forward_ip=true 时缺它直接拒连）
+#   encode  写 encode zstd gzip
+```
+
+本站现网实例（`site init` 自动反推出来的，可直接对照）：
+
+```bash
+SITE_ROUTES="mcs.jokerhub.cn=mcsmanager-web:23333|encode,ws;easybot.jokerhub.cn=easybot:8080|encode;dev.jokerhub.cn=orzmc-velocity:25565|ws,xrip;music.jokerhub.cn=host.docker.internal:8080|encode"
+```
+
+`site apply` 做的事与护栏：
+
+1. 缺 `CF_DNS_API_TOKEN` / `ACME_EMAIL` / `SITE_ROUTES` 直接拒绝（空 `ACME_EMAIL` 会让 caddy
+   报一句看起来像语法错的错：`wrong argument count ... after 'email'`）。
+2. 渲染结果先过 `caddy adapt` 校验，**失败不落盘**。
+3. 落盘前把旧文件存成 `Caddyfile.bak-<时间>`。
+4. 容器在跑就 `caddy reload`（热重载，连接不中断）；reload 失败自动回滚到上一份。
+5. `compose.site.yaml` 只重写 `# >>> orzmc:site:caddy` 与 `# <<< orzmc:site:caddy` 之间的区块；
+   其它站点增量（`velocity.dns`、`easybot.environment` 的 `FEISHU_*`）不碰。
+   早期手写的 `caddy:` 服务块（无标记）会被**就地替换**，不会产生重复 key。
+
+拓扑与不变量：
+
+- 运营商封的是**外网** 443；宿主内网 443 照常。`caddy` 发布 `"443:443"`，公网入口由路由器
+  外网高位端口 → 宿主 443。玩家地址形如 `wss://dev.<域名>:<高位端口>/`。
+- 证书用 Let's Encrypt **DNS-01**（Cloudflare Token 只需 `Zone:DNS:Edit`），不依赖入站 80/443。
+- **不要**手改 `$DATA_ROOT/site/Caddyfile`（下次 apply 会覆盖；改 `.env` 后重跑 apply）。
+- **不要**手工续期、不要删 `$DATA_ROOT/caddy/data`（ACME 状态在里面）。
+- 域名 502 = Caddy 在、上游没起；`000` = 证书或 Caddy 本身有问题；先看 `docker logs orzmc-caddy`。
+
+### 5.10 真探协议（status --probe）
+
+`docker ps` 说 `Up` 不等于「玩家能连」。加 `--probe` 会按真实协议打一遍：
+
+```bash
+./orzmc.sh -d <数据目录> status --probe
+```
+
+| 探测项 | 手段 | 判定 |
+|---|---|---|
+| MCSM 面板 / EasyBot | HTTP 到 `127.0.0.1:<端口>` | 200/30x 为 OK |
+| Velocity / Geyser | `TCP 127.0.0.1:25565` / `:19132` | 连上为 OK |
+| 各站点域 | `curl -k --resolve <域>:443:127.0.0.1` | 200–4xx OK；**502 说明上游没起**；000 说明 TLS/Caddy 有问题 |
+| Web 客户端 | 向 `ws` 路由域发 WebSocket Upgrade | 101 OK；4xx WARN（反代与上游都通，握手被上游拒）；502 FAIL |
+| 实例进程 | daemon 内 `ps | grep java` | >0 OK；0 为 WARN（面板里没点启动） |
+
+判定分层：回环是硬指标（FAIL 阻断、exit 1）；「经 LAN IP」的探测只给 WARN —— Windows 上宿主
+连自己的 LAN IP 常被防火墙/路由挡住，不代表局域网真的进不来。UDP 19132 不探（RakNet 需构造
+握手包），基岩侧交给实例验收。
 
 ---
 
