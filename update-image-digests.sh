@@ -57,7 +57,7 @@ done
 for service in "${SERVICES[@]}"; do
     image_ref="$(source_image_for_service "$service")"
     echo "拉取镜像: ${service} -> ${image_ref}"
-    docker pull "$image_ref" >/dev/null
+    dkr pull "$image_ref" >/dev/null
 done
 
 # 传参：service|源镜像|compose 文件（服务→镜像映射只在本 shell 一处，python 不再重复）

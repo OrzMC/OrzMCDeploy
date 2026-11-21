@@ -90,6 +90,22 @@ wsl_run() {
     fi
 }
 
+# docker CLI 直调：wsl 后端下 Windows 侧**没有 docker 可执行文件**，所有非 compose
+# 的调用（network / run / rm / inspect / ps / exec / pull）都必须转进 WSL，否则
+# 这些代码路径会静默失败或误判「没有容器」。返回值保持子命令的退出码。
+dkr() {
+    if is_wsl_backend; then
+        local cmd a out rc
+        cmd="docker"
+        for a in "$@"; do cmd="$cmd $(printf '%q' "$a")"; done
+        out="$(wsl_run "$cmd")"
+        rc=$?
+        printf '%s\n' "$out" | tr -d '\015'
+        return $rc
+    fi
+    docker "$@"
+}
+
 # Windows 盘符路径 → WSL 视角路径（E:/orzmc → /mnt/e/orzmc）。
 # MSYS 形式（/e/orzmc）先用 cygpath 归一成 E:/orzmc 再转 —— 脚本变量多来自
 # bash 的 pwd，在 Windows 上是 MSYS 路径，直接当 WSL 路径用会找不到文件。
@@ -609,8 +625,8 @@ win_daemon_alias() {
         return 0
     fi
     if docker inspect "$c" >/dev/null 2>&1; then
-        docker network disconnect "$network" "$c" 2>/dev/null || true
-        docker network connect --alias mcsmanager-daemon "$network" "$c" 2>/dev/null || true
+        dkr network disconnect "$network" "$c" 2>/dev/null || true
+        dkr network connect --alias mcsmanager-daemon "$network" "$c" 2>/dev/null || true
     fi
 }
 
@@ -683,7 +699,7 @@ win_daemon_run() {
     fi
     # 确保网络存在（compose up 会创建；首次单独 run 前手动建）
     if ! docker network inspect "$network" >/dev/null 2>&1; then
-        docker network create "$network" >/dev/null 2>&1 || true
+        dkr network create "$network" >/dev/null 2>&1 || true
     fi
     # 进程模式 PaperMC 实例（cwd 在 daemon 内部）的进服端口须由 daemon 容器 -p 暴露。
     # 生效值由上方 win_effective_daemon_ports 计算（逗号分隔 host:container/proto，供
@@ -698,7 +714,7 @@ win_daemon_run() {
         done
         IFS="$oldifs"
     fi
-    docker run -d --name "$(daemon_container)" \
+    dkr run -d --name "$(daemon_container)" \
         --restart unless-stopped \
         --memory "$mem" \
         --env "TZ=${tz}" \
@@ -719,7 +735,7 @@ win_daemon_run() {
 }
 
 win_daemon_rm() {
-    docker rm -f "$(daemon_container)" 2>/dev/null || true
+    dkr rm -f "$(daemon_container)" 2>/dev/null || true
 }
 
 # 站点增量 override 文件列表（供 compose -f 追加，issue #11）：填充全局数组
@@ -856,9 +872,9 @@ compose_cmd() {
                 if [ "$#" -eq 1 ]; then
                     "${base[@]}" "$@"
                     # compose 管理的 daemon 已在上表；只有手动 docker run 的才补齐
-                    if [ -z "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$(daemon_container)" 2>/dev/null)" ]; then
+                    if [ -z "$(dkr inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$(daemon_container)" 2>/dev/null)" ]; then
                         printf '  %-24s %s\n' "daemon(docker-run)" \
-                            "$(docker inspect -f '{{.State.Status}}' "$(daemon_container)" 2>/dev/null || echo "absent")"
+                            "$(dkr inspect -f '{{.State.Status}}' "$(daemon_container)" 2>/dev/null || echo "absent")"
                     fi
                     return 0
                 fi

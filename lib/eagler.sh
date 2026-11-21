@@ -346,7 +346,7 @@ eagler_check_port_conflicts() {
     command -v docker >/dev/null 2>&1 || return 0
     local p busy srv
     for p in "$(eagler_java_port)" $(velocity_servers | cut -d= -f2); do
-        busy="$(docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null \
+        busy="$(dkr ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null \
             | awk -F'|' -v port=":${p}->" '$2 ~ port && $1 != "orzmc-velocity" {print $1}' \
             | head -n 2 | tr '\n' ' ')"
         if [ -n "$busy" ]; then
