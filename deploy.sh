@@ -58,6 +58,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"   # 无默认路径，ADR-033
+apply_docker_backend
 export DATA_ROOT   # 确保 compose 替换使用与脚本一致的值（shell env 优先于 --env-file）
 [ "$#" -ge 1 ] || { usage; exit 1; }
 CMD="$1"; shift

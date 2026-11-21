@@ -726,6 +726,39 @@ Velocity 当前端"寄生在 `proxy` 这个值里（代码里 `lib/firewall.sh` 
 `-jar velocity-4.3.2-1.jar`；移走后再重启回到 `velocity-4.3.1-45.jar`。
 
 **代价**：`versions.env` 没了，部署仓库不再能回答「现在跑的是哪个版本」——要查就进面板或看实例目录。
+
+### ADR-043：Windows 上可选「WSL 原生 dockerd」后端，换回真实玩家源 IP（2026-11-22）
+
+**背景**：Docker Desktop 的端口转发会把**所有**来自局域网的连接源地址改写成网关
+（`172.18.0.1`）：站点日志（Caddy）里看不到真实 IP，游戏内 `/seen`、封禁、审计、
+限流全部失真。原因是 Desktop 用 winNat 转发，NAT 之后内核已无法还原源地址。
+
+WSL 原生 dockerd（`networkingMode=mirrored` + `userland-proxy=false`）走内核 DNAT，
+源地址原样进容器。功能与 Desktop 等价，但**路径与 socket 两处都要跟着换**。
+
+**决策**：`$DATA_ROOT/.env` 增加可选开关 `DOCKER_BACKEND=desktop|wsl`（缺省 `desktop`，
+完全向后兼容）。`wsl` 时：
+
+1. **路径视角切换**：`wsl_path()` 把 `E:/orzmc`（或 MSYS 的 `/e/orzmc`，经 `cygpath` 归一）
+   转成 `/mnt/e/orzmc`；`compose.yaml` 的挂载源、override 文件路径一律用 WSL 视角。
+2. **派生 env**：`wsl_env_file()` 在 `DATA_ROOT` 下生成 `.env.wsl`（仅替换 `DATA_ROOT=` 行，
+   权限 `600`），**不改原 `.env`**——宿主机侧的 `backup.sh` / `restore.sh` / `doctor` 仍要 Windows 路径。
+3. **compose 交给 WSL 跑**：`compose_cmd()` 检测到 `is_wsl_backend` 就把整条
+   `docker compose --env-file … -f … up -d` 拼好，交给 `wsl_run()`（`wsl.exe -d "$WSL_DISTRO" -e bash -lc`，
+   `WSL_DISTRO` 留空 = 默认发行版）执行；入口脚本仍在 **Windows 侧 Git Bash** 跑，`DATA_ROOT` 与
+   备份路径语义不变。
+4. **docker CLI 直连 dockerd**：`apply_docker_backend()` 导出
+   `DOCKER_HOST=tcp://127.0.0.1:2375` 并 `unset DOCKER_CONTEXT`（否则 CLI 仍走 Desktop socket）。
+   要求 WSL 里 `dockerd` 已开 TCP 2375 且 `networkingMode=mirrored`；这两项由宿主机负责，仓库不自动改。
+
+**影响**：默认值不变，未写 `DOCKER_BACKEND` 的机器行为与之前完全一致（CI 的
+`tests/windows_ci.sh` 走的仍是 desktop 分支）。选 `wsl` 后：容器跑在 WSL dockerd 里，
+`DATA_ROOT/.env.wsl` 是新生成的派生物（含密钥，别提交）；`DAEMON_PORTS`（进程模式实例的
+`-p` 注入）在该后端下不生效，脚本会 warn——进程模式实例请改用 docker 型实例。
+
+**为什么不做成自动探测**：Desktop 与 WSL dockerd 可能同时存在（本机就是），
+「哪套在跑」只能是人的选择；静默切换会让已有实例的镜像/卷对不上，属不可逆操作。
+
 ### 已归档 ADR 索引（正文见 git 历史）
 
 下列决策已废止或被取代，仅留索引避免后来者重复踩坑：

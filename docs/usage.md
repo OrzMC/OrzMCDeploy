@@ -169,6 +169,8 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `EASYBOT_MEMORY_LIMIT` | 可选 | EasyBot 上限（缺省 512M） |
 | `DAEMON_PORTS` | 可选 | 仅 Windows 进程模式实例：daemon `-p` 注入（默认置空） |
 | `COMPOSE_FILE_EXTRA` | 可选 | 追加任意路径 compose 文件（空格/逗号分隔） |
+| `DOCKER_BACKEND` | 可选 | **Windows 专用**：`desktop`（缺省）或 `wsl`。`wsl` = 容器跑在 WSL 原生 dockerd、compose 转交 WSL 执行——为的是拿回真实玩家源 IP（Desktop 的端口转发会把源地址改写成 `172.18.0.1`）。见 ADR-043 与附录 F |
+| `WSL_DISTRO` | 可选 | `DOCKER_BACKEND=wsl` 时的目标发行版（如 `Ubuntu`）；留空 = `wsl.exe` 的默认发行版 |
 
 EasyBot 的可选适配器（Telegram / Discord / 飞书）与微信禁用见 [§7.4](#74-可选适配器与微信)。
 
@@ -890,6 +892,8 @@ PaperMC 实例本身。下表按**同时在线**（不是注册数）：
 | 防火墙 | 用 `./orzmc.sh firewall apply`（弹 UAC），**不要手写规则**；`Any` 只允许出现在 `MC_PUBLIC_*` 生成的 `OrzMC-MC-Public-*` |
 | 端口验证 | Docker 发布端口在 WSL 网络栈里，Windows `netstat` 看不到监听属正常；用手机/另一台机器验证 |
 | 实例属主 | 一般无需 `chown`；报 `Permission denied` 时检查 Docker Desktop 文件共享白名单、`cwd` 是否存在 |
+| 引擎后端 | 缺省 Docker Desktop。**要拿回真实玩家源 IP** 就走 `DOCKER_BACKEND=wsl`（ADR-043）：要求 WSL 里 `dockerd` 监听 TCP `2375`、`networkingMode=mirrored`、`userland-proxy=false` |
+| `wsl` 后端 | `up`/`down` 仍在 **Windows 侧 Git Bash** 执行，脚本自动把 compose 交给 `wsl.exe` 跑（`WSL_DISTRO` 可指定发行版），并生成 `DATA_ROOT/.env.wsl`（`DATA_ROOT` 换成 `/mnt/<盘符>/...`，权限 600，含密钥勿提交）。验证源 IP：容器内看 Caddy 日志是否出现 `192.168.x.x` 而不是 `172.18.0.1` |
 
 常见症状：`up` 报 `invalid volume specification` → 改到 Windows 侧执行；面板能开但终端/
 文件管理打不开 → 面板未启用 `dataPlane=proxy`（§6.3）；本机能访问、手机不能 → 防火墙未放行或用错 IP。

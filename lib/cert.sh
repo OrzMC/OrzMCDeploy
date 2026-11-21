@@ -43,6 +43,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"
+apply_docker_backend
 export DATA_ROOT
 is_uint "$MIN_DAYS" || die "--min-days 需要非负整数: $MIN_DAYS"
 

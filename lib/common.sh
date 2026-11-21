@@ -56,6 +56,82 @@ detect_os() {
 }
 is_windows() { [ "$(detect_os)" = "windows" ]; }
 
+# ---- 容器引擎后端（Windows 专用）------------------------------------------
+# 为什么需要：Docker Desktop 的端口转发会把 LAN 访问的源地址统一改写成网关
+# （172.18.0.1），站点日志与游戏内看到的都不是真实玩家 IP。WSL 原生 dockerd
+# （networkingMode=mirrored + userland-proxy=false）走内核 DNAT，源 IP 原样保留。
+# 开关：$DATA_ROOT/.env 里 DOCKER_BACKEND=wsl；不写 = desktop（缺省，向后兼容）。
+# 切到 wsl 后有两处必须跟着变：
+#   1) 宿主机路径要换成 /mnt/<盘符>/...（dockerd 在 WSL 里解析挂载源）；
+#   2) docker CLI 要经 tcp://127.0.0.1:2375 连 WSL dockerd（不是 Desktop 的 socket）。
+docker_backend() {
+    local v
+    v="$(read_env_value DOCKER_BACKEND)"
+    [ -n "$v" ] || v="desktop"
+    case "$v" in
+        desktop|wsl) printf '%s' "$v" ;;
+        *) die "DOCKER_BACKEND=${v} 无效：只允许 desktop / wsl" ;;
+    esac
+}
+
+is_wsl_backend() { is_windows && [ "$(docker_backend)" = "wsl" ]; }
+
+# 目标发行版：`.env` 里 `WSL_DISTRO` 指定（多发行版机器必填）；不写 = `wsl.exe` 的默认发行版。
+wsl_distro() { read_env_value WSL_DISTRO || true; }
+
+# 在 WSL 里执行一段命令：backend=wsl 时 compose / docker 调用统一经这里。
+wsl_run() {
+    local d
+    d="$(wsl_distro)"
+    if [ -n "$d" ]; then
+        wsl.exe -d "$d" -e bash -lc "$*"
+    else
+        wsl.exe -e bash -lc "$*"
+    fi
+}
+
+# Windows 盘符路径 → WSL 视角路径（E:/orzmc → /mnt/e/orzmc）。
+# MSYS 形式（/e/orzmc）先用 cygpath 归一成 E:/orzmc 再转 —— 脚本变量多来自
+# bash 的 pwd，在 Windows 上是 MSYS 路径，直接当 WSL 路径用会找不到文件。
+wsl_path() {
+    local p="$1" drive rest
+    case "$p" in
+        /*) p="$(cygpath -m "$p" 2>/dev/null || printf '%s' "$p")" ;;
+    esac
+    case "$p" in
+        [A-Za-z]:*)
+            drive="$(printf '%s' "${p%%:*}" | tr '[:upper:]' '[:lower:]')"
+            rest="${p#*:}"
+            rest="${rest//\\//}"
+            printf '/mnt/%s%s\n' "$drive" "$rest" ;;
+        *) printf '%s\n' "$p" ;;
+    esac
+}
+
+# 生成 WSL 视角的派生 env 文件（DATA_ROOT 换成 /mnt/...），返回其 WSL 路径。
+# 不直接改 .env：宿主机侧脚本（备份/restore/doctor）仍需要 Windows 形式路径。
+wsl_env_file() {
+    local src dst wroot abs
+    src="$(env_file)"
+    dst="${DATA_ROOT}/.env.wsl"
+    abs="$(norm_path "$DATA_ROOT")"
+    case "$abs" in
+        /*|[A-Za-z]:*) ;;                       # 已是绝对路径
+        *) abs="$(cd "$abs" 2>/dev/null && pwd)" ;;
+    esac
+    wroot="$(wsl_path "$abs")"
+    sed "s#^DATA_ROOT=.*#DATA_ROOT=${wroot}#" "$src" > "$dst"
+    chmod 600 "$dst" 2>/dev/null || true
+    printf '%s\n' "$(wsl_path "$dst")"
+}
+
+# 各子脚本解析完 DATA_ROOT 后调用一次：把 docker CLI 指到 WSL dockerd。
+apply_docker_backend() {
+    is_wsl_backend || return 0
+    export DOCKER_HOST="tcp://127.0.0.1:2375"
+    unset DOCKER_CONTEXT 2>/dev/null || true
+}
+
 # MSYS/原生路径 → Windows 原生正斜杠形式（docker 用）：C:/...、E:/...
 win_path() {
     local p="$1"
@@ -701,6 +777,33 @@ compose_cmd() {
     # 会报 unbound variable（ENABLE_EASYBOT=false 时 profiles_flags 必空）。
     base=(docker compose --env-file "$file" -f "$COMPOSE_FILE" \
         ${extra[@]+"${extra[@]}"} ${profiles_flags[@]+"${profiles_flags[@]}"})
+
+    # ---- Windows + WSL 引擎：compose 必须在 WSL 内执行 --------------------
+    # 宿主机路径（E:/...）WSL 侧 dockerd 解析不了，且 DATA_ROOT 是 Windows 形式。
+    # 做法：派生一份 DATA_ROOT=/mnt/<盘符>/... 的 env 文件，路径一并换成 WSL 视角，
+    # 整条 compose 命令交给 wsl.exe 跑（容器与 dockerd 都在 WSL 里，路径自洽）。
+    if is_wsl_backend; then
+        local wf wenv wcmd _f _p
+        wf="$(wsl_path "$COMPOSE_FILE")"
+        wenv="$(wsl_env_file)"
+        wcmd="docker compose --env-file $(printf '%q' "$wenv") -f $(printf '%q' "$wf")"
+        for _f in ${SITE_OVERRIDE_FILES[@]+"${SITE_OVERRIDE_FILES[@]}"}; do
+            wcmd="${wcmd} -f $(printf '%q' "$(wsl_path "$_f")")"
+        done
+        for _p in ${profiles_flags[@]+"${profiles_flags[@]}"}; do
+            wcmd="${wcmd} $(printf '%q' "$_p")"
+        done
+        for _p in "$@"; do
+            wcmd="${wcmd} $(printf '%q' "$_p")"
+        done
+        # 进程模式实例靠 DAEMON_PORTS 给 daemon 注入 -p；WSL 后端下 daemon 由
+        # compose 直接管理，该变量不生效 —— 说出来，别让人以为设了就管用。
+        if [ -n "$(read_env_value DAEMON_PORTS)" ]; then
+            warn "DOCKER_BACKEND=wsl 下 DAEMON_PORTS 不生效（daemon 由 compose 管理）；进程模式实例请改用 docker 型实例"
+        fi
+        wsl_run "$wcmd"
+        return $?
+    fi
     # Windows：COMPOSE_FILE / override / env-file 是 MSYS 路径（/c/...），docker compose
     # 无法解析（会转成 C:\c\...）。须转 Windows 原生正斜杠路径（docs/usage.md 附录 F）。
     if is_windows; then

@@ -39,6 +39,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"   # 无默认路径，ADR-033
+apply_docker_backend
 export DATA_ROOT
 [ -z "$BACKUP_DIR" ] && BACKUP_DIR="$(norm_path "${DATA_ROOT%/*}/orzmc-backups")"
 
