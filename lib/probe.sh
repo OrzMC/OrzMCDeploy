@@ -93,7 +93,7 @@ probe_instances() {
         return
     fi
     # daemon 里的 java 进程＝正在跑的 MC 实例（面板未点「启动」时这里为 0）
-    n="$(docker exec orzmc-mcsmanager-daemon sh -c 'ps ax 2>/dev/null | grep -c "[j]ava"' 2>/dev/null | tr -d '\r')"
+    n="$(dkr exec orzmc-mcsmanager-daemon sh -c 'ps ax 2>/dev/null | grep -c "[j]ava"' 2>/dev/null | tr -d '\r')"
     n="${n:-0}"
     if [ "$n" -gt 0 ]; then
         _probe_row ok "实例进程" "${n} 个 java 进程在跑"

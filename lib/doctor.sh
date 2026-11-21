@@ -43,15 +43,23 @@ section() { printf '\n%s\n' "== $* =="; }
 
 # ---------------------------------------------------------------- 环境
 section "环境"
-if command -v docker >/dev/null 2>&1; then
-    ok "docker CLI: $(docker --version 2>/dev/null | head -1)"
-    if docker info --format '{{.ServerVersion}}' >/dev/null 2>&1; then
-        ok "docker daemon: $(docker info --format '{{.ServerVersion}}' 2>/dev/null)"
+if is_wsl_backend || command -v docker >/dev/null 2>&1; then
+    if is_wsl_backend; then
+        ok "docker CLI（WSL 后端，经 wsl.exe 调用）: $(dkr --version 2>/dev/null | head -1)"
     else
-        bad "docker daemon 不可达（Windows 上确认 Docker Desktop 已启动；它在会话 0 里会起不来）"
+        ok "docker CLI: $(docker --version 2>/dev/null | head -1)"
     fi
-    if docker compose version >/dev/null 2>&1; then
-        ok "compose 插件: $(docker compose version --short 2>/dev/null)"
+    if dkr info --format '{{.ServerVersion}}' >/dev/null 2>&1; then
+        ok "docker daemon: $(dkr info --format '{{.ServerVersion}}' 2>/dev/null)"
+    else
+        if is_wsl_backend; then
+            bad "docker daemon 不可达（WSL 里 dockerd 没起，或没开 TCP 2375）"
+        else
+            bad "docker daemon 不可达（Windows 上确认 Docker Desktop 已启动；它在会话 0 里会起不来）"
+        fi
+    fi
+    if dkr compose version >/dev/null 2>&1; then
+        ok "compose 插件: $(dkr compose version --short 2>/dev/null)"
     else
         bad "缺少 docker compose 插件（docker-compose v1 不被支持）"
     fi
@@ -127,11 +135,11 @@ fi
 
 # ---------------------------------------------------------------- 运行时
 section "运行时"
-containers="$(docker ps -a --format '{{.Names}}' 2>/dev/null | tr -d '\r' | grep -E '^orzmc-' || true)"
+containers="$(dkr ps -a --format '{{.Names}}' 2>/dev/null | tr -d '\r' | grep -E '^orzmc-' || true)"
 if [ -z "$containers" ]; then
     warn "没有 orzmc-* 容器：平台层从未启动过，或已 stop"
 else
-    running="$(docker ps --format '{{.Names}}' 2>/dev/null | tr -d '\r' | grep -cE '^orzmc-' || true)"
+    running="$(dkr ps --format '{{.Names}}' 2>/dev/null | tr -d '\r' | grep -cE '^orzmc-' || true)"
     total="$(printf '%s\n' "$containers" | wc -l | tr -d ' ')"
     ok "容器 ${running}/${total} 在运行"
 
@@ -139,7 +147,7 @@ else
     roots=""
     while IFS= read -r c; do
         [ -n "$c" ] || continue
-        cf="$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)"
+        cf="$(dkr inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' 2>/dev/null || true)"
         case "$cf" in ""|"<no value>") continue ;; esac
         first="${cf%%,*}"                 # 只看主 compose 文件（其余是 -f 追加的）
         first="${first//\\//}"            # 反斜杠统一成正斜杠再比
@@ -169,7 +177,7 @@ else
     fi
 
     # 端口是否真的发布到宿主
-    ports="$(docker ps --format '{{.Ports}}' 2>/dev/null | tr -d '\r')"
+    ports="$(dkr ps --format '{{.Ports}}' 2>/dev/null | tr -d '\r')"
     for p in 25565 19132; do
         case "$ports" in
             *":${p}->"*) ok "宿主端口 ${p} 已发布" ;;
