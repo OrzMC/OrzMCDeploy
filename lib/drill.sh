@@ -67,6 +67,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"
+apply_docker_backend
 export DATA_ROOT
 [ -n "$BACKUP_DIR" ] || BACKUP_DIR="$(norm_path "${DATA_ROOT%/*}/orzmc-backups")"
 

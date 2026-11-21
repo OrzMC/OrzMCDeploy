@@ -372,6 +372,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"
+apply_docker_backend
 export DATA_ROOT
 assert_data_root_matches
 site_dispatch "$@"

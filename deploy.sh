@@ -58,6 +58,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"   # 无默认路径，ADR-033
+apply_docker_backend
 export DATA_ROOT   # 确保 compose 替换使用与脚本一致的值（shell env 优先于 --env-file）
 [ "$#" -ge 1 ] || { usage; exit 1; }
 CMD="$1"; shift
@@ -88,8 +89,15 @@ cmd_up() {
     # EaglerXServer 首次启动才生成 listeners.toml：随后修正为面向反代的配置，
     # 有改动才重启一次代理（首启一次，之后幂等）。
     if eagler_post_up; then
-        info "重启 velocity 代理以应用配置"
-        compose_cmd restart velocity
+        # ADR-041：velocity 归面板托管后就不再是 compose 服务，直接 restart 会报
+        # "no such service: velocity" 并且**配置静默不生效**。这里先探测，探不到就
+        # 明确告诉人去面板重启实例。
+        if compose_cmd config --services 2>/dev/null | grep -qx 'velocity'; then
+            info "重启 velocity 代理以应用配置"
+            compose_cmd restart velocity
+        else
+            warn "Eagler/Geyser 配置已更新：velocity 由面板托管，需要在面板里重启 velocity 实例才生效"
+        fi
     fi
     echo "服务已启动"
     print_access_info

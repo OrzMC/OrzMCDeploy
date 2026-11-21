@@ -32,6 +32,7 @@ EOF
 esac
 
 [ -n "$DATA_ROOT" ] || DATA_ROOT="$(resolve_data_root)"
+apply_docker_backend
 export DATA_ROOT
 
 PASS=0; WARNED=0; FAILED=0
@@ -149,9 +150,14 @@ else
         esac
     done <<<"$containers"
     n_roots="$(printf '%s' "$roots" | awk -F'|' '{print NF}')"
-    # docker 标签里是 Windows 原生路径（E:/...），而脚本可能从 MSYS 路径（/e/...）运行：
-    # 先用 win_path 归一，否则同一棵树会被判成两棵。
-    repo_norm="$(win_path "$REPO_ROOT")"
+    # docker 标签里是 compose 文件路径：Windows 后端是 Windows 原生路径（E:/...），
+    # WSL 后端是 WSL 路径（/mnt/e/...）；脚本可能从 MSYS 路径（/e/...）运行。
+    # 两种情况都归一，否则同一棵树会被判成两棵。
+    if is_wsl_backend; then
+        repo_norm="$(wsl_path "$REPO_ROOT")"
+    else
+        repo_norm="$(win_path "$REPO_ROOT")"
+    fi
     if [ -z "$roots" ]; then
         warn "容器没有 compose 标签（可能是手工 docker run 起的）"
     elif [ "$n_roots" -gt 1 ]; then
