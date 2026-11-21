@@ -65,7 +65,21 @@ info "打包 $DATA_ROOT -> $archive"
 #   2) 归档路径 "E:/..." 同样被当 host:path → Windows 下要 --force-local。
 TAR_NAME="${DATA_ROOT##*/}"
 TAR_PARENT="$(tar_parent_of "$DATA_ROOT")"
-tar_local -C "$TAR_PARENT" -czf "$archive" "$TAR_NAME"
+# 在线（热）打包时服务端仍在写 world，GNU tar 必然报
+#   "file changed as we read it" 并以 exit 1 结束。
+# 这不是打包失败，而是「归档里某个文件可能不是最新字节」。历史实现让它撞上
+# set -e 直接中止，于是后面的 -tzf 校验与 --keep 清理永不执行（备份目录无限膨胀）。
+# 因此：0 = 干净；1 = 容忍（下面用 -tzf 校验兜底，校验不过仍判失败）；
+#       >1 = 真失败（文件打不开/磁盘写满等），直接退出。
+# 一致性另说：world 撕裂快照是热备份的固有代价；要严格一致请用 --stop，
+# 并在面板先停 PaperMC 实例。
+tar_rc=0
+tar_local -C "$TAR_PARENT" -czf "$archive" "$TAR_NAME" || tar_rc=$?
+case "$tar_rc" in
+    0) ;;
+    1) warn "tar 返回 1：打包期间有文件被改写（运行中的实例目录），继续校验归档" ;;
+    *) die "打包失败（tar exit ${tar_rc}）: $archive" ;;
+esac
 
 if [ "$STOP" = 1 ] && [ -f "$(env_file)" ]; then
     info "重新拉起 compose 服务..."
@@ -75,7 +89,11 @@ fi
 # 校验归档可读：同样要 --force-local，且必须写 -tzf（带短横线）——
 # --force-local 在前面时 GNU tar 不再把裸 "tzf" 当选项束解析。
 if tar_local -tzf "$archive" >/dev/null 2>&1; then
-    info "备份完成并校验通过: $archive"
+    if [ "$tar_rc" = 1 ]; then
+        warn "备份完成（热备份：打包期间有文件被改写，校验通过）: $archive"
+    else
+        info "备份完成并校验通过: $archive"
+    fi
 else
     die "备份校验失败: $archive"
 fi
