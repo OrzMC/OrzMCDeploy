@@ -75,6 +75,26 @@ ENABLE_EAGLER=false
 # EAGLER_GEYSER_PORT=19132
 # EAGLER_GEYSER_WEBRTC_PORT=19134   # 设 0 = 复用 EAGLER_GEYSER_PORT（需 transport=nethernet）
 
+# ---- Web 客户端托管（可选；ENABLE_WEBMC=true 时启动 webmc 容器）----
+# 只提供入口/深链/外嵌，**镜像不含客户端本体**；把官方客户端放到
+# ${DATA_ROOT}/webmc/versions/<版本>/client.html 后再启动/重启 webmc。
+# 客户端 ARR/EULA：仅私有兜底，不公开分发、不商业化。
+ENABLE_WEBMC=false
+LAN_WEBMC_PORT=18092
+# 镜像：默认 GHCR。若包仍为 private：先在宿主机 docker login ghcr.io（PAT read:packages），
+# 或把 GitHub Packages 里 orzmc-webmc 的可见性改为 public。
+WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.0
+# 允许哪些站点 iframe 嵌入（CSP frame-ancestors；生产建议收窄到官网域名）
+# WEBMC_FRAME_ANCESTORS=https://orzmc.jokerhub.cn
+# API 绝对 URL/反代对外地址（只影响 /api/versions 的 playUrl/embedUrl）
+# WEBMC_PUBLIC_BASE_URL=https://webclient.example.com
+# 默认版本；留空 = 数据目录排序最后的版本
+# WEBMC_DEFAULT_VERSION=26.3
+# 私有入口令牌；非空则 /play、/embed、/client 需要 ?token=
+# WEBMC_ACCESS_TOKEN=
+# 客户端补丁需要一定堆；默认 512M，容器上限 768M
+# WEBMC_JAVA_OPTS=-Xms256m -Xmx512m
+
 # ---- 容器内端口（须与镜像默认一致；宿主端口见上方 LAN_*_PORT）----
 MCS_WEB_PORT=23333
 MCS_DAEMON_PORT=24444

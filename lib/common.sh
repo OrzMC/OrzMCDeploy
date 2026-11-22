@@ -90,9 +90,11 @@ tar_parent_of() {
 # ENABLE_EASYBOT 缺省为 true（保持历史默认启用）；ADR-025 起只剩 easybot 一个可选服务。
 # 注意：判断写成 if（避免 set -e 下 [ false ] 返回非零导致函数退出）。
 enabled_profiles() {
-    local eb
+    local eb ew
     eb="$(read_env_value ENABLE_EASYBOT)";  [ -n "$eb" ] || eb="true"
     if [ "$eb" = "true" ]; then printf '%s\n' "easybot"; fi
+    ew="$(read_env_value ENABLE_WEBMC)";  [ -n "$ew" ] || ew="false"
+    if [ "$ew" = "true" ]; then printf '%s\n' "webmc"; fi
     # Velocity 前端（ADR-040 起）由 MCSM 面板托管成实例，不再是 compose 服务，
     # 所以这里不再输出 velocity profile。
 }
@@ -813,17 +815,24 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip bind cidr eb host wp jp
+    local lan_ip bind cidr eb ew wport host wp jp
     lan_ip="$(read_env_value LAN_HOST_IP)"
     bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
     cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
     eb="$(read_env_value ENABLE_EASYBOT)"; [ -n "$eb" ] || eb="true"
+    ew="$(read_env_value ENABLE_WEBMC)";   [ -n "$ew" ] || ew="false"
     echo "访问地址（局域网）："
     echo "  MCSManager Web: http://${lan_ip}:$(read_env_value LAN_MCS_WEB_PORT)"
     if [ "$eb" = "true" ]; then
         echo "  EasyBot 管理后台: http://${lan_ip}:$(read_env_value LAN_EASYBOT_PORT)"
     else
         echo "  EasyBot: 已禁用（ENABLE_EASYBOT=false）"
+    fi
+    if [ "$ew" = "true" ]; then
+        wport="$(read_env_value LAN_WEBMC_PORT)"; [ -n "$wport" ] || wport="18092"
+        echo "  Web 客户端托管: http://${lan_ip}:${wport}"
+    else
+        echo "  Web 客户端托管: 已禁用（ENABLE_WEBMC=false）"
     fi
     if [ "$bind" = "127.0.0.1" ]; then
         echo "  暴露面: 仅本机（LAN_BIND_ADDR=127.0.0.1，需经反代/VPN 访问）"

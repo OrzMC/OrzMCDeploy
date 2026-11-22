@@ -84,7 +84,8 @@ Discord/飞书/微信，插件内网直连）、**多实例 PaperMC**（玩家�
 
 `-d` 必填（或用 `ORZMC_DATA_ROOT`）：**DATA_ROOT 没有默认路径**，理由与选择建议见 §4.1。
 
-`up` 会拉起 `mcsmanager-web` / `mcsmanager-daemon`（+ `easybot`，除非 `ENABLE_EASYBOT=false`）；
+`up` 会拉起 `mcsmanager-web` / `mcsmanager-daemon`（+ `easybot`，除非 `ENABLE_EASYBOT=false`；
++ `webmc`，仅当 `ENABLE_WEBMC=true`）；
 `status` 打印两个入口：`http://<LAN_HOST_IP>:18090`（面板）、`:18091`（EasyBot 后台）。
 核对发布端口：`docker compose ... --profile easybot config | grep published` 只应有 18090/18091
 （没有 24444——daemon 不发布）。
@@ -152,6 +153,10 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `EASYBOT_ADMIN_PASSWORD` | ✔ | EasyBot 管理后台密码（强密码） |
 | `QQBOT_APP_ID` / `QQBOT_CLIENT_SECRET` | ✔（启用 EasyBot 时） | QQ 开放平台凭据 |
 | `ENABLE_EASYBOT` | 可选 | 缺省 `true`；`false` 则不启动 EasyBot |
+| `ENABLE_WEBMC` | 可选 | 缺省 `false`；`true` 则启动 Web 客户端托管（profile `webmc`） |
+| `LAN_WEBMC_PORT` | 可选 | webmc 宿主端口（默认 `18092`） |
+| `WEBMC_IMAGE` | 可选 | webmc 镜像（默认 `ghcr.io/orzmc/orzmc-webmc:0.1.0`；GHCR 包需 public 或 docker login） |
+| `WEBMC_FRAME_ANCESTORS` / `WEBMC_PUBLIC_BASE_URL` / `WEBMC_DEFAULT_VERSION` / `WEBMC_ACCESS_TOKEN` | 可选 | 外嵌 CSP、API 绝对 URL、默认版本、入口令牌；见 [webmc.md](webmc.md) |
 | `LAN_BIND_ADDR` | 可选 | 端口绑定地址（缺省 `0.0.0.0`；`127.0.0.1` 仅本机，ADR-028） |
 | `LAN_CIDR` / `ALLOW_EXTRA_CIDRS` | 可选 | 防火墙放行来源（只需 `firewall` 时关心） |
 | `MC_TCP_PORTS` / `MC_UDP_PORTS` / `RCON_PORTS` | 可选 | 实例进服端口的防火墙放行清单（仅 `firewall` 使用） |
@@ -852,6 +857,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | `mcsmanager-web` | `orzmc-mcsmanager-web` | 常驻，宿主 `LAN_MCS_WEB_PORT` | `githubyumao/mcsmanager-web` |
 | `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 常驻 | `githubyumao/mcsmanager-daemon` |
 | `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`），宿主 `LAN_EASYBOT_PORT` | `ghcr.io/easyindie/easybot` |
+| `webmc` | `orzmc-webmc` | 可选（`ENABLE_WEBMC`），宿主 `LAN_WEBMC_PORT`；镜像不含客户端 | `ghcr.io/orzmc/orzmc-webmc` |
 
 镜像版本以 `compose.yaml` 中的 `image:xxx@sha256:...` 为准；刷新用
 `update-image-digests.sh`（三个服务的镜像映射只在该脚本一处维护）。

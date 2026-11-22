@@ -11,6 +11,16 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [Unreleased]
+
+### Added
+
+- **可选服务 `webmc`（Web 客户端托管）**：`ENABLE_WEBMC=true` 时启动
+  `ghcr.io/orzmc/orzmc-webmc`（宿主 `LAN_WEBMC_PORT`，默认 18092）。
+  只提供入口/深链/外嵌/多版本；**镜像与仓库不包含客户端本体**，客户端由运维放进
+  `$DATA_ROOT/webmc/versions/<id>/client.html`。详见 [docs/webmc.md](docs/webmc.md)。
+  客户端 ARR/EULA：仅私有兜底，不公开分发、不商业化。
+
 ## [0.6.1] - 2026-11-21
 
 ### Changed
