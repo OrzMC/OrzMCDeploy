@@ -44,12 +44,24 @@ cp <仓库>/data/versions/meta.example.json \
    "$DATA_ROOT/webmc/versions/26.3/meta.json"
 ```
 
-多版本：每个子目录一个版本（`1.8.8/`、`12.2/`、`26.3/`…），访问
+多版本：每个子目录一个版本（`1.8.8/`、`1.12.2/`、`26.2/`、`26.3/`），访问
 `/play?version=<id>&server=wss://...`。
 
+| id | 官方离线资产 | MC 协议 | 运行时 | `inject` |
+|---|---|---:|---|---|
+| `1.8.8` | `1.8.8/eaglercraft1-8-62da5f39.zip` | 47 | js | `joinServer` |
+| `1.12.2` | `1.12.2/eaglercraft1-12-62da5f39.zip` | 340 | js | `joinServer` |
+| `26.2` | `26.2/eaglercraft-26.2-fe8f1237-d6714264.zip` | 776 | wasm-gc | `auto` |
+| `26.3` | `26.3/eaglercraft-26.3-590e4bd1-3769e546.zip` | 777 | wasm-gc | `auto` |
+
+> 官方资产在 `https://cdn.eaglercraft.net/objects/dl/...`；解压后把 zip 内唯一 HTML 改名为
+> `client.html`。1.5.2 需要 `EaglerXRewind`，EaglerXServer 默认不接，不要放。
+
 - 目录名 = 版本 id（`[A-Za-z0-9._-]`）；`meta.json` 可覆盖 `name/client/protocol/runtime/inject`。
-- 官方 26.3 客户端不读 `?server=`；服务首次访问时在**容器内临时缓存**注入
+- 官方 26.x 客户端不读 `?server=`；服务首次访问时在**容器内临时缓存**注入
   `eaglercraftXOpts.joinServer`，源文件不改、镜像不存客户端。
+- ⚠️ **1.8.8 / 1.12.2 必须 `"inject": "joinServer"`**：这两版代码里本来就有
+  `joinServer` 选项名，但不会从 URL 读取；`auto` 会误判为已支持，深链不会自动连服。
 - 新增/更新版本后重启 `webmc`：`./orzmc.sh -d <数据目录> up`（或 `docker restart orzmc-webmc`）。
 
 ## 3. 深链与外嵌
