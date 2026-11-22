@@ -14,7 +14,7 @@
 # 1) 编辑 $DATA_ROOT/.env
 ENABLE_WEBMC=true
 LAN_WEBMC_PORT=18092
-WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.1
+WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.2
 # 可选：限制可嵌入的站点
 # WEBMC_FRAME_ANCESTORS=https://orzmc.jokerhub.cn
 # 可选：对外域名（只影响 API 返回的绝对 URL）
@@ -117,11 +117,11 @@ web_client_fallback_url = "https://webclient.example.com/play?version={version}&
 
 ## 6. 镜像与升级
 
-- 镜像：`ghcr.io/orzmc/orzmc-webmc:<tag>`（当前 `0.1.1`；`0.1.1` 修复了 78MB 客户端在 512M 堆下的 OOM）。
+- 镜像：`ghcr.io/orzmc/orzmc-webmc:<tag>`（当前 `0.1.2`；`0.1.1` 修复 78MB 客户端在 512M 堆下的 OOM，`0.1.2` 增加播放壳/大小屏/加载反馈）。
 - **GHCR 包已设为 public**，宿主机可直接 `docker pull`，无需登录。
   若遇到限流/网络问题，仍可 `docker login ghcr.io` 或本地 `docker build`。
 - 升级：改 `.env` 的 `WEBMC_IMAGE` → `./orzmc.sh up`。建议钉 digest（与其它镜像一致）。
-  `0.1.1` digest：`sha256:eeb28e3bc2499d69ae89ec3ae133c9b92a19c4afe89ba5eb3e87bbb0d171e47a`。
+  `0.1.2` digest：`sha256:ef0fb1d7dceab28c153f067b01ca3d403bfbd3486123a12410bc2dc822dc4fd7`。
 - 数据/客户端在 `$DATA_ROOT/webmc/`，升级镜像不丢。
 
 ## 7. 资源与排障
