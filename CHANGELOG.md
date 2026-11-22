@@ -11,7 +11,7 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
-## [Unreleased]
+## [0.7.0] - 2026-11-22
 
 ### Added
 
