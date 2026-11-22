@@ -14,7 +14,7 @@
 # 1) 编辑 $DATA_ROOT/.env
 ENABLE_WEBMC=true
 LAN_WEBMC_PORT=18092
-WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.0
+WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.1
 # 可选：限制可嵌入的站点
 # WEBMC_FRAME_ANCESTORS=https://orzmc.jokerhub.cn
 # 可选：对外域名（只影响 API 返回的绝对 URL）
@@ -105,11 +105,12 @@ web_client_fallback_url = "https://webclient.example.com/play?version={version}&
 
 ## 6. 镜像与升级
 
-- 镜像：`ghcr.io/orzmc/orzmc-webmc:<tag>`（当前 `0.1.0`）。
+- 镜像：`ghcr.io/orzmc/orzmc-webmc:<tag>`（当前 `0.1.1`；`0.1.1` 修复了 78MB 客户端在 512M 堆下的 OOM）。
 - **GHCR 包当前是 private**（GitHub Packages 默认）。两种方式：
   1. 在 GitHub → Packages → `orzmc-webmc` → Settings 把可见性改为 **public**（推荐）；
   2. 或宿主机先 `docker login ghcr.io -u <user> -p <PAT with read:packages>`，再 `up`。
 - 升级：改 `.env` 的 `WEBMC_IMAGE` → `./orzmc.sh up`。建议钉 digest（与其它镜像一致）。
+  `0.1.1` digest：`sha256:eeb28e3bc2499d69ae89ec3ae133c9b92a19c4afe89ba5eb3e87bbb0d171e47a`。
 - 数据/客户端在 `$DATA_ROOT/webmc/`，升级镜像不丢。
 
 ## 7. 资源与排障

@@ -83,7 +83,7 @@ ENABLE_WEBMC=false
 LAN_WEBMC_PORT=18092
 # 镜像：默认 GHCR。若包仍为 private：先在宿主机 docker login ghcr.io（PAT read:packages），
 # 或把 GitHub Packages 里 orzmc-webmc 的可见性改为 public。
-WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.0
+WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.1
 # 允许哪些站点 iframe 嵌入（CSP frame-ancestors；生产建议收窄到官网域名）
 # WEBMC_FRAME_ANCESTORS=https://orzmc.jokerhub.cn
 # API 绝对 URL/反代对外地址（只影响 /api/versions 的 playUrl/embedUrl）
