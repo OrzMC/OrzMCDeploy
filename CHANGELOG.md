@@ -11,6 +11,14 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [Unreleased]
+
+### Changed
+
+- **webmc 默认镜像 0.1.2**：`/play` 改为带工具栏的播放壳（默认窗口，可全屏/小窗切换），
+  首次加载显示进度反馈；`/play/raw` 保留原始客户端 HTML，`/embed` 使用它避免嵌套工具栏。
+  生产多版本（1.8.8/1.12.2/26.2/26.3）不变。
+
 ## [0.7.0] - 2026-11-22
 
 ### Added

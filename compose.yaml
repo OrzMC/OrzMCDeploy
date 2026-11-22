@@ -77,7 +77,7 @@ services:
       resources:
         limits:
           memory: "${WEBMC_MEMORY_LIMIT:-768M}"   # 78MB 客户端补丁需要一定堆；见 docs/webmc.md
-    image: "${WEBMC_IMAGE:-ghcr.io/orzmc/orzmc-webmc:0.1.1}"
+    image: "${WEBMC_IMAGE:-ghcr.io/orzmc/orzmc-webmc:0.1.2}"
     container_name: orzmc-webmc
     restart: unless-stopped
     environment:
