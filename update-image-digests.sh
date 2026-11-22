@@ -13,7 +13,7 @@
 #
 # EasyBot 用**发布 tag**（非 latest）：上游 `latest` 跟踪 main 分支（label
 # `org.opencontainers.image.version=main`），直接钉 latest 会引入未发布构建。
-# 升级时把下面的 EASYBOT_TAG 改成目标发布版本（如 0.0.43 → 0.0.44）。
+# 升级时把下面的 EASYBOT_TAG 改成目标发布版本（如 0.0.44 → 0.0.45）。
 # ===========================================================================
 
 set -euo pipefail
@@ -21,7 +21,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/compose.yaml"
 
-EASYBOT_TAG="${EASYBOT_TAG:-0.0.43}"
+EASYBOT_TAG="${EASYBOT_TAG:-0.0.44}"
 
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "未找到 compose 文件: $COMPOSE_FILE" >&2
