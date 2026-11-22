@@ -11,6 +11,19 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.7.2] - 2026-11-23
+
+### Changed
+
+- **easybot 镜像 0.0.43 → 0.0.44**（`ghcr.io/easyindie/easybot`）：上游修复「QQ DM（C2C）会话的
+  主动消息在 `chat_types` 缓存为空时（典型场景 = 网关刚重启）必然失败」。根因：级联回退
+  `channel → group → C2C` 只把 `HTTP 404` / 业务码 `11263` 当「资源不存在」，而 QQ 对
+  「拿用户 openid 打 `/v2/groups/…`」返回的是 `code 11255 / err_code 40011028`，
+  于是回退在群端点中止、永远到不了 `/v2/users/…`。表现是「重启后私聊告警必失败，
+  等有人私聊过 bot 才恢复」。上游 PR：[EasyIndie/EasyBot#197](https://github.com/EasyIndie/EasyBot/pull/197)
+  （另含 [#198](https://github.com/EasyIndie/EasyBot/pull/198) 的 CI 修复）。
+  真机 A/B 已验证：同一 DM 目标、同为「重启后无入站缓存」，0.0.43 失败、0.0.44 成功。
+
 ## [0.7.1] - 2026-11-23
 
 ### Changed
