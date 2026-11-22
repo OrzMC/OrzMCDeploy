@@ -106,9 +106,8 @@ web_client_fallback_url = "https://webclient.example.com/play?version={version}&
 ## 6. 镜像与升级
 
 - 镜像：`ghcr.io/orzmc/orzmc-webmc:<tag>`（当前 `0.1.1`；`0.1.1` 修复了 78MB 客户端在 512M 堆下的 OOM）。
-- **GHCR 包当前是 private**（GitHub Packages 默认）。两种方式：
-  1. 在 GitHub → Packages → `orzmc-webmc` → Settings 把可见性改为 **public**（推荐）；
-  2. 或宿主机先 `docker login ghcr.io -u <user> -p <PAT with read:packages>`，再 `up`。
+- **GHCR 包已设为 public**，宿主机可直接 `docker pull`，无需登录。
+  若遇到限流/网络问题，仍可 `docker login ghcr.io` 或本地 `docker build`。
 - 升级：改 `.env` 的 `WEBMC_IMAGE` → `./orzmc.sh up`。建议钉 digest（与其它镜像一致）。
   `0.1.1` digest：`sha256:eeb28e3bc2499d69ae89ec3ae133c9b92a19c4afe89ba5eb3e87bbb0d171e47a`。
 - 数据/客户端在 `$DATA_ROOT/webmc/`，升级镜像不丢。
@@ -124,7 +123,7 @@ web_client_fallback_url = "https://webclient.example.com/play?version={version}&
 
 | 现象 | 处理 |
 |---|---|
-| 容器起不来 / `pull access denied` | GHCR 包 private：改 public 或 `docker login ghcr.io` |
+| 容器起不来 / `pull access denied` | 包已 public；检查 DNS/网络；私有镜像才需 `docker login ghcr.io` |
 | `/api/health` 正常但 `/api/versions` 为空 | 客户端没放对：需 `versions/<id>/client.html`，然后重启 |
 | `/play` 404 Unknown version | `version` 与目录名不一致；看 `/api/versions` |
 | 页面能开但没自动进服 | 客户端需首次 Edit Profile → Done、Default Username → Continue Anyway；之后自动连接 |
