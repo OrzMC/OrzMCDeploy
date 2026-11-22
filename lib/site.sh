@@ -228,7 +228,7 @@ site_write_compose() {
 site_validate_file() {
     local file="$1" img
     img="$SITE_CADDY_IMAGE"
-    if ! docker image inspect "$img" >/dev/null 2>&1; then
+    if ! dkr image inspect "$img" >/dev/null 2>&1; then
         warn "本地无 $img，跳过语法校验（首次 apply 时 compose 会拉取）"
         return 0
     fi
@@ -238,8 +238,14 @@ site_validate_file() {
     email="$(read_env_value ACME_EMAIL || true)"
     [ -n "$email" ] || email="admin@example.com"
     token="$(read_env_value CF_DNS_API_TOKEN || true)"
-    docker run --rm -e "ACME_EMAIL=${email}" -e "CF_DNS_API_TOKEN=${token:-dummy}" \
-        -v "$(win_path "$file"):/etc/caddy/Caddyfile:ro" \
+    local mount
+    if is_wsl_backend; then
+        mount="$(wsl_path "$file")"
+    else
+        mount="$(win_path "$file")"
+    fi
+    dkr run --rm -e "ACME_EMAIL=${email}" -e "CF_DNS_API_TOKEN=${token:-dummy}" \
+        -v "${mount}:/etc/caddy/Caddyfile:ro" \
         --entrypoint caddy "$img" adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 }
 
@@ -287,8 +293,8 @@ site_cmd_apply() {
 
     site_write_compose
 
-    if docker ps --format '{{.Names}}' | tr -d '\r' | grep -qx 'orzmc-caddy'; then
-        if docker exec orzmc-caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null; then
+    if dkr ps --format '{{.Names}}' | tr -d '\r' | grep -qx 'orzmc-caddy'; then
+        if dkr exec orzmc-caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null; then
             info "Caddy 已热重载（未重启容器，连接不中断）"
         else
             warn "热重载失败，回滚到上一个 Caddyfile"
@@ -296,7 +302,7 @@ site_cmd_apply() {
             # shellcheck disable=SC2012  # macOS BSD find 无 -printf，按 mtime 排序只能用 ls
             bak="$(ls -1t "${f}".bak-* 2>/dev/null | head -1 || true)"
             [ -n "$bak" ] && cp -p "$bak" "$f"
-            docker exec orzmc-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
+            dkr exec orzmc-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
             die "reload 失败，已回滚；请检查 docker logs orzmc-caddy"
         fi
     else
@@ -320,7 +326,7 @@ site_cmd_status() {
 
     local container
     container="orzmc-caddy"
-    if docker ps --format '{{.Names}}' | tr -d '\r' | grep -qx "$container"; then
+    if dkr ps --format '{{.Names}}' | tr -d '\r' | grep -qx "$container"; then
         info "orzmc-caddy 运行中"
     else
         warn "orzmc-caddy 未运行"

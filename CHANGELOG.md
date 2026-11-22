@@ -20,6 +20,10 @@
   只提供入口/深链/外嵌/多版本；**镜像与仓库不包含客户端本体**，客户端由运维放进
   `$DATA_ROOT/webmc/versions/<id>/client.html`。详见 [docs/webmc.md](docs/webmc.md)。
   客户端 ARR/EULA：仅私有兜底，不公开分发、不商业化。
+- **webmc 0.1.1**：`Patcher` 改为按字节注入 `joinServer`，修复 78MB 官方客户端在
+  `-Xmx512m` 下 `/play` OOM；默认镜像同步到 `0.1.1`。
+- **`site apply` 在 WSL 后端可用**：校验/重载/状态查询改走 `dkr`（WSL 内 docker），
+  Caddyfile 挂载路径用 WSL 视角，Windows 侧不再因 `E:/...` 卷路径失败。
 
 ## [0.6.1] - 2026-11-21
 
