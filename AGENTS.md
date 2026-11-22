@@ -44,14 +44,15 @@ EasyBot 统一 IM 网关），并管理 PaperMC 游戏实例。PaperMC 实例**�
   默认只信任局域网，**禁止把规则来源改成 Any**（面板是 HTTP + 口令登录）；
   仅两类例外：站点自备 TLS 反代端口、`.env` 明确声明的 `MC_PUBLIC_TCP`/`MC_PUBLIC_UDP`
   （游戏端口，RCON 永不进该清单）。
-- 可选服务仅 easybot；平台层不含数据库/状态页（ADR-025）。
+- 可选服务 easybot / webmc；平台层不含数据库/状态页（ADR-025）。
 - 历史 ADR（多边缘层时代）只在 `docs/architecture.md` 保留一行索引，正文在 git 历史。
 
-### 4. 网络拓扑：局域网 2 个入口，EasyBot 插件 API 仅内网
+### 4. 网络拓扑：局域网 2 个常驻入口（+ 可选 webmc），EasyBot 插件 API 仅内网
 
-局域网暴露 **2 个入口**（宿主发布端口，纯 HTTP）：
+局域网暴露 **2 个常驻入口 + 可选 webmc**（宿主发布端口，纯 HTTP）：
 - `http://<LAN_HOST_IP>:<LAN_MCS_WEB_PORT>`（缺省 18090）→ MCSManager 面板（登录鉴权）
 - `http://<LAN_HOST_IP>:<LAN_EASYBOT_PORT>`（缺省 18091）→ EasyBot 管理后台（登录鉴权）
+- `http://<LAN_HOST_IP>:<LAN_WEBMC_PORT>`（缺省 18092，`ENABLE_WEBMC=true` 时）→ Web 客户端托管（可选；无客户端本体）
 - 对外访问由站点自备（DDNS + 端口映射 / 反代 / VPN）；直接映射到公网前必须加 TLS 反代/VPN。
 - **daemon 不对外暴露任何入口**（ADR-026）：MCSManager 10.22 起面板自身中转浏览器↔daemon
   的数据流（`SystemConfig.dataPlane=proxy`，新装默认），因此：
@@ -97,6 +98,7 @@ docs/security.md        暴露面与访问控制（三层限源、三档配置�
 docs/papermc-template.md PaperMC 实例字段参考（面板运行数据，不在仓库配置里）
 docs/eaglercraft.md     Eaglercraft Web 接入调研（26.3 协议证据、方案对比、推荐架构、兼容矩阵）
 docs/eaglercraft-deploy.md 上述方案的实施/验收/回滚（站点增量：代理容器 + 反代 + 实例插件）
+docs/webmc.md           可选 webmc 服务：启用/放客户端/深链/外嵌/site 接入/GHCR 镜像
 tests/eaglercraft_probe.py Eaglercraft 握手探针（手工验收用，不进 CI）
 ```
 

@@ -8,6 +8,8 @@
 #   面板 LAN_MCS_WEB_PORT→23333、EasyBot LAN_EASYBOT_PORT→8080
 # daemon 24444 不发布（面板中转数据面，ADR-026）；easybot 由 ENABLE_EASYBOT 开关
 # （compose_cmd 追加 --profile easybot），核心 web/daemon 常驻。
+# webmc（Web 客户端托管）由 ENABLE_WEBMC 开关（compose_cmd 追加 --profile webmc）；
+# 镜像/数据都不含客户端本体，客户端由运维放进 ${DATA_ROOT}/webmc/versions/。
 # ===========================================================================
 
 name: orzmc
@@ -66,6 +68,30 @@ services:
   # 前端代理（Velocity）**不在这里**：ADR-040 起由 MCSM 面板托管成实例，
   # 容器名仍是 orzmc-velocity（Caddy 路由不用改），jar/插件在面板的文件管理里换。
   # 端口（EAGLER_JAVA_PORT / 基岩 19132）由面板实例的端口映射承担。
+
+  webmc:
+    # 可选服务：ENABLE_WEBMC=true 时由 compose_cmd 追加 --profile webmc。
+    # 只提供入口/深链/外嵌；客户端本体由运维放进 ${DATA_ROOT}/webmc/versions/。
+    profiles: ["webmc"]
+    deploy:
+      resources:
+        limits:
+          memory: "${WEBMC_MEMORY_LIMIT:-768M}"   # 78MB 客户端补丁需要一定堆；见 docs/webmc.md
+    image: "${WEBMC_IMAGE:-ghcr.io/orzmc/orzmc-webmc:0.1.0}"
+    container_name: orzmc-webmc
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ}"
+      # 允许被哪些站点 iframe 嵌入；生产建议收窄
+      WEBMC_FRAME_ANCESTORS: "${WEBMC_FRAME_ANCESTORS:-*}"
+      WEBMC_PUBLIC_BASE_URL: "${WEBMC_PUBLIC_BASE_URL:-}"
+      WEBMC_DEFAULT_VERSION: "${WEBMC_DEFAULT_VERSION:-}"
+      WEBMC_ACCESS_TOKEN: "${WEBMC_ACCESS_TOKEN:-}"
+      JAVA_OPTS: "${WEBMC_JAVA_OPTS:--Xms256m -Xmx512m}"
+    ports:
+      - "${LAN_BIND_ADDR:-0.0.0.0}:${LAN_WEBMC_PORT:-18092}:8300"
+    volumes:
+      - "${DATA_ROOT}/webmc:/data"
 
   easybot:
     # 可选服务：ENABLE_EASYBOT=true 时由 compose_cmd 追加 --profile easybot。

@@ -10,10 +10,11 @@ daemon、EasyBot 统一 IM 网关），再由 MCSManager 创建和管理 **Paper
 |---|---|---|
 | **MCSManager** | Web 面板管理实例：启停 / 控制台 / 文件 | `http://<LAN_HOST_IP>:18090` |
 | **EasyBot** | QQ / Telegram / Discord / 飞书 / 微信网关（插件内网直连） | `http://<LAN_HOST_IP>:18091` |
+| **WebMC** | Web 客户端托管（可选，Eaglercraft；镜像不含客户端） | `http://<LAN_HOST_IP>:18092` |
 | **PaperMC** | 面板创建，可多实例，玩家 `<LAN_HOST_IP>:25565` 直连 | 由 MCSManager 发布 |
 
-只有局域网模式（ADR-027）：面板与 EasyBot 走纯 HTTP、仅限可信内网；对外访问（DDNS + 端口
-映射 / TLS 反代 / VPN）由站点自备。
+只有局域网模式（ADR-027）：面板、EasyBot 与可选的 WebMC 走纯 HTTP、仅限可信内网；
+对外访问（DDNS + 端口映射 / TLS 反代 / VPN）由站点自备。
 
 ## 快速开始
 
@@ -70,6 +71,7 @@ vi <数据目录>/.env                # 改 LAN_HOST_IP、EASYBOT_ADMIN_PASSWORD
 | 文档 | 内容 |
 |---|---|
 | [`docs/usage.md`](docs/usage.md) | **使用手册**：安装、配置、运维、实例、EasyBot、排障、迁移、Windows 要点 |
+| [`docs/webmc.md`](docs/webmc.md) | **Web 客户端托管（可选 webmc）**：启用、放客户端、深链/外嵌、site 接入、GHCR 镜像 |
 | [`docs/security.md`](docs/security.md) | 暴露面与访问控制：三层限源、对外暴露方案、TLS 反代配方 |
 | [`docs/papermc-template.md`](docs/papermc-template.md) | 面板录入 PaperMC 实例的字段参考 |
 | [`docs/eaglercraft.md`](docs/eaglercraft.md) | Eaglercraft Web（浏览器）接入调研：26.3 协议证据、方案对比、推荐架构、兼容矩阵 |

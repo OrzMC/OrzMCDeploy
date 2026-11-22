@@ -72,11 +72,17 @@ cmd_init() {
     ensure_site_override
     warn_legacy_data_plane
     # 前端拓扑（可选，ADR-036）：只建目录，下载/生成放到 up（init 保持离线可用）
-    local topo
+    local topo ew
     topo="$(topology)"
     if [ "$topo" != "java-only" ]; then
         mkdir -p "${DATA_ROOT}/eagler"
         info "前端拓扑=${topo}（Velocity=$(if velocity_enabled; then echo on; else echo off; fi)，Eaglercraft=$(if eagler_enabled; then echo on; else echo off; fi)）：up 时下载运行时并生成配置"
+    fi
+    # Web 客户端托管（可选）：只建数据目录；客户端本体由运维自行下载放置。
+    ew="$(read_env_value ENABLE_WEBMC)"; [ -n "$ew" ] || ew="false"
+    if [ "$ew" = "true" ]; then
+        mkdir -p "${DATA_ROOT}/webmc/versions"
+        info "Web 客户端托管目录: ${DATA_ROOT}/webmc/versions（客户端由运维放置，镜像不含）"
     fi
     info "初始化完成，DATA_ROOT=${DATA_ROOT}"
     print_access_info
