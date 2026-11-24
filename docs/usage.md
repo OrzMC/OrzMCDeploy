@@ -155,7 +155,7 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `ENABLE_EASYBOT` | 可选 | 缺省 `true`；`false` 则不启动 EasyBot |
 | `ENABLE_WEBMC` | 可选 | 缺省 `false`；`true` 则启动 Web 客户端托管（profile `webmc`） |
 | `LAN_WEBMC_PORT` | 可选 | webmc 宿主端口（默认 `18092`） |
-| `WEBMC_IMAGE` | 可选 | webmc 镜像（默认 `ghcr.io/orzmc/orzmc-webmc:0.1.2`；GHCR 包已 public，可直接 pull） |
+| `WEBMC_IMAGE` | 可选 | webmc 镜像（默认 `ghcr.io/orzmc/orzmc-webmc:0.1.3`；GHCR 包已 public，可直接 pull） |
 | `WEBMC_FRAME_ANCESTORS` / `WEBMC_PUBLIC_BASE_URL` / `WEBMC_DEFAULT_VERSION` / `WEBMC_ACCESS_TOKEN` | 可选 | 外嵌 CSP、API 绝对 URL、默认版本、入口令牌；见 [webmc.md](webmc.md) |
 | `LAN_BIND_ADDR` | 可选 | 端口绑定地址（缺省 `0.0.0.0`；`127.0.0.1` 仅本机，ADR-028） |
 | `LAN_CIDR` / `ALLOW_EXTRA_CIDRS` | 可选 | 防火墙放行来源（只需 `firewall` 时关心） |
