@@ -39,7 +39,7 @@ services:
       resources:
         limits:
           memory: "${DAEMON_MEMORY_LIMIT:-512M}"
-    image: githubyumao/mcsmanager-daemon@sha256:f6fd2facb03029a12b86c6c836d37f57b1608c68d8dc8abbc8e1539e5d12fae3
+    image: githubyumao/mcsmanager-daemon@sha256:936023ca9f2ede735faf8be06f5fec01c71bb98228e0105e08786093bddc5472
     container_name: orzmc-mcsmanager-daemon
     restart: unless-stopped
     # 覆盖镜像默认 CMD（原为 --max-old-space-size=8192）才能真正降堆：
@@ -103,7 +103,7 @@ services:
       resources:
         limits:
           memory: "${EASYBOT_MEMORY_LIMIT:-512M}"
-    image: ghcr.io/easyindie/easybot@sha256:00a15c788c88692dee6a82f8aa65bb13513741bdbb4b95b40ec92daacf67037c
+    image: ghcr.io/easyindie/easybot@sha256:6703ff6dd3211fd5165162f4a463f81643f8ca385cc296c026a3ab92054bcd70
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:
