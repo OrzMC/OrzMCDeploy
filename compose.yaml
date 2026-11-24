@@ -89,7 +89,9 @@ services:
       WEBMC_ACCESS_TOKEN: "${WEBMC_ACCESS_TOKEN:-}"
       JAVA_OPTS: "${WEBMC_JAVA_OPTS:--Xms256m -Xmx512m}"
     ports:
-      - "${LAN_BIND_ADDR:-0.0.0.0}:${LAN_WEBMC_PORT:-18092}:8300"
+      # 默认只绑本机：反向代理（Caddy 等）走 compose 内网 orzmc-webmc:8300，
+      # 不需要宿主端口对外；需要局域网直连时显式 WEBMC_BIND_ADDR=0.0.0.0。
+      - "${WEBMC_BIND_ADDR:-127.0.0.1}:${LAN_WEBMC_PORT:-18092}:8300"
     volumes:
       - "${DATA_ROOT}/webmc:/data"
 

@@ -155,6 +155,7 @@ export ORZMC_DATA_ROOT=<数据目录>      # 长期使用（同一台机器多�
 | `ENABLE_EASYBOT` | 可选 | 缺省 `true`；`false` 则不启动 EasyBot |
 | `ENABLE_WEBMC` | 可选 | 缺省 `false`；`true` 则启动 Web 客户端托管（profile `webmc`） |
 | `LAN_WEBMC_PORT` | 可选 | webmc 宿主端口（默认 `18092`） |
+| `WEBMC_BIND_ADDR` | 可选 | webmc 宿主端口绑定地址（默认 `127.0.0.1`，只给反代/VPN；局域网直连需设 `0.0.0.0` 并自行限源） |
 | `WEBMC_IMAGE` | 可选 | webmc 镜像（默认 `ghcr.io/orzmc/orzmc-webmc:0.1.3`；GHCR 包已 public，可直接 pull） |
 | `WEBMC_FRAME_ANCESTORS` / `WEBMC_PUBLIC_BASE_URL` / `WEBMC_DEFAULT_VERSION` / `WEBMC_ACCESS_TOKEN` | 可选 | 外嵌 CSP、API 绝对 URL、默认版本、入口令牌；见 [webmc.md](webmc.md) |
 | `LAN_BIND_ADDR` | 可选 | 端口绑定地址（缺省 `0.0.0.0`；`127.0.0.1` 仅本机，ADR-028） |
@@ -859,7 +860,7 @@ $DATA_ROOT/                        # 全部配置与数据（随备份整体迁�
 | `mcsmanager-web` | `orzmc-mcsmanager-web` | 常驻，宿主 `LAN_MCS_WEB_PORT` | `githubyumao/mcsmanager-web` |
 | `mcsmanager-daemon` | `orzmc-mcsmanager-daemon` | 常驻 | `githubyumao/mcsmanager-daemon` |
 | `easybot` | `orzmc-easybot` | 可选（`ENABLE_EASYBOT`），宿主 `LAN_EASYBOT_PORT` | `ghcr.io/easyindie/easybot` |
-| `webmc` | `orzmc-webmc` | 可选（`ENABLE_WEBMC`），宿主 `LAN_WEBMC_PORT`；镜像不含客户端 | `ghcr.io/orzmc/orzmc-webmc` |
+| `webmc` | `orzmc-webmc` | 可选（`ENABLE_WEBMC`），宿主 `WEBMC_BIND_ADDR`:`LAN_WEBMC_PORT`（默认只绑 `127.0.0.1`，对外走反代）；镜像不含客户端 | `ghcr.io/orzmc/orzmc-webmc` |
 
 镜像版本以 `compose.yaml` 中的 `image:xxx@sha256:...` 为准；刷新用
 `update-image-digests.sh`（三个服务的镜像映射只在该脚本一处维护）。

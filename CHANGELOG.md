@@ -11,10 +11,13 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
-## [Unreleased]
+## [0.7.3] - 2026-11-24
 
 ### Changed
 
+- **webmc 宿主端口默认只绑本机**（`WEBMC_BIND_ADDR=127.0.0.1`）：对外的 webmc 入口就是反代
+  （Caddy 走 compose 内网 `orzmc-webmc:8300`），宿主 `18092` 不再对外暴露；需要局域网直连时
+  显式设 `WEBMC_BIND_ADDR=0.0.0.0`。升级时请检查旧的 `.env` 是否需要补这个变量。
 - **webmc 默认镜像 0.1.3**：修复客户端**开着输入法（IME）就完全打不出字**的问题——
   `/play/raw` 注入的键盘兜底脚本把 IME 事件按物理键位还原（开中文输入法也能按 `/` 开聊天框、
   输入 `/login`）；播放壳切全屏/刷新后把焦点还给客户端；`meta.json` 新增 `keyboardShim`（默认开）。
