@@ -272,7 +272,7 @@ services:
 # 1. 拉取并刷新 digest（默认 3 个服务：mcsmanager-web / daemon / easybot）
 ./update-image-digests.sh
 #    指定服务：./update-image-digests.sh easybot
-#    easybot 用**发布 tag**（非 latest）：EASYBOT_TAG=0.0.43 ./update-image-digests.sh easybot
+#    easybot 用**发布 tag**（非 latest）：EASYBOT_TAG=0.0.46 ./update-image-digests.sh easybot
 #    （上游 `latest` 跟踪 main 分支，不是发布构建）
 
 # 2. 审查改动并提交（回到仓库根目录）

@@ -11,6 +11,43 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.7.4] - 2026-11-25
+
+### Changed
+
+- **`mcsmanager-daemon` 10.22.0 → 10.22.1**（digest 锁定）：上游修复**模组管理器**的 BUG、
+  应用市场模板新增「通用控制台程序」选项；`daemon` 侧无需随之升级（仍是 4.19.X）。
+  面板 `mcsmanager-web` 本就是 10.22.1，本次两侧版本对齐。镜像默认 `CMD`
+  （`node app.js --max-old-space-size=8192`）**未变**，本仓库的降堆覆盖
+  （`DAEMON_NODE_HEAP_MB`，缺省 384）继续有效，无需改 `command`。
+- **easybot 0.0.44 → 0.0.46**（`ghcr.io/easyindie/easybot`）：
+  - **`TZ` 从此真正生效**（0.0.45）：发布镜像（Alpine 3.22）补装 `tzdata`。此前容器内
+    只有 UTC，`.env` 里的 `TZ=Asia/Shanghai` 形同虚设——**这是升级后最可见的行为变化**。
+  - **文件日志按大小轮转**（0.0.45）：`logging.output: "file"` 从「按天、无上限」改成
+    「按大小」，缺省 `50 MB × 6`，长期运行不再有写满磁盘的风险。
+  - **高频轮询降噪**（0.0.45）：`/api/v1/live`、`/health`、`/metrics` 等不再以 info 记
+    `request completed`（管理后台各页轮询 + 容器 healthcheck 是主要日志来源）。
+  - **适配器公共骨架 + 媒体下载统一**（0.0.46）：4 份媒体下载实现合并为一份，绑定
+    **SSRF 校验 + 流式 25 MB 上限 + 60 s 总超时**；5 个适配器的缓存统一为
+    `BoundedCache`（容量/TTL + 按插入顺序淘汰，不再「超限即全清」）；`plugin enable`
+    改为**立即生效**（与 `disable` 对称）。
+- **`update-image-digests.sh` 可独立运行**：脚本原先直接调用 `dkr`（只在
+  `lib/common.sh` 里定义的包装），未 source 该库时会在 `pull` 阶段报
+  `dkr: command not found`；现补了「无 `dkr` 则用 `docker`」的回退，默认
+  `EASYBOT_TAG` 同步为 `0.0.46`。
+
+### 升级须知（需要手动处理）
+
+1. **重建容器**：digest 变了，`up` 不够，必须
+   `./orzmc.sh -d <数据目录> stop && ./orzmc.sh -d <数据目录> up`。
+2. **EasyBot 日志时间戳会从 `…Z` 变成带本地偏移**（如 `2026-11-25T00:02:16+08:00`）。
+   若你有脚本/告警按严格的 `Z` 结尾解析，在 `.env` 里设 `EASYBOT_LOG_TIMEZONE=utc`
+   （或显式保留旧行为）；不设则跟随 `TZ`。
+3. **EasyBot 媒体下载默认拒绝内网地址**（0.0.46 的 SSRF 防护）：若你的自建媒体服务器
+   确实在内网（如 `http://10.0.0.5/…`），需要给容器加 `EASYBOT_ALLOW_PRIVATE_MEDIA_URLS=1`，
+   否则该适配器会返回 `InvalidRequest`。只用 IM 平台官方 CDN 的话无需任何改动。
+4. 数据与备份无需迁移：`$DATA_ROOT` 不变，DB 迁移（v1–v4）在启动时自动完成。
+
 ## [0.7.3] - 2026-11-24
 
 ### Changed
