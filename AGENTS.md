@@ -74,7 +74,7 @@ compose.yaml            平台层编排（name: orzmc，镜像 digest 锁定，�
 templates/              首次 init 的配置模板
   eagler/               反代片段（jar/插件与版本全由 MCSM 面板管，ADR-041/042；velocity.toml 在面板实例目录）
   env                   唯一 .env 模板（LAN_HOST_IP + LAN_*_PORT + EasyBot 凭据）
-  gateway.local.yaml    EasyBot 覆盖配置模板（禁用微信适配器，init 生成到 DATA_ROOT）
+  gateway.local.yaml    EasyBot 覆盖配置模板（只占位不写 adapters；init 生成到 DATA_ROOT）
   compose.site.yaml     站点增量 override 模板（init 生成到 DATA_ROOT/compose.site.yaml，
                          升级/换包不丢；compose_cmd 检测到即 -f 追加，ADR-022）
 lib/common.sh           共享函数库（DATA_ROOT 解析、compose 封装、目录引导、平台层 detect_os/win_path/win_daemon_*）

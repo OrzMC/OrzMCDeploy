@@ -11,6 +11,29 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.7.5] - 2026-11-25
+
+### Fixed
+
+- **不再用 `enabled: false` 禁用微信适配器（EasyBot ≥0.0.46 回归）**：上游 0.0.46 的
+  `start_all` 把**全部**平台配置（含 `enabled: false`）存进内存，健康监控按「有配置无实例」
+  就 `reconnect_adapter` → 被显式**禁用**的适配器反而每 30 s 被拉起来（微信空转刷二维码，
+  5 分钟超时后带退避重试 20 次）。本仓库旧版 `init` 生成的
+  `$DATA_ROOT/easybot/data/gateway.local.yaml` 里就是 `adapters.wechat.enabled: false`，
+  正好触发。
+  - `templates/gateway.local.yaml` 改为**只占位、不写任何 `adapters` 覆盖**（微信在
+    EasyBot 里缺省不启用，需显式 `enabled: true` 才开），并在文件头写清楚原因。
+  - 新增 `warn_disabled_adapter_override`：`init` / `up` / `validate` 检测到已有覆盖文件里
+    有 `enabled: false` 时直接告警并给出处理命令（`ensure_*` 绝不覆盖用户文件，所以只提醒）。
+  - 文档 §7.4 拆成「不需要就不用管」与「要接入微信」两段，附错误日志特征。
+
+### 升级须知（需要手动处理）
+
+- **已存在 `$DATA_ROOT/easybot/data/gateway.local.yaml` 且内含 `enabled: false` 的机器**：
+  删掉该条（或整个文件）后 `docker restart orzmc-easybot`；否则 EasyBot ≥0.0.46 上微信适配器
+  会反复尝试扫码登录（不影响 QQ/飞书）。`./orzmc.sh validate` 会直接提示。
+- 已经是 EasyBot **<0.0.46** 的机器不受影响，无需动；新装机器直接拿到新模板。
+
 ## [0.7.4] - 2026-11-25
 
 ### Changed

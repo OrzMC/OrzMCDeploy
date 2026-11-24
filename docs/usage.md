@@ -696,16 +696,24 @@ platforms:
 - 变量值写 `$DATA_ROOT/.env`，再在 `$DATA_ROOT/compose.site.yaml` 的 `easybot.environment`
   引用（**不要改包内 `compose.yaml`**，升级换包会丢，见 §4.4）：`TELEGRAM_BOT_TOKEN`、
   `DISCORD_BOT_TOKEN`、`FEISHU_APP_ID` + `FEISHU_APP_SECRET`。启用即加一行，勿注入空串。
-- 微信为扫码登录、无凭据即**自动启用**（会空转刷码）。不需要时 `init` 已生成的
-  `$DATA_ROOT/easybot/data/gateway.local.yaml` 里已显式关闭；要接入微信就删掉该文件：
+- 微信为扫码登录，**不需要就不用管**：微信在 EasyBot 里缺省不启用（需显式 `enabled: true`）。
+  ⚠️ **不要**用 `enabled: false` 去禁用：EasyBot ≥0.0.46 的 `start_all` 会把全部平台配置
+  （含 `enabled: false`）存进内存，健康监控按「有配置无实例」直接重连 → 微信适配器被
+  反复拉起（空转刷码，日志 `Reconnecting adapter 'wechat'...`）。历史版本 `init` 生成的
+  `$DATA_ROOT/easybot/data/gateway.local.yaml` 里就有这条覆盖，请删掉该条或整个文件后
+  `docker restart orzmc-easybot`（`./orzmc.sh validate` 会提示）。日志应为
+  `Skipping adapter 'wechat' — no credentials; requires explicit enabled: true`。
+- 要**接入微信**：在 `$DATA_ROOT/easybot/data/gateway.local.yaml` 写显式开启，再重启容器：
 
   ```yaml
   adapters:
     wechat:
-      enabled: false
+      enabled: true
   ```
 
-  改后 `docker restart orzmc-easybot`，日志应出现 `Skipping adapter 'wechat'`。
+  ```bash
+  docker restart orzmc-easybot
+  ```
 
 ### 7.5 运维注意
 
