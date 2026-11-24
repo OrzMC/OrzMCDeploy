@@ -15,6 +15,8 @@
 ENABLE_WEBMC=true
 LAN_WEBMC_PORT=18092
 WEBMC_IMAGE=ghcr.io/orzmc/orzmc-webmc:0.1.3
+# 宿主端口绑定地址：默认 127.0.0.1（只给反代/VPN；局域网直连改 0.0.0.0）
+WEBMC_BIND_ADDR=127.0.0.1
 # 可选：限制可嵌入的站点
 # WEBMC_FRAME_ANCESTORS=https://orzmc.jokerhub.cn
 # 可选：对外域名（只影响 API 返回的绝对 URL）
@@ -114,6 +116,15 @@ web_client_fallback_url = "https://webclient.example.com/play?version={version}&
 ```
 
 `site` 会自动追加 `joinServer`/`launch=1`；webmc 读 `joinServer`，忽略 `launch`。
+
+## 5.1 暴露面（默认只绑本机）
+
+- `WEBMC_BIND_ADDR` 缺省 **`127.0.0.1`**：宿主端口只给**同机反代/VPN**用，
+  公网与局域网都直连不到 `18092`。对外的入口只有反代（Caddy 站点 `webmc.<域名>`），
+  它走 compose 内网 `orzmc-webmc:8300`，**不依赖**宿主端口发布。
+- 需要从局域网直接开 `http://<LAN_HOST_IP>:<LAN_WEBMC_PORT>`（排障/内网分享）时，
+  显式设 `WEBMC_BIND_ADDR=0.0.0.0`，并配合防火墙限源；**不要**在公网映射这个端口。
+- 反代侧务必保留长连接参数（`flush_interval -1`），否则 WSS 会被缓冲。
 
 ## 6. 镜像与升级
 

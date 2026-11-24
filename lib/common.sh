@@ -934,7 +934,7 @@ warn_legacy_data_plane() {
 # ---- 访问地址 -----------------------------------------------------------
 
 print_access_info() {
-    local lan_ip bind cidr eb ew wport host wp jp
+    local lan_ip bind cidr eb ew wport wbind host wp jp
     lan_ip="$(read_env_value LAN_HOST_IP)"
     bind="$(read_env_value LAN_BIND_ADDR)"; [ -n "$bind" ] || bind="0.0.0.0"
     cidr="$(read_env_value LAN_CIDR)";     [ -n "$cidr" ] || cidr="（未设置）"
@@ -949,7 +949,12 @@ print_access_info() {
     fi
     if [ "$ew" = "true" ]; then
         wport="$(read_env_value LAN_WEBMC_PORT)"; [ -n "$wport" ] || wport="18092"
-        echo "  Web 客户端托管: http://${lan_ip}:${wport}"
+        wbind="$(read_env_value WEBMC_BIND_ADDR)"; [ -n "$wbind" ] || wbind="127.0.0.1"
+        if [ "$wbind" = "127.0.0.1" ]; then
+            echo "  Web 客户端托管: 仅本机 http://127.0.0.1:${wport}（对外走反代 → orzmc-webmc:8300）"
+        else
+            echo "  Web 客户端托管: http://${lan_ip}:${wport}（WEBMC_BIND_ADDR=${wbind}）"
+        fi
     else
         echo "  Web 客户端托管: 已禁用（ENABLE_WEBMC=false）"
     fi
