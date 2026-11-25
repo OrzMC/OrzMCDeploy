@@ -11,6 +11,30 @@
 > 免克隆安装（`install.sh`）默认拉取**最新 Release**；因此每个 Release 的 tarball 决定
 > 新装用户拿到的运行时版本。详见 [ADR-018](docs/architecture.md)。
 
+## [0.7.6] - 2026-11-25
+
+### Changed
+
+- **easybot 0.0.46 → 0.0.47**（`ghcr.io/easyindie/easybot`，digest 锁定）：上游修了 0.7.5 里
+  我们只能绕开的那条回归（[EasyIndie/EasyBot#226](https://github.com/EasyIndie/EasyBot/issues/226)）——
+  `AdapterManager` 拆成 `declared_configs`（配置里声明的平台，含已禁用，仅供 `plugin enable`）
+  与 `configs`（**真正启动过**的平台，健康监控/重连的唯一来源），于是「显式 `enabled: false`」
+  与「配置里列了但凭据未设」两类平台都不会再被健康监控拉起（新增两个回归测试）。
+  同时上游把个人微信的 opt-in 三态语义写进了文档。
+
+### Removed
+
+- **`warn_disabled_adapter_override` 告警退役**：0.7.5 加的 `init`/`up`/`validate` 告警只在
+  EasyBot 0.0.46 上有意义，现已锁定修复版 0.0.47，告警会成为误报（`enabled: false` 现已正常）。
+  模板仍是「只占位不写 adapters」，老文件里的 `enabled: false` 留着或删掉都可以。
+
+### 升级须知
+
+1. **重建容器**：digest 变了，`./orzmc.sh -d <数据目录> stop && up`（只重建 easybot）。
+2. **0.0.46 上做过的规避不用改回**：当时把 `$DATA_ROOT/easybot/data/gateway.local.yaml`
+   删掉/改名也能继续用（微信缺省不启用）；想恢复显式关闭的写法也行，0.0.47 已支持。
+3. 数据无需迁移（SQLite schema 不变），`$DATA_ROOT` 不动。
+
 ## [0.7.5] - 2026-11-25
 
 ### Fixed

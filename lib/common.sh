@@ -564,8 +564,7 @@ ensure_env_file() {
 
 # EasyBot 本地覆盖（gateway.local.yaml）：由模板生成，绝不覆盖已有文件。
 # EasyBot 从 EASYBOT_HOME（容器 /var/lib/easybot = $DATA_ROOT/easybot/data）解析。
-# 模板本身**不写** adapters 覆盖：缺省即不启用微信；写 `enabled: false` 会在
-# EasyBot ≥0.0.46 上被健康监控反复拉起（见 warn_disabled_adapter_override）。
+# 模板刻意**不写** adapters 覆盖：微信缺省不启用（opt-in），要接入才写 `enabled: true`。
 ensure_easybot_local_config() {
     local target="$DATA_ROOT/easybot/data/gateway.local.yaml"
     if [ -f "$target" ]; then
@@ -575,19 +574,6 @@ ensure_easybot_local_config() {
     mkdir -p "$(dirname "$target")"
     cp "$TEMPLATES_DIR/gateway.local.yaml" "$target"
     info "已生成 gateway.local.yaml: ${target}"
-}
-
-# EasyBot ≥0.0.46 上游回归：`start_all` 把**全部**平台配置（含 enabled: false）存进内存，
-# 健康监控按「有配置无实例」就 reconnect → 显式禁用的适配器（微信）被反复拉起（空转刷码）。
-# 老版本 init 生成的覆盖文件里正是 `adapters.wechat.enabled: false`，需要提示用户清掉。
-warn_disabled_adapter_override() {
-    local target="$DATA_ROOT/easybot/data/gateway.local.yaml"
-    [ -f "$target" ] || return 0
-    grep -qE '^[[:space:]]*enabled:[[:space:]]*false[[:space:]]*$' "$target" || return 0
-    warn "${target} 里有 enabled: false —— EasyBot ≥0.0.46 会把显式禁用的适配器重新拉起"
-    warn "  处理：删掉该条覆盖（或整个文件）后 docker restart orzmc-easybot"
-    warn "  原因：上游 start_all 保存全部平台配置后，健康监控按「有配置无实例」重连；"
-    warn "        不写 adapters 覆盖时微信本就缺省不启用（要接入才写 enabled: true）"
 }
 
 # 站点增量 override 引导（issue #11）：生成 $DATA_ROOT/compose.site.yaml（绝不覆盖
