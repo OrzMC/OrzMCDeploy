@@ -69,7 +69,6 @@ cmd_init() {
     ensure_env_file
     ensure_data_dirs
     ensure_easybot_local_config
-    warn_disabled_adapter_override
     ensure_site_override
     warn_legacy_data_plane
     # 前端拓扑（可选，ADR-036）：只建目录，下载/生成放到 up（init 保持离线可用）
@@ -129,7 +128,6 @@ cmd_validate() {
     assert_data_root_matches
     validate_required_env
     validate_topology
-    warn_disabled_adapter_override
     eagler_runtime_check
     compose_cmd config -q
     info "校验通过: env 必需变量齐全，compose config 解析正常"

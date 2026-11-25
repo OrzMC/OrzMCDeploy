@@ -272,7 +272,7 @@ services:
 # 1. 拉取并刷新 digest（默认 3 个服务：mcsmanager-web / daemon / easybot）
 ./update-image-digests.sh
 #    指定服务：./update-image-digests.sh easybot
-#    easybot 用**发布 tag**（非 latest）：EASYBOT_TAG=0.0.46 ./update-image-digests.sh easybot
+#    easybot 用**发布 tag**（非 latest）：EASYBOT_TAG=0.0.47 ./update-image-digests.sh easybot
 #    （上游 `latest` 跟踪 main 分支，不是发布构建）
 
 # 2. 审查改动并提交（回到仓库根目录）
@@ -696,13 +696,10 @@ platforms:
 - 变量值写 `$DATA_ROOT/.env`，再在 `$DATA_ROOT/compose.site.yaml` 的 `easybot.environment`
   引用（**不要改包内 `compose.yaml`**，升级换包会丢，见 §4.4）：`TELEGRAM_BOT_TOKEN`、
   `DISCORD_BOT_TOKEN`、`FEISHU_APP_ID` + `FEISHU_APP_SECRET`。启用即加一行，勿注入空串。
-- 微信为扫码登录，**不需要就不用管**：微信在 EasyBot 里缺省不启用（需显式 `enabled: true`）。
-  ⚠️ **不要**用 `enabled: false` 去禁用：EasyBot ≥0.0.46 的 `start_all` 会把全部平台配置
-  （含 `enabled: false`）存进内存，健康监控按「有配置无实例」直接重连 → 微信适配器被
-  反复拉起（空转刷码，日志 `Reconnecting adapter 'wechat'...`）。历史版本 `init` 生成的
-  `$DATA_ROOT/easybot/data/gateway.local.yaml` 里就有这条覆盖，请删掉该条或整个文件后
-  `docker restart orzmc-easybot`（`./orzmc.sh validate` 会提示）。日志应为
-  `Skipping adapter 'wechat' — no credentials; requires explicit enabled: true`。
+- 微信为扫码登录，**opt-in**：缺省不启用（模板不写 `adapters` 覆盖），且 `enabled: false`
+  也能正常关闭（EasyBot 0.0.47 修了 0.0.46 上「显式禁用反被健康监控拉起」的回归）。
+  不想要就不用写；旧版（≤0.0.45）`init` 生成的 `gateway.local.yaml` 里那条
+  `enabled: false` 可以留着，也可以删。
 - 要**接入微信**：在 `$DATA_ROOT/easybot/data/gateway.local.yaml` 写显式开启，再重启容器：
 
   ```yaml

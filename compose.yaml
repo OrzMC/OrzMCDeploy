@@ -103,7 +103,7 @@ services:
       resources:
         limits:
           memory: "${EASYBOT_MEMORY_LIMIT:-512M}"
-    image: ghcr.io/easyindie/easybot@sha256:6703ff6dd3211fd5165162f4a463f81643f8ca385cc296c026a3ab92054bcd70
+    image: ghcr.io/easyindie/easybot@sha256:1369a5f028bb790f646b9afa7021aeb1c0451903fbd5b345f379fc1eb0e5b164
     container_name: orzmc-easybot
     restart: unless-stopped
     environment:

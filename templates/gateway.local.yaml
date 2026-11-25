@@ -4,14 +4,12 @@
 # init 生成到 $DATA_ROOT/easybot/data/（与 compose.site.yaml 一样绝不覆盖已有文件），
 # EasyBot 从 EASYBOT_HOME 读取并作为 gateway.yaml 的覆盖层合并（≥0.0.35，仅按显式键合并）。
 #
-# 刻意**不写**任何 adapters 覆盖（本文件只是占位 + 说明这个挂载点）：
-#   - 微信（个人微信，扫码登录）在 EasyBot 里「无需凭据」，但缺省需要显式
-#     `enabled: true` 才启用；不写就自然不启用。
-#   - EasyBot ≥0.0.46 起，`start_all` 会把**全部平台配置（含 enabled: false）**存进内存，
-#     健康监控按「有配置无实例」就重连 → 写了 `enabled: false` 反而会被反复拉起
-#     （日志 `Reconnecting adapter 'wechat'...`）。所以**不要**用 enabled: false 禁用它。
+# 模板刻意**不写**任何 adapters 覆盖（本文件只是占位 + 说明这个挂载点）：
+#   - 微信（个人微信，扫码登录）在 EasyBot 里是 opt-in：不写就不启用，要接入才显式开启。
+#   - 写 `enabled: false` 取消某个适配器也是支持的（EasyBot 0.0.47 起；0.0.46 有个
+#     已修的回归会把显式禁用的适配器重新拉起，仓库锁定的 digest 已是 0.0.47）。
 #
-# 要接入微信：解除下面注释（显式开启）。
+# 要接入微信：解除下面注释（显式开启），然后 docker restart orzmc-easybot。
 # adapters:
 #   wechat:
 #     enabled: true
